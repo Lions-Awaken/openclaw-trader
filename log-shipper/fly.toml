@@ -1,0 +1,13 @@
+app = 'tu-log-shipper'
+primary_region = 'iad'
+
+[build]
+  image = 'ghcr.io/superfly/fly-log-shipper:latest'
+
+[env]
+  # Subscribe to all Fly app logs in the org
+  SUBJECT = "logs.>"
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'
