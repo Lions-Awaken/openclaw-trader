@@ -2,20 +2,24 @@
 """
 OpenClaw Trader Dashboard — Local web UI for monitoring the trading agent.
 Serves the dashboard HTML and proxies data from Supabase + Alpaca.
-Authentication via DASHBOARD_KEY cookie or ?key= query param on first visit.
+
+Authentication: password login form with session tokens, rate limiting,
+and CSRF protection. No query-param key exposure.
 """
 
 import hashlib
+import hmac
 import json
 import os
 import secrets
+import time
 from pathlib import Path
 
 import httpx
-from fastapi import Cookie, FastAPI, HTTPException, Request, Response
+from fastapi import Cookie, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-app = FastAPI(title="OpenClaw Trader Dashboard")
+app = FastAPI(title="OpenClaw Trader Dashboard", docs_url=None, redoc_url=None)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
@@ -23,26 +27,96 @@ ALPACA_KEY = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
 ALPACA_BASE = "https://paper-api.alpaca.markets"
 
-# Dashboard auth — set DASHBOARD_KEY env var, or a random one is generated on startup
-DASHBOARD_KEY = os.environ.get("DASHBOARD_KEY", "")
-if not DASHBOARD_KEY:
-    DASHBOARD_KEY = secrets.token_urlsafe(24)
-    print(f"[Dashboard] Generated auth key: {DASHBOARD_KEY}")
-    print(f"[Dashboard] Access at: http://localhost:8090/?key={DASHBOARD_KEY}")
+# Auth config
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_KEY", "")
+if not DASHBOARD_PASSWORD:
+    DASHBOARD_PASSWORD = secrets.token_urlsafe(24)
+    print(f"[Dashboard] Generated password: {DASHBOARD_PASSWORD}")
 
-DASHBOARD_KEY_HASH = hashlib.sha256(DASHBOARD_KEY.encode()).hexdigest()
+PASSWORD_HASH = hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
+
+# Session store: {token_hash: expiry_timestamp}
+_sessions: dict[str, float] = {}
+SESSION_MAX_AGE = 86400 * 7  # 7 days
+
+# Rate limiting: {ip: [timestamps]}
+_login_attempts: dict[str, list[float]] = {}
+MAX_ATTEMPTS = 5
+ATTEMPT_WINDOW = 300  # 5 minutes
+
+# CSRF tokens: {token_hash: expiry}
+_csrf_tokens: dict[str, float] = {}
 
 
-def verify_auth(request: Request, dashboard_auth: str | None = Cookie(None)):
-    """Check cookie or query param for dashboard key."""
-    # Check cookie first
-    if dashboard_auth and hashlib.sha256(dashboard_auth.encode()).hexdigest() == DASHBOARD_KEY_HASH:
-        return True
-    # Check query param
-    key = request.query_params.get("key", "")
-    if key and hashlib.sha256(key.encode()).hexdigest() == DASHBOARD_KEY_HASH:
-        return True
-    return False
+def _check_rate_limit(ip: str) -> bool:
+    """Returns True if rate limited."""
+    now = time.time()
+    attempts = _login_attempts.get(ip, [])
+    attempts = [t for t in attempts if now - t < ATTEMPT_WINDOW]
+    _login_attempts[ip] = attempts
+    return len(attempts) >= MAX_ATTEMPTS
+
+
+def _record_attempt(ip: str):
+    _login_attempts.setdefault(ip, []).append(time.time())
+
+
+def _create_session() -> str:
+    """Create a session token, store its hash, return the raw token."""
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    _sessions[token_hash] = time.time() + SESSION_MAX_AGE
+    # Prune expired sessions
+    now = time.time()
+    expired = [k for k, v in _sessions.items() if v < now]
+    for k in expired:
+        del _sessions[k]
+    return token
+
+
+def _verify_session(token: str | None) -> bool:
+    if not token:
+        return False
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expiry = _sessions.get(token_hash)
+    if not expiry:
+        return False
+    if time.time() > expiry:
+        del _sessions[token_hash]
+        return False
+    return True
+
+
+def _create_csrf() -> str:
+    """Create a CSRF token."""
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    _csrf_tokens[token_hash] = time.time() + 600  # 10 min expiry
+    # Prune
+    now = time.time()
+    expired = [k for k, v in _csrf_tokens.items() if v < now]
+    for k in expired:
+        del _csrf_tokens[k]
+    return token
+
+
+def _verify_csrf(token: str | None) -> bool:
+    if not token:
+        return False
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expiry = _csrf_tokens.pop(token_hash, None)  # One-time use
+    if not expiry:
+        return False
+    return time.time() <= expiry
+
+
+def _is_authed(request: Request, session: str | None) -> bool:
+    return _verify_session(session)
+
+
+def _require_auth(request: Request, session: str | None):
+    if not _is_authed(request, session):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def sb_headers():
@@ -52,35 +126,109 @@ def sb_headers():
     }
 
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request, response: Response, dashboard_auth: str | None = Cookie(None)):
-    key = request.query_params.get("key", "")
-    # If key in query param, set cookie and redirect to clean URL
-    if key and hashlib.sha256(key.encode()).hexdigest() == DASHBOARD_KEY_HASH:
-        resp = RedirectResponse("/", status_code=302)
-        resp.set_cookie("dashboard_auth", key, httponly=True, samesite="strict", max_age=86400 * 30)
-        return resp
-    if not verify_auth(request, dashboard_auth):
+# ============================================================================
+# Auth Routes
+# ============================================================================
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, oc_session: str | None = Cookie(None)):
+    # Already authenticated? Redirect to dashboard
+    if _is_authed(request, oc_session):
+        return RedirectResponse("/", status_code=302)
+    csrf = _create_csrf()
+    return FileResponse(
+        Path(__file__).parent / "login.html",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+
+@app.post("/login")
+async def login_submit(
+    request: Request,
+    password: str = Form(...),
+    csrf_token: str = Form(""),
+):
+    ip = request.client.host if request.client else "unknown"
+
+    # Rate limit check
+    if _check_rate_limit(ip):
         return HTMLResponse(
-            "<html><body style='background:#0a0a0f;color:#6b6b80;font-family:sans-serif;"
-            "display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
-            "<div style='text-align:center'>"
-            "<h1 style='color:#22d3ee'>OpenClaw Trader</h1>"
-            "<p>Access key required. Append <code>?key=YOUR_KEY</code> to the URL.</p>"
-            "</div></body></html>",
+            _login_error_page("Too many attempts. Wait 5 minutes.", _create_csrf()),
+            status_code=429,
+        )
+
+    # CSRF check
+    if not _verify_csrf(csrf_token):
+        return HTMLResponse(
+            _login_error_page("Session expired. Please try again.", _create_csrf()),
+            status_code=403,
+        )
+
+    # Password check (constant-time comparison)
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    if not hmac.compare_digest(password_hash, PASSWORD_HASH):
+        _record_attempt(ip)
+        remaining = MAX_ATTEMPTS - len(_login_attempts.get(ip, []))
+        return HTMLResponse(
+            _login_error_page(
+                f"Invalid password. {remaining} attempts remaining.",
+                _create_csrf(),
+            ),
             status_code=401,
         )
+
+    # Success — create session
+    token = _create_session()
+    resp = RedirectResponse("/", status_code=302)
+    resp.set_cookie(
+        "oc_session",
+        token,
+        httponly=True,
+        samesite="strict",
+        secure=True,
+        max_age=SESSION_MAX_AGE,
+    )
+    return resp
+
+
+@app.get("/logout")
+async def logout(oc_session: str | None = Cookie(None)):
+    if oc_session:
+        token_hash = hashlib.sha256(oc_session.encode()).hexdigest()
+        _sessions.pop(token_hash, None)
+    resp = RedirectResponse("/login", status_code=302)
+    resp.delete_cookie("oc_session")
+    return resp
+
+
+def _login_error_page(error: str, csrf: str) -> str:
+    """Return the login page HTML with an error message injected."""
+    html_path = Path(__file__).parent / "login.html"
+    html = html_path.read_text()
+    # Inject error and CSRF token
+    html = html.replace("<!-- ERROR_PLACEHOLDER -->", f'<div class="error">{error}</div>')
+    html = html.replace("CSRF_TOKEN_PLACEHOLDER", csrf)
+    return html
+
+
+# ============================================================================
+# Dashboard Route
+# ============================================================================
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request, oc_session: str | None = Cookie(None)):
+    if not _is_authed(request, oc_session):
+        return RedirectResponse("/login", status_code=302)
     return FileResponse(Path(__file__).parent / "index.html")
 
 
-def require_auth(request: Request, dashboard_auth: str | None):
-    if not verify_auth(request, dashboard_auth):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
+# ============================================================================
+# API Routes (all require auth)
+# ============================================================================
 
 @app.get("/api/account")
-async def get_account(request: Request, dashboard_auth: str | None = Cookie(None)):
-    require_auth(request, dashboard_auth)
+async def get_account(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{ALPACA_BASE}/v2/account",
@@ -104,8 +252,8 @@ async def get_account(request: Request, dashboard_auth: str | None = Cookie(None
 
 
 @app.get("/api/positions")
-async def get_positions(request: Request, dashboard_auth: str | None = Cookie(None)):
-    require_auth(request, dashboard_auth)
+async def get_positions(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{ALPACA_BASE}/v2/positions",
@@ -132,8 +280,8 @@ async def get_positions(request: Request, dashboard_auth: str | None = Cookie(No
 
 
 @app.get("/api/trades")
-async def get_trades(request: Request, dashboard_auth: str | None = Cookie(None)):
-    require_auth(request, dashboard_auth)
+async def get_trades(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
     async with httpx.AsyncClient() as client:
@@ -152,8 +300,8 @@ async def get_trades(request: Request, dashboard_auth: str | None = Cookie(None)
 
 
 @app.get("/api/performance")
-async def get_performance(request: Request, dashboard_auth: str | None = Cookie(None)):
-    require_auth(request, dashboard_auth)
+async def get_performance(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
     async with httpx.AsyncClient() as client:
@@ -168,8 +316,8 @@ async def get_performance(request: Request, dashboard_auth: str | None = Cookie(
 
 
 @app.get("/api/regime")
-async def get_regime(request: Request, dashboard_auth: str | None = Cookie(None)):
-    require_auth(request, dashboard_auth)
+async def get_regime(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
     regime_file = Path.home() / ".openclaw/workspace/memory/regime-current.json"
     if regime_file.exists():
         return json.loads(regime_file.read_text())
@@ -177,8 +325,8 @@ async def get_regime(request: Request, dashboard_auth: str | None = Cookie(None)
 
 
 @app.get("/api/regime-history")
-async def get_regime_history(request: Request, dashboard_auth: str | None = Cookie(None)):
-    require_auth(request, dashboard_auth)
+async def get_regime_history(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
     async with httpx.AsyncClient() as client:

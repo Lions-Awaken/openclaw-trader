@@ -47,6 +47,25 @@
     font-size: 0.95rem;
     margin-top: 8px;
   }
+  .logout-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    padding: 6px 16px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--dim);
+    background: transparent;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+  .logout-btn:hover { color: var(--red); border-color: var(--red); }
+
+  .header { position: relative; }
+
   .paper-badge {
     display: inline-block;
     margin-top: 12px;
@@ -293,6 +312,7 @@
 <div class="container">
 
   <div class="header">
+    <a href="/logout" class="logout-btn">Sign Out</a>
     <h1>OpenClaw Trader</h1>
     <div class="subtitle">Autonomous Swing Trading Agent on Jetson Orin Nano</div>
     <div class="paper-badge" id="mode-badge">Paper Trading</div>
