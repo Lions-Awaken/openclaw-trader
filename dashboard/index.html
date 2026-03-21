@@ -358,6 +358,7 @@
     <button onclick="showSection('trades')">Trade Log</button>
     <button onclick="showSection('positions')">Positions</button>
     <button onclick="showSection('predictions')">Predictions</button>
+    <button onclick="showSection('system')">System</button>
     <button onclick="showSection('about')">How It Works</button>
   </div>
 
@@ -423,6 +424,75 @@
     <div class="card">
       <h2>Prediction History</h2>
       <div id="prediction-log" class="loading">Loading predictions...</div>
+    </div>
+  </div>
+
+  <!-- SYSTEM -->
+  <div id="section-system" class="section">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">Jetson Orin Nano</h2>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="sys-dot" style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite"></span>
+          <span id="sys-label" style="font-size:0.75rem;color:var(--dim)">Updating...</span>
+        </div>
+      </div>
+
+      <div class="stats-grid" id="sys-gauges">
+        <div class="stat">
+          <div class="value" id="sys-cpu" style="color:var(--cyan)">--</div>
+          <div class="label">CPU</div>
+          <div style="margin-top:8px;height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+            <div id="sys-cpu-bar" style="height:100%;border-radius:2px;background:var(--cyan);width:0%;transition:width 0.5s"></div>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="value" id="sys-mem" style="color:var(--purple)">--</div>
+          <div class="label">RAM</div>
+          <div style="margin-top:8px;height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+            <div id="sys-mem-bar" style="height:100%;border-radius:2px;background:var(--purple);width:0%;transition:width 0.5s"></div>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="value" id="sys-gpu" style="color:var(--green)">--</div>
+          <div class="label">GPU</div>
+          <div style="margin-top:8px;height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+            <div id="sys-gpu-bar" style="height:100%;border-radius:2px;background:var(--green);width:0%;transition:width 0.5s"></div>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="value" id="sys-gpu-temp" style="color:var(--orange)">--</div>
+          <div class="label">GPU Temp</div>
+        </div>
+        <div class="stat">
+          <div class="value" id="sys-cpu-temp" style="color:var(--orange)">--</div>
+          <div class="label">CPU Temp</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>System Details</h2>
+      <div id="sys-details" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+        <div class="stat"><div class="value" id="sys-uptime" style="font-size:1.2rem">--</div><div class="label">Uptime</div></div>
+        <div class="stat"><div class="value" id="sys-power" style="font-size:1.2rem;color:var(--gold)">--</div><div class="label">Power Mode</div></div>
+        <div class="stat"><div class="value" id="sys-disk-root" style="font-size:1.2rem">--</div><div class="label">eMMC Disk</div></div>
+        <div class="stat"><div class="value" id="sys-disk-nvme" style="font-size:1.2rem">--</div><div class="label">NVMe Disk</div></div>
+        <div class="stat"><div class="value" id="sys-oc-mem" style="font-size:1.2rem;color:var(--cyan)">--</div><div class="label">OpenClaw RAM</div></div>
+        <div class="stat"><div class="value" id="sys-ol-mem" style="font-size:1.2rem;color:var(--green)">--</div><div class="label">Ollama RAM</div></div>
+        <div class="stat"><div class="value" id="sys-procs" style="font-size:1.2rem">--</div><div class="label">Processes</div></div>
+        <div class="stat"><div class="value" id="sys-ollama-status" style="font-size:1.2rem">--</div><div class="label">Ollama</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>CPU / GPU History (30 min)</h2>
+      <canvas id="sys-chart" width="800" height="200" style="width:100%;height:200px"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>LLM Inference Log</h2>
+      <div id="llm-stats" class="loading">Loading LLM stats...</div>
     </div>
   </div>
 
@@ -841,7 +911,199 @@ showSection = function(name) {
   origShowSection(name);
   if (name === 'predictions') startLiveTicker();
   else stopLiveTicker();
+  if (name === 'system') startSystemMonitor();
+  else stopSystemMonitor();
 };
+
+// === SYSTEM MONITOR ===
+let _sysInterval = null;
+
+function tempColor(t) {
+  if (t > 75) return 'var(--red)';
+  if (t > 55) return 'var(--orange)';
+  return 'var(--green)';
+}
+
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return d + 'd ' + h + 'h';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+
+function usageColor(pct) {
+  if (pct > 80) return 'var(--red)';
+  if (pct > 60) return 'var(--gold)';
+  return 'var(--cyan)';
+}
+
+async function loadSystemStats() {
+  try {
+    document.getElementById('sys-dot').style.background = 'var(--gold)';
+    document.getElementById('sys-label').textContent = 'Fetching...';
+
+    const s = await fetch('/api/system/current').then(r => r.json());
+    if (!s.cpu_percent && s.cpu_percent !== 0) {
+      document.getElementById('sys-label').textContent = 'No data';
+      return;
+    }
+
+    // Gauges
+    document.getElementById('sys-cpu').textContent = s.cpu_percent + '%';
+    document.getElementById('sys-cpu').style.color = usageColor(s.cpu_percent);
+    document.getElementById('sys-cpu-bar').style.width = s.cpu_percent + '%';
+    document.getElementById('sys-cpu-bar').style.background = usageColor(s.cpu_percent);
+
+    document.getElementById('sys-mem').textContent = s.mem_percent + '%';
+    document.getElementById('sys-mem').style.color = usageColor(s.mem_percent);
+    document.getElementById('sys-mem-bar').style.width = s.mem_percent + '%';
+    document.getElementById('sys-mem-bar').style.background = usageColor(s.mem_percent);
+
+    document.getElementById('sys-gpu').textContent = s.gpu_load_pct + '%';
+    document.getElementById('sys-gpu-bar').style.width = Math.max(1, s.gpu_load_pct) + '%';
+
+    document.getElementById('sys-gpu-temp').textContent = s.gpu_temp_c + '\u00B0C';
+    document.getElementById('sys-gpu-temp').style.color = tempColor(s.gpu_temp_c);
+    document.getElementById('sys-cpu-temp').textContent = s.cpu_temp_c + '\u00B0C';
+    document.getElementById('sys-cpu-temp').style.color = tempColor(s.cpu_temp_c);
+
+    // Details
+    document.getElementById('sys-uptime').textContent = fmtUptime(s.uptime_seconds);
+    document.getElementById('sys-power').textContent = s.power_mode || '--';
+    document.getElementById('sys-disk-root').textContent = s.disk_root_pct + '%';
+    document.getElementById('sys-disk-nvme').textContent = s.disk_nvme_used_gb + ' GB';
+    document.getElementById('sys-oc-mem').textContent = s.openclaw_mem_mb + ' MB';
+    document.getElementById('sys-ol-mem').textContent = s.ollama_mem_mb + ' MB';
+    document.getElementById('sys-procs').textContent = s.process_count;
+
+    const olStatus = document.getElementById('sys-ollama-status');
+    olStatus.textContent = s.ollama_running ? 'Running' : 'Stopped';
+    olStatus.style.color = s.ollama_running ? 'var(--green)' : 'var(--red)';
+
+    document.getElementById('sys-dot').style.background = 'var(--green)';
+    document.getElementById('sys-label').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+    // Load chart
+    loadSystemChart();
+    // Load LLM stats
+    loadLLMStats();
+  } catch(e) {
+    document.getElementById('sys-dot').style.background = 'var(--red)';
+    document.getElementById('sys-label').textContent = 'Error';
+  }
+}
+
+async function loadSystemChart() {
+  try {
+    const data = await fetch('/api/system/history?minutes=30').then(r => r.json());
+    if (!data.length) return;
+
+    const canvas = document.getElementById('sys-chart');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width = canvas.offsetWidth * 2;
+    const H = canvas.height = 400;
+    ctx.clearRect(0, 0, W, H);
+
+    const pad = { top: 20, right: 20, bottom: 30, left: 40 };
+    const chartW = W - pad.left - pad.right;
+    const chartH = H - pad.top - pad.bottom;
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(30,30,46,0.8)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (chartH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+      ctx.fillStyle = 'rgba(107,107,128,0.6)';
+      ctx.font = '20px sans-serif';
+      ctx.fillText((100 - i * 25) + '%', 4, y + 6);
+    }
+
+    function drawLine(values, color) {
+      if (values.length < 2) return;
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      values.forEach((v, i) => {
+        const x = pad.left + (i / (values.length - 1)) * chartW;
+        const y = pad.top + (1 - v / 100) * chartH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    drawLine(data.map(d => d.cpu_percent || 0), '#22d3ee');
+    drawLine(data.map(d => d.gpu_load_pct || 0), '#22c55e');
+    drawLine(data.map(d => d.mem_percent || 0), '#8b5cf6');
+
+    // Legend
+    const legends = [['CPU', '#22d3ee'], ['GPU', '#22c55e'], ['RAM', '#8b5cf6']];
+    legends.forEach(([label, color], i) => {
+      const x = pad.left + i * 80;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, H - 18, 14, 14);
+      ctx.fillStyle = 'rgba(224,224,232,0.7)';
+      ctx.font = '20px sans-serif';
+      ctx.fillText(label, x + 20, H - 6);
+    });
+  } catch(e) {}
+}
+
+async function loadLLMStats() {
+  const el = document.getElementById('llm-stats');
+  try {
+    const data = await fetch('/api/llm/stats').then(r => r.json());
+    const models = data.models || [];
+    const recent = data.recent || [];
+
+    let html = '';
+    if (models.length) {
+      html += '<div class="stats-grid" style="margin-bottom:16px">';
+      models.forEach(m => {
+        html += '<div class="stat">' +
+          '<div class="value" style="font-size:1.2rem;color:var(--cyan)">' + m.total_calls + '</div>' +
+          '<div class="label">' + m.model + '</div>' +
+          '<div style="font-size:0.75rem;color:var(--dim);margin-top:4px">' +
+            (m.avg_duration_ms ? m.avg_duration_ms + 'ms avg' : '') +
+            (m.avg_tokens_per_sec ? ' | ' + m.avg_tokens_per_sec + ' tok/s' : '') +
+          '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    if (recent.length) {
+      html += '<table class="trade-table"><thead><tr><th>Time</th><th>Model</th><th>Purpose</th><th>Tokens</th><th>Duration</th><th>Speed</th></tr></thead><tbody>';
+      recent.forEach(r => {
+        const time = r.created_at ? new Date(r.created_at).toLocaleTimeString() : '--';
+        html += '<tr>' +
+          '<td>' + time + '</td>' +
+          '<td style="color:var(--cyan)">' + (r.model || '--') + '</td>' +
+          '<td>' + (r.purpose || '--') + '</td>' +
+          '<td>' + (r.total_tokens || '--') + '</td>' +
+          '<td>' + (r.duration_ms ? r.duration_ms + 'ms' : '--') + '</td>' +
+          '<td>' + (r.tokens_per_sec ? r.tokens_per_sec + ' tok/s' : '--') + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    el.innerHTML = html || '<div class="empty-state"><div class="icon">&#x1F916;</div>No LLM inferences recorded yet.<br>Stats will appear after the first cron job runs.</div>';
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load LLM stats</div>';
+  }
+}
+
+function startSystemMonitor() {
+  if (_sysInterval) clearInterval(_sysInterval);
+  loadSystemStats();
+  _sysInterval = setInterval(loadSystemStats, 30000);
+}
+
+function stopSystemMonitor() {
+  if (_sysInterval) { clearInterval(_sysInterval); _sysInterval = null; }
+}
 
 // Load dashboard on page load
 loadDashboard();

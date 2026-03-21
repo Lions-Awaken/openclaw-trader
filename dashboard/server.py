@@ -377,6 +377,70 @@ async def get_prediction_accuracy(request: Request, oc_session: str | None = Coo
         return {}
 
 
+@app.get("/api/system/current")
+async def get_system_current(request: Request, oc_session: str | None = Cookie(None)):
+    """Latest system stats from Jetson."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/system_stats",
+            headers=sb_headers(),
+            params={"order": "collected_at.desc", "limit": "1"},
+        )
+        if resp.status_code == 200:
+            rows = resp.json()
+            return rows[0] if rows else {}
+        return {}
+
+
+@app.get("/api/system/history")
+async def get_system_history(request: Request, oc_session: str | None = Cookie(None), minutes: int = 30):
+    """System stats history for charts."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(minutes=minutes)).isoformat()
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/system_stats",
+            headers=sb_headers(),
+            params={
+                "select": "cpu_percent,mem_percent,gpu_load_pct,gpu_temp_c,cpu_temp_c,collected_at",
+                "collected_at": f"gte.{cutoff}",
+                "order": "collected_at.asc",
+            },
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return []
+
+
+@app.get("/api/llm/stats")
+async def get_llm_stats(request: Request, oc_session: str | None = Cookie(None)):
+    """LLM inference statistics."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/llm_stats",
+            headers=sb_headers(),
+        )
+        stats = resp.json() if resp.status_code == 200 else []
+
+        # Also get recent inferences
+        resp2 = await client.get(
+            f"{SUPABASE_URL}/rest/v1/llm_inferences",
+            headers=sb_headers(),
+            params={"order": "created_at.desc", "limit": "20"},
+        )
+        recent = resp2.json() if resp2.status_code == 200 else []
+
+        return {"models": stats, "recent": recent}
+
+
 @app.get("/api/predictions/live")
 async def get_predictions_live(request: Request, oc_session: str | None = Cookie(None)):
     """Fetch current prices for all open predictions — polled every 30s by dashboard."""
