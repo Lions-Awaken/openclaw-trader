@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Trader</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --card: #12121a;
+    --border: #1e1e2e;
+    --text: #e0e0e8;
+    --dim: #6b6b80;
+    --green: #22c55e;
+    --red: #ef4444;
+    --gold: #eab308;
+    --cyan: #22d3ee;
+    --purple: #8b5cf6;
+    --orange: #f97316;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 40px 0 30px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 30px;
+  }
+  .header h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--cyan), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -1px;
+  }
+  .header .subtitle {
+    color: var(--dim);
+    font-size: 0.95rem;
+    margin-top: 8px;
+  }
+  .paper-badge {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 4px 16px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--gold);
+    border: 1px solid var(--gold);
+    background: rgba(234, 179, 8, 0.1);
+  }
+
+  /* Navigation */
+  .nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 30px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+  }
+  .nav button {
+    padding: 8px 20px;
+    border: none;
+    background: transparent;
+    color: var(--dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s;
+  }
+  .nav button:hover { color: var(--text); background: var(--card); }
+  .nav button.active { color: var(--cyan); background: var(--card); }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: var(--cyan);
+  }
+  .card h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 20px 0 10px;
+    color: var(--purple);
+  }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat {
+    background: rgba(34, 211, 238, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+  }
+  .stat .value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .label {
+    font-size: 0.75rem;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+  }
+  .positive { color: var(--green); }
+  .negative { color: var(--red); }
+  .neutral { color: var(--dim); }
+
+  /* Regime Badge */
+  .regime-badge {
+    display: inline-block;
+    padding: 6px 16px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+  }
+  .regime-UP_LOWVOL { color: var(--green); border: 1px solid var(--green); background: rgba(34, 197, 94, 0.1); }
+  .regime-UP_HIGHVOL { color: var(--gold); border: 1px solid var(--gold); background: rgba(234, 179, 8, 0.1); }
+  .regime-DOWN_ANY { color: var(--red); border: 1px solid var(--red); background: rgba(239, 68, 68, 0.1); }
+  .regime-UNKNOWN { color: var(--dim); border: 1px solid var(--dim); background: rgba(107, 107, 128, 0.1); }
+
+  /* Trade Table */
+  .trade-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .trade-table th {
+    text-align: left;
+    padding: 10px 12px;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+  }
+  .trade-table td {
+    padding: 12px;
+    border-bottom: 1px solid rgba(30, 30, 46, 0.5);
+    vertical-align: top;
+  }
+  .trade-table tr:hover { background: rgba(34, 211, 238, 0.03); }
+  .trade-table .ticker {
+    font-weight: 700;
+    color: var(--cyan);
+  }
+  .trade-table .action-BUY { color: var(--green); font-weight: 600; }
+  .trade-table .action-SELL, .trade-table .action-CLOSE, .trade-table .action-STOP_OUT { color: var(--red); font-weight: 600; }
+  .trade-table .action-PARTIAL { color: var(--orange); font-weight: 600; }
+
+  .outcome-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .outcome-STRONG_WIN, .outcome-WIN { color: var(--green); background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); }
+  .outcome-LOSS, .outcome-STRONG_LOSS { color: var(--red); background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); }
+  .outcome-SCRATCH { color: var(--dim); background: rgba(107, 107, 128, 0.1); border: 1px solid rgba(107, 107, 128, 0.3); }
+
+  /* Trade Detail Expand */
+  .trade-detail {
+    display: none;
+    padding: 16px;
+    background: rgba(139, 92, 246, 0.05);
+    border-radius: 8px;
+    margin-top: 8px;
+    font-size: 0.85rem;
+    line-height: 1.7;
+  }
+  .trade-detail.open { display: block; }
+  .trade-detail strong { color: var(--purple); }
+  .expand-btn {
+    background: none;
+    border: none;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .expand-btn:hover { color: var(--cyan); background: rgba(34, 211, 238, 0.1); }
+
+  /* Position Cards */
+  .position-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: rgba(34, 211, 238, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+  }
+  .position-card .symbol { font-weight: 700; font-size: 1.1rem; color: var(--cyan); }
+  .position-card .detail { font-size: 0.8rem; color: var(--dim); }
+
+  /* About Section */
+  .about-section { line-height: 1.8; }
+  .about-section p { margin-bottom: 16px; color: rgba(224, 224, 232, 0.85); }
+  .about-section ul { padding-left: 20px; margin-bottom: 16px; }
+  .about-section li { margin-bottom: 6px; color: rgba(224, 224, 232, 0.75); }
+  .about-section code {
+    background: rgba(139, 92, 246, 0.15);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: var(--purple);
+  }
+
+  .tool-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .tool-card {
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(139, 92, 246, 0.03);
+  }
+  .tool-card .name { font-weight: 700; color: var(--cyan); margin-bottom: 4px; }
+  .tool-card .desc { font-size: 0.8rem; color: var(--dim); }
+
+  .signal-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px;
+    margin: 12px 0;
+  }
+  .signal-item {
+    padding: 12px 16px;
+    border-left: 3px solid var(--purple);
+    background: rgba(139, 92, 246, 0.05);
+    border-radius: 0 8px 8px 0;
+  }
+  .signal-item .num { color: var(--cyan); font-weight: 700; }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--dim);
+  }
+  .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+
+  /* Section hidden by default */
+  .section { display: none; }
+  .section.active { display: block; }
+
+  /* Loading */
+  .loading { text-align: center; padding: 40px; color: var(--dim); }
+
+  @media (max-width: 768px) {
+    .header h1 { font-size: 1.8rem; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .nav { flex-wrap: wrap; }
+    .trade-table { font-size: 0.78rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>OpenClaw Trader</h1>
+    <div class="subtitle">Autonomous Swing Trading Agent on Jetson Orin Nano</div>
+    <div class="paper-badge" id="mode-badge">Paper Trading</div>
+  </div>
+
+  <div class="nav">
+    <button class="active" onclick="showSection('dashboard')">Dashboard</button>
+    <button onclick="showSection('trades')">Trade Log</button>
+    <button onclick="showSection('positions')">Positions</button>
+    <button onclick="showSection('about')">How It Works</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="section-dashboard" class="section active">
+    <div class="stats-grid" id="account-stats">
+      <div class="stat"><div class="value" id="equity">--</div><div class="label">Equity</div></div>
+      <div class="stat"><div class="value" id="cash">--</div><div class="label">Cash</div></div>
+      <div class="stat"><div class="value" id="total-pnl">--</div><div class="label">Total P&L</div></div>
+      <div class="stat"><div class="value" id="win-rate">--</div><div class="label">Win Rate</div></div>
+      <div class="stat"><div class="value" id="total-trades">--</div><div class="label">Trades</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Market Regime</h2>
+      <div id="regime-display" class="loading">Loading regime data...</div>
+    </div>
+
+    <div class="card">
+      <h2>Recent Trades</h2>
+      <div id="recent-trades" class="loading">Loading trades...</div>
+    </div>
+  </div>
+
+  <!-- TRADE LOG -->
+  <div id="section-trades" class="section">
+    <div class="card">
+      <h2>Full Trade History</h2>
+      <div id="trade-log" class="loading">Loading trade history...</div>
+    </div>
+  </div>
+
+  <!-- POSITIONS -->
+  <div id="section-positions" class="section">
+    <div class="card">
+      <h2>Open Positions</h2>
+      <div id="positions-list" class="loading">Loading positions...</div>
+    </div>
+  </div>
+
+  <!-- ABOUT -->
+  <div id="section-about" class="section">
+    <div class="card about-section">
+      <h2>What is OpenClaw Trader?</h2>
+      <p>OpenClaw Trader is an <strong>autonomous swing trading agent</strong> that runs 24/7 on a
+      NVIDIA Jetson Orin Nano. It monitors the US equity market, identifies high-probability setups
+      using a multi-signal hybrid strategy, sizes positions with ATR-based risk management, executes
+      trades via Alpaca Markets, and learns from every outcome through a RAG memory system.</p>
+
+      <p>The agent is <strong>aggressive but bounded</strong> &mdash; it hunts for real edge while
+      enforcing hard risk limits: 5% risk per trade, max 3 concurrent positions, circuit breakers
+      for consecutive losses, weekly drawdowns, and VIX spikes. When in doubt, it does nothing.
+      Cash is a position.</p>
+    </div>
+
+    <div class="card about-section">
+      <h2>The 6-Signal System</h2>
+      <p>A trade requires <strong>minimum 4 of 6 signals aligned</strong> before entry:</p>
+      <div class="signal-list">
+        <div class="signal-item"><span class="num">Signal 1</span> &mdash; <strong>Trend</strong> (30-35%): Price above 21 EMA, 21 EMA above 50 EMA, price above 200 SMA</div>
+        <div class="signal-item"><span class="num">Signal 2</span> &mdash; <strong>Momentum</strong> (20-25%): RSI(14) between 35-65 or Williams %R crossing above -80</div>
+        <div class="signal-item"><span class="num">Signal 3</span> &mdash; <strong>Volume</strong> (15%): OBV trending up 3+ days, volume 1.5x 20-day average on breakouts</div>
+        <div class="signal-item"><span class="num">Signal 4</span> &mdash; <strong>Fundamental Catalyst</strong> (15%): Earnings beat, analyst upgrade, CapEx news</div>
+        <div class="signal-item"><span class="num">Signal 5</span> &mdash; <strong>Sentiment</strong> (10-15%): Finnhub + Perplexity news score > +0.3 (below -0.5 is a hard veto)</div>
+        <div class="signal-item"><span class="num">Signal 6</span> &mdash; <strong>Flow</strong> (optional): Unusual options activity, insider buying, congressional trades</div>
+      </div>
+    </div>
+
+    <div class="card about-section">
+      <h2>Technology Stack</h2>
+      <div class="tool-grid">
+        <div class="tool-card">
+          <div class="name">Jetson Orin Nano</div>
+          <div class="desc">Always-on ARM edge computer. 8GB RAM, GPU-accelerated inference. Runs the entire trading pipeline locally.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">OpenClaw Runtime</div>
+          <div class="desc">AI agent daemon with cron scheduling, MCP tool integration, and persistent memory. Orchestrates all trading operations.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">Qwen 2.5 3B (Ollama)</div>
+          <div class="desc">Local LLM for fast screening, regime checks, and midday portfolio reviews. Free, no API calls, instant inference on Jetson GPU.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">Claude Sonnet 4.6 (Anthropic)</div>
+          <div class="desc">Heavy reasoning model for pre-market scans, signal evaluation, trade decisions, and nightly reflections. Used when precision matters.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">Alpaca Markets + MCP Server</div>
+          <div class="desc">Commission-free trading API with 43 MCP tool endpoints. Paper and live trading, fractional shares, real-time market data.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">Supabase pgvector</div>
+          <div class="desc">PostgreSQL with vector embeddings for RAG memory. Every trade decision is embedded and searchable &mdash; the agent learns from similar past setups.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">Finnhub + Perplexity</div>
+          <div class="desc">Real-time market news, sentiment scoring, insider trading data, and AI-powered research synthesis.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">Telegram Bot</div>
+          <div class="desc">Trade approval flow for positions over $100. Sends alerts, P&L updates, and end-of-day summaries directly to your phone.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card about-section">
+      <h2>Daily Schedule (Eastern Time)</h2>
+      <div class="tool-grid">
+        <div class="tool-card">
+          <div class="name">8:45 AM &mdash; Pre-Market Scan</div>
+          <div class="desc">Regime check, circuit breaker check, full watchlist scan, signal evaluation for candidates scoring 4+, position sizing, Telegram alerts.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">9:35 AM &mdash; Market Open</div>
+          <div class="desc">Check all open positions against current prices. Execute pending exits for stop losses or profit targets hit at open.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">12:30 PM &mdash; Midday Check</div>
+          <div class="desc">Review positions vs stop/target levels. Check for regime shifts. Scan sentiment for news since morning.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">4:05 PM &mdash; Market Close</div>
+          <div class="desc">Time stop enforcement (day 10 = forced exit). Update position log. Nightly reflection &mdash; what worked, what didn't, pattern recognition.</div>
+        </div>
+        <div class="tool-card">
+          <div class="name">Sunday 6 PM &mdash; Weekly Maintenance</div>
+          <div class="desc">Watchlist cleanup, new candidate screening, sector news review, weekly P&L summary to Telegram.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card about-section">
+      <h2>Risk Management</h2>
+      <p>The agent enforces these rules without exception:</p>
+      <ul>
+        <li><strong>Max risk per trade:</strong> 5% of account ($25 on a $500 base)</li>
+        <li><strong>Position sizing:</strong> ATR-based stops determine share count (never manual)</li>
+        <li><strong>Stop loss:</strong> 1.5x ATR below entry &mdash; never moved down, only up</li>
+        <li><strong>Max concurrent positions:</strong> 3</li>
+        <li><strong>Time stop:</strong> Force exit after 10 trading days regardless of P&L</li>
+        <li><strong>Take profit ladder:</strong> 40% at 1.5R, 40% at 2.5R, 20% trailing at 1x ATR</li>
+      </ul>
+      <h3>Circuit Breakers</h3>
+      <ul>
+        <li><strong>3 consecutive losses</strong> &rarr; 24hr pause + 50% position size for next 5 trades</li>
+        <li><strong>Weekly loss &ge; 8%</strong> &rarr; Halt until Monday</li>
+        <li><strong>Account drawdown &ge; 15%</strong> &rarr; Full halt, requires manual approval</li>
+        <li><strong>VIX > 28</strong> &rarr; No new entries</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('section-' + name).classList.add('active');
+  event.target.classList.add('active');
+  if (name === 'trades') loadTrades();
+  if (name === 'positions') loadPositions();
+}
+
+function fmt(n, prefix='') {
+  if (n == null || isNaN(n)) return '--';
+  const neg = n < 0;
+  const abs = Math.abs(n);
+  const str = abs >= 1000 ? abs.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})
+    : abs.toFixed(2);
+  return (neg ? '-' : '') + prefix + str;
+}
+
+function pnlClass(n) {
+  if (n > 0) return 'positive';
+  if (n < 0) return 'negative';
+  return 'neutral';
+}
+
+async function loadDashboard() {
+  // Account
+  try {
+    const acct = await fetch('/api/account').then(r => r.json());
+    document.getElementById('equity').textContent = fmt(acct.equity, '$');
+    document.getElementById('cash').textContent = fmt(acct.cash, '$');
+    if (acct.paper) document.getElementById('mode-badge').textContent = 'Paper Trading';
+  } catch(e) { console.error('Account fetch failed:', e); }
+
+  // Performance
+  try {
+    const perf = await fetch('/api/performance').then(r => r.json());
+    const pnlEl = document.getElementById('total-pnl');
+    pnlEl.textContent = fmt(perf.total_pnl || 0, '$');
+    pnlEl.className = 'value ' + pnlClass(perf.total_pnl || 0);
+    document.getElementById('win-rate').textContent = (perf.win_rate_pct || 0) + '%';
+    document.getElementById('total-trades').textContent = perf.total_trades || 0;
+  } catch(e) { console.error('Performance fetch failed:', e); }
+
+  // Regime
+  try {
+    const regime = await fetch('/api/regime').then(r => r.json());
+    const el = document.getElementById('regime-display');
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <span class="regime-badge regime-${regime.regime}">${regime.regime}</span>
+        <span style="color:var(--dim)">${regime.action || ''}</span>
+      </div>
+      ${regime.spy_price ? `<div style="margin-top:12px;font-size:0.85rem;color:var(--dim)">
+        SPY $${regime.spy_price} | SMA50 $${regime.spy_sma50} | VIX Proxy ${regime.vix_proxy} | ATR% ${regime.atr_pct}%
+      </div>` : ''}
+    `;
+  } catch(e) {
+    document.getElementById('regime-display').innerHTML = '<span class="regime-badge regime-UNKNOWN">UNKNOWN</span>';
+  }
+
+  // Recent trades
+  try {
+    const trades = await fetch('/api/trades').then(r => r.json());
+    const el = document.getElementById('recent-trades');
+    if (!trades.length) {
+      el.innerHTML = '<div class="empty-state"><div class="icon">📊</div>No trades yet. The agent is watching and waiting.</div>';
+      return;
+    }
+    el.innerHTML = buildTradeTable(trades.slice(0, 10));
+  } catch(e) {
+    document.getElementById('recent-trades').innerHTML = '<div class="empty-state">Could not load trades</div>';
+  }
+}
+
+async function loadTrades() {
+  const el = document.getElementById('trade-log');
+  try {
+    const trades = await fetch('/api/trades').then(r => r.json());
+    if (!trades.length) {
+      el.innerHTML = '<div class="empty-state"><div class="icon">📊</div>No trades recorded yet.<br>The agent will log every entry and exit here.</div>';
+      return;
+    }
+    el.innerHTML = buildTradeTable(trades);
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load trade history</div>';
+  }
+}
+
+function buildTradeTable(trades) {
+  let html = `<table class="trade-table">
+    <thead><tr>
+      <th>Date</th><th>Ticker</th><th>Action</th><th>Entry</th><th>Exit</th>
+      <th>P&L</th><th>Signals</th><th>Days</th><th>Outcome</th><th></th>
+    </tr></thead><tbody>`;
+
+  trades.forEach((t, i) => {
+    const date = t.created_at ? new Date(t.created_at).toLocaleDateString() : '--';
+    const pnl = t.pnl != null ? parseFloat(t.pnl) : null;
+    html += `<tr>
+      <td>${date}</td>
+      <td class="ticker">${t.ticker}</td>
+      <td class="action-${t.action}">${t.action}</td>
+      <td>${t.entry_price ? '$' + parseFloat(t.entry_price).toFixed(2) : '--'}</td>
+      <td>${t.exit_price ? '$' + parseFloat(t.exit_price).toFixed(2) : '--'}</td>
+      <td class="${pnlClass(pnl)}">${pnl != null ? fmt(pnl, '$') : '--'}</td>
+      <td>${t.signals_fired != null ? t.signals_fired + '/6' : '--'}</td>
+      <td>${t.hold_days || '--'}</td>
+      <td>${t.outcome ? `<span class="outcome-badge outcome-${t.outcome}">${t.outcome.replace('_',' ')}</span>` : '--'}</td>
+      <td><button class="expand-btn" onclick="toggleDetail(${i})">details</button></td>
+    </tr>
+    <tr><td colspan="10">
+      <div id="detail-${i}" class="trade-detail">
+        ${t.reasoning ? `<strong>Reasoning:</strong> ${t.reasoning}<br>` : ''}
+        ${t.what_worked ? `<strong>What worked:</strong> ${t.what_worked}<br>` : ''}
+        ${t.improvement ? `<strong>Improvement:</strong> ${t.improvement}` : ''}
+        ${!t.reasoning && !t.what_worked && !t.improvement ? '<em>No details recorded</em>' : ''}
+      </div>
+    </td></tr>`;
+  });
+
+  html += '</tbody></table>';
+  return html;
+}
+
+function toggleDetail(i) {
+  document.getElementById('detail-' + i).classList.toggle('open');
+}
+
+async function loadPositions() {
+  const el = document.getElementById('positions-list');
+  try {
+    const positions = await fetch('/api/positions').then(r => r.json());
+    if (!positions.length) {
+      el.innerHTML = '<div class="empty-state"><div class="icon">💰</div>No open positions.<br>Cash is a position.</div>';
+      return;
+    }
+    el.innerHTML = positions.map(p => `
+      <div class="position-card">
+        <div>
+          <div class="symbol">${p.symbol}</div>
+          <div class="detail">${p.qty} shares @ $${p.avg_entry.toFixed(2)} avg</div>
+        </div>
+        <div style="text-align:right">
+          <div class="${pnlClass(p.unrealized_pl)}" style="font-weight:700;font-size:1.1rem">
+            ${fmt(p.unrealized_pl, '$')}
+          </div>
+          <div class="detail ${pnlClass(p.unrealized_plpc)}">
+            ${p.unrealized_plpc >= 0 ? '+' : ''}${p.unrealized_plpc.toFixed(2)}%
+          </div>
+          <div class="detail">Mkt Value: ${fmt(p.market_value, '$')}</div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load positions</div>';
+  }
+}
+
+// Load dashboard on page load
+loadDashboard();
+// Auto-refresh every 60 seconds
+setInterval(loadDashboard, 60000);
+</script>
+</body>
+</html>

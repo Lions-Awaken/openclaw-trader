@@ -62,6 +62,36 @@ for file in "$@"; do
     FOUND=$((FOUND+1))
   fi
 
+  # Alpaca API keys (paper or live)
+  if grep -qP 'PK[A-Z0-9]{18,}' "$file" 2>/dev/null; then
+    echo -e "  ${RED}BLOCKED${NC}  Alpaca API key               ${DIM}$file${NC}"
+    FOUND=$((FOUND+1))
+  fi
+
+  # Anthropic API keys
+  if grep -qP 'sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,}' "$file" 2>/dev/null; then
+    echo -e "  ${RED}BLOCKED${NC}  Anthropic API key            ${DIM}$file${NC}"
+    FOUND=$((FOUND+1))
+  fi
+
+  # Perplexity API keys
+  if grep -qP 'pplx-[A-Za-z0-9]{20,}' "$file" 2>/dev/null; then
+    echo -e "  ${RED}BLOCKED${NC}  Perplexity API key           ${DIM}$file${NC}"
+    FOUND=$((FOUND+1))
+  fi
+
+  # Telegram bot tokens
+  if grep -qP '[0-9]{8,}:AA[A-Za-z0-9_-]{30,}' "$file" 2>/dev/null; then
+    echo -e "  ${RED}BLOCKED${NC}  Telegram bot token           ${DIM}$file${NC}"
+    FOUND=$((FOUND+1))
+  fi
+
+  # Finnhub API keys (hex string pattern)
+  if grep -qP 'FINNHUB_API_KEY\s*=\s*[a-z0-9]{20,}' "$file" 2>/dev/null; then
+    echo -e "  ${RED}BLOCKED${NC}  Finnhub API key              ${DIM}$file${NC}"
+    FOUND=$((FOUND+1))
+  fi
+
   # Protected env files
   if [[ "$file" == .env.local || "$file" == .env.*.local || "$file" == .env ]]; then
     echo -e "  ${RED}BLOCKED${NC}  Protected env file           ${DIM}$file${NC}"
