@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -374,6 +375,97 @@ async def get_prediction_accuracy(request: Request, oc_session: str | None = Coo
             rows = resp.json()
             return rows[0] if rows else {}
         return {}
+
+
+@app.get("/api/predictions/live")
+async def get_predictions_live(request: Request, oc_session: str | None = Cookie(None)):
+    """Fetch current prices for all open predictions — polled every 30s by dashboard."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+
+    async with httpx.AsyncClient() as client:
+        # Get open predictions
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/predictions",
+            headers=sb_headers(),
+            params={
+                "select": "id,ticker,predicted_direction,entry_price,confidence,timeframe,thesis,expires_at,created_at",
+                "status": "eq.open",
+                "order": "created_at.desc",
+            },
+        )
+        if resp.status_code != 200:
+            return []
+
+        predictions = resp.json()
+        if not predictions:
+            return []
+
+        # Get unique tickers
+        tickers = list(set(p["ticker"] for p in predictions))
+
+        # Batch fetch latest quotes from Alpaca
+        quotes = {}
+        for ticker in tickers:
+            try:
+                qr = await client.get(
+                    f"https://data.alpaca.markets/v2/stocks/{ticker}/quotes/latest",
+                    headers={
+                        "APCA-API-KEY-ID": ALPACA_KEY,
+                        "APCA-API-SECRET-KEY": ALPACA_SECRET,
+                    },
+                )
+                if qr.status_code == 200:
+                    data = qr.json()
+                    quote = data.get("quote", data)
+                    bid = float(quote.get("bp", 0))
+                    ask = float(quote.get("ap", 0))
+                    mid = round((bid + ask) / 2, 2) if bid and ask else 0
+                    quotes[ticker] = {
+                        "price": mid,
+                        "bid": bid,
+                        "ask": ask,
+                        "spread": round(ask - bid, 4),
+                    }
+            except Exception:
+                pass
+
+        # Enrich predictions with live data
+        results = []
+        for p in predictions:
+            ticker = p["ticker"]
+            entry = float(p["entry_price"])
+            q = quotes.get(ticker, {})
+            current = q.get("price", 0)
+            change = current - entry if current else 0
+            pct = (change / entry * 100) if entry and current else 0
+            direction = p["predicted_direction"]
+
+            # Is the prediction currently on track?
+            on_track = (direction == "bullish" and change > 0) or \
+                       (direction == "bearish" and change < 0) or \
+                       (direction == "neutral" and abs(pct) < 1)
+
+            results.append({
+                "id": p["id"],
+                "ticker": ticker,
+                "direction": direction,
+                "entry_price": entry,
+                "current_price": current,
+                "change": round(change, 2),
+                "change_pct": round(pct, 2),
+                "on_track": on_track,
+                "confidence": float(p.get("confidence", 0)),
+                "timeframe": p.get("timeframe"),
+                "thesis": p.get("thesis", ""),
+                "expires_at": p.get("expires_at"),
+                "bid": q.get("bid", 0),
+                "ask": q.get("ask", 0),
+                "timestamp": datetime.now(timezone.utc).isoformat() if "datetime" in dir() else None,
+            })
+
+        return results
 
 
 if __name__ == "__main__":
