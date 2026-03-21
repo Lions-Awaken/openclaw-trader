@@ -340,6 +340,42 @@ async def get_regime_history(request: Request, oc_session: str | None = Cookie(N
         return []
 
 
+@app.get("/api/predictions")
+async def get_predictions(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/predictions",
+            headers=sb_headers(),
+            params={
+                "select": "id,ticker,prediction_type,thesis,predicted_direction,predicted_target,entry_price,confidence,timeframe,regime_at_time,actual_price,actual_direction,accuracy_score,correct,post_mortem,lessons_learned,status,expires_at,graded_at,created_at",
+                "order": "created_at.desc",
+                "limit": "50",
+            },
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return []
+
+
+@app.get("/api/prediction-accuracy")
+async def get_prediction_accuracy(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/prediction_accuracy",
+            headers=sb_headers(),
+        )
+        if resp.status_code == 200:
+            rows = resp.json()
+            return rows[0] if rows else {}
+        return {}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8090)

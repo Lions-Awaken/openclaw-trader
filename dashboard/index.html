@@ -322,6 +322,7 @@
     <button class="active" onclick="showSection('dashboard')">Dashboard</button>
     <button onclick="showSection('trades')">Trade Log</button>
     <button onclick="showSection('positions')">Positions</button>
+    <button onclick="showSection('predictions')">Predictions</button>
     <button onclick="showSection('about')">How It Works</button>
   </div>
 
@@ -359,6 +360,20 @@
     <div class="card">
       <h2>Open Positions</h2>
       <div id="positions-list" class="loading">Loading positions...</div>
+    </div>
+  </div>
+
+  <!-- PREDICTIONS -->
+  <div id="section-predictions" class="section">
+    <div class="stats-grid" id="prediction-stats">
+      <div class="stat"><div class="value" id="pred-accuracy">--</div><div class="label">Accuracy</div></div>
+      <div class="stat"><div class="value" id="pred-total">--</div><div class="label">Total Graded</div></div>
+      <div class="stat"><div class="value" id="pred-open">--</div><div class="label">Open</div></div>
+      <div class="stat"><div class="value" id="pred-confidence">--</div><div class="label">Avg Confidence</div></div>
+    </div>
+    <div class="card">
+      <h2>Prediction Log</h2>
+      <div id="prediction-log" class="loading">Loading predictions...</div>
     </div>
   </div>
 
@@ -485,6 +500,7 @@ function showSection(name) {
   event.target.classList.add('active');
   if (name === 'trades') loadTrades();
   if (name === 'positions') loadPositions();
+  if (name === 'predictions') loadPredictions();
 }
 
 function fmt(n, prefix='') {
@@ -602,8 +618,9 @@ function buildTradeTable(trades) {
   return html;
 }
 
-function toggleDetail(i) {
-  document.getElementById('detail-' + i).classList.toggle('open');
+function toggleDetail(id) {
+  const el = document.getElementById(typeof id === 'number' ? 'detail-' + id : id);
+  if (el) el.classList.toggle('open');
 }
 
 async function loadPositions() {
@@ -633,6 +650,60 @@ async function loadPositions() {
     `).join('');
   } catch(e) {
     el.innerHTML = '<div class="empty-state">Could not load positions</div>';
+  }
+}
+
+async function loadPredictions() {
+  // Stats
+  try {
+    const acc = await fetch('/api/prediction-accuracy').then(r => r.json());
+    document.getElementById('pred-accuracy').textContent = (acc.accuracy_pct || 0) + '%';
+    document.getElementById('pred-total').textContent = acc.total_graded || 0;
+    document.getElementById('pred-open').textContent = acc.open_predictions || 0;
+    document.getElementById('pred-confidence').textContent = (acc.avg_confidence || 0);
+  } catch(e) {}
+
+  // Prediction list
+  const el = document.getElementById('prediction-log');
+  try {
+    const preds = await fetch('/api/predictions').then(r => r.json());
+    if (!preds.length) {
+      el.innerHTML = '<div class="empty-state"><div class="icon">&#x1F52E;</div>No predictions logged yet.</div>';
+      return;
+    }
+    let html = '<table class="trade-table"><thead><tr><th>Date</th><th>Ticker</th><th>Direction</th><th>Entry</th><th>Actual</th><th>Confidence</th><th>Timeframe</th><th>Status</th><th></th></tr></thead><tbody>';
+    preds.forEach((p, i) => {
+      const date = p.created_at ? new Date(p.created_at).toLocaleDateString() : '--';
+      const dirClass = p.predicted_direction === 'bullish' ? 'positive' : (p.predicted_direction === 'bearish' ? 'negative' : 'neutral');
+      const statusHtml = p.status === 'open'
+        ? '<span style="color:var(--gold)">OPEN</span>'
+        : (p.correct
+          ? '<span class="outcome-badge outcome-WIN">CORRECT</span>'
+          : '<span class="outcome-badge outcome-LOSS">WRONG</span>');
+      const actualPrice = p.actual_price ? '$' + parseFloat(p.actual_price).toFixed(2) : '--';
+      html += '<tr>' +
+        '<td>' + date + '</td>' +
+        '<td class="ticker">' + p.ticker + '</td>' +
+        '<td class="' + dirClass + '" style="font-weight:600;text-transform:uppercase">' + p.predicted_direction + '</td>' +
+        '<td>$' + parseFloat(p.entry_price).toFixed(2) + '</td>' +
+        '<td>' + actualPrice + '</td>' +
+        '<td>' + (p.confidence ? (p.confidence * 100).toFixed(0) + '%' : '--') + '</td>' +
+        '<td>' + (p.timeframe || '--') + '</td>' +
+        '<td>' + statusHtml + '</td>' +
+        '<td><button class="expand-btn" onclick="toggleDetail(\'pred-' + i + '\')">details</button></td>' +
+        '</tr>' +
+        '<tr><td colspan="9"><div id="detail-pred-' + i + '" class="trade-detail">' +
+        '<strong>Thesis:</strong> ' + (p.thesis || '') + '<br>' +
+        '<strong>Regime:</strong> ' + (p.regime_at_time || '--') + '<br>' +
+        (p.post_mortem ? '<strong>Post-Mortem:</strong> ' + p.post_mortem + '<br>' : '') +
+        (p.lessons_learned ? '<strong>Lesson:</strong> ' + p.lessons_learned : '') +
+        (p.status === 'open' ? '<em>Prediction is still open — expires ' + new Date(p.expires_at).toLocaleDateString() + '</em>' : '') +
+        '</div></td></tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load predictions</div>';
   }
 }
 
