@@ -328,6 +328,70 @@
   .flash { animation: flashGreen 0.5s ease-out; }
   @keyframes flashGreen { 0% { background: rgba(34, 197, 94, 0.15); } 100% { background: transparent; } }
 
+  /* Expandable live prediction cards */
+  .live-card { cursor: pointer; flex-wrap: wrap; }
+  .live-card:hover { border-color: var(--cyan); }
+  .live-card-expand {
+    display: none;
+    width: 100%;
+    padding: 16px 0 0 0;
+    border-top: 1px solid var(--border);
+    margin-top: 16px;
+    font-size: 0.85rem;
+    line-height: 1.7;
+  }
+  .live-card-expand.open { display: block; }
+  .live-card-expand .expand-loading { color: var(--dim); font-style: italic; }
+
+  .tumbler-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--border);
+    margin: 6px 0 6px 8px;
+    font-size: 0.82rem;
+    transition: border-color 0.2s;
+  }
+  .tumbler-step.t-advance { border-left-color: var(--green); }
+  .tumbler-step.t-stop { border-left-color: var(--red); }
+  .tumbler-step .t-depth {
+    font-weight: 800; font-size: 1rem; min-width: 26px; text-align: center;
+    color: var(--cyan);
+  }
+  .tumbler-step .t-name { font-weight: 600; color: var(--purple); }
+  .tumbler-step .t-conf { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .tumbler-step .t-delta { font-size: 0.75rem; }
+  .tumbler-step .t-finding { color: var(--dim); font-size: 0.8rem; margin-top: 2px; }
+
+  .citation-link {
+    color: var(--cyan);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+  }
+  .citation-link:hover { color: var(--purple); text-decoration-style: solid; }
+  .citation-time { font-size: 0.7rem; color: var(--dim); margin-left: 4px; }
+
+  .context-section { margin-bottom: 14px; }
+  .context-section .ctx-label {
+    font-size: 0.72rem; color: var(--dim); text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;
+  }
+  .catalyst-pill {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 600; margin: 2px 4px 2px 0;
+    border: 1px solid var(--border);
+  }
+  .catalyst-pill.bullish { color: var(--green); border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.05); }
+  .catalyst-pill.bearish { color: var(--red); border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.05); }
+  .catalyst-pill.neutral { color: var(--dim); }
+
+  .signal-mini { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; font-size: 0.8rem; }
+  .signal-mini .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .signal-mini .dot.on { background: var(--green); }
+  .signal-mini .dot.off { background: rgba(107,107,128,0.3); }
+
   /* Section hidden by default */
   .section { display: none; }
   .section.active { display: block; }
@@ -335,11 +399,192 @@
   /* Loading */
   .loading { text-align: center; padding: 40px; color: var(--dim); }
 
+  /* Health Score */
+  .health-score {
+    font-size: 4rem;
+    font-weight: 900;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .health-score.good { color: var(--green); }
+  .health-score.warn { color: var(--gold); }
+  .health-score.bad { color: var(--red); }
+
+  /* Pipeline Run List */
+  .run-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .run-item:hover { border-color: var(--cyan); }
+  .run-item .run-name { font-weight: 700; color: var(--cyan); }
+  .run-item .run-time { font-size: 0.8rem; color: var(--dim); }
+  .run-item .run-duration { font-size: 0.8rem; color: var(--dim); }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px;
+  }
+  .status-dot.success { background: var(--green); }
+  .status-dot.failure { background: var(--red); }
+  .status-dot.running { background: var(--gold); animation: pulse 1s infinite; }
+  .status-dot.timeout { background: var(--orange); }
+  .status-dot.skipped { background: var(--dim); }
+  .status-dot.pending { background: var(--dim); }
+
+  /* DAG Visualization */
+  .dag-container { padding: 20px 0; }
+  .dag-node {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 4px 0;
+    font-size: 0.85rem;
+    transition: background 0.2s;
+  }
+  .dag-node:hover { background: rgba(34, 211, 238, 0.05); }
+  .dag-node.depth-1 { margin-left: 32px; }
+  .dag-node.depth-2 { margin-left: 64px; }
+  .dag-connector {
+    width: 2px; height: 16px; background: var(--border); margin-left: 20px;
+  }
+  .dag-node .node-name { font-weight: 600; flex: 1; }
+  .dag-node .node-duration { color: var(--dim); font-size: 0.8rem; }
+  .dag-node .node-status { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+  .dag-node.status-success { border-left: 3px solid var(--green); }
+  .dag-node.status-failure { border-left: 3px solid var(--red); }
+  .dag-node.status-running { border-left: 3px solid var(--gold); }
+  .dag-node.status-timeout { border-left: 3px solid var(--orange); }
+
+  .dag-detail {
+    display: none;
+    padding: 12px 16px;
+    margin: 0 0 4px 32px;
+    background: rgba(139, 92, 246, 0.05);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    line-height: 1.7;
+  }
+  .dag-detail.open { display: block; }
+  .dag-detail pre {
+    background: rgba(0,0,0,0.3);
+    padding: 8px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.75rem;
+    margin: 4px 0;
+    color: var(--dim);
+  }
+
+  /* Signal Heatmap */
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: auto repeat(6, 1fr);
+    gap: 2px;
+    font-size: 0.8rem;
+  }
+  .heatmap-header {
+    padding: 8px 12px;
+    text-align: center;
+    font-weight: 700;
+    color: var(--cyan);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+  }
+  .heatmap-week {
+    padding: 8px 12px;
+    color: var(--dim);
+    font-size: 0.75rem;
+  }
+  .heatmap-cell {
+    padding: 8px 12px;
+    text-align: center;
+    border-radius: 4px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Meta Reflection Cards */
+  .reflection-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 12px;
+    transition: border-color 0.2s;
+  }
+  .reflection-card:hover { border-color: var(--purple); }
+  .reflection-card .ref-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .reflection-card .ref-date { font-weight: 700; color: var(--cyan); }
+  .reflection-card .ref-type {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 2px 10px;
+    border-radius: 12px;
+  }
+  .ref-type.daily { color: var(--cyan); border: 1px solid var(--cyan); background: rgba(34, 211, 238, 0.1); }
+  .ref-type.weekly { color: var(--purple); border: 1px solid var(--purple); background: rgba(139, 92, 246, 0.1); }
+  .ref-type.incident { color: var(--red); border: 1px solid var(--red); background: rgba(239, 68, 68, 0.1); }
+  .reflection-card .ref-section { margin-bottom: 8px; }
+  .reflection-card .ref-label { font-size: 0.75rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .reflection-card .ref-text { font-size: 0.85rem; line-height: 1.6; }
+
+  /* Adjustment Badge */
+  .adj-status {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .adj-status.proposed { color: var(--gold); border: 1px solid var(--gold); background: rgba(234, 179, 8, 0.1); }
+  .adj-status.approved { color: var(--cyan); border: 1px solid var(--cyan); background: rgba(34, 211, 238, 0.1); }
+  .adj-status.applied { color: var(--green); border: 1px solid var(--green); background: rgba(34, 197, 94, 0.1); }
+  .adj-status.rejected { color: var(--red); border: 1px solid var(--red); background: rgba(239, 68, 68, 0.1); }
+  .adj-status.reverted { color: var(--dim); border: 1px solid var(--dim); background: rgba(107, 107, 128, 0.1); }
+
+  /* Gantt/Timeline */
+  .timeline-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 0.8rem;
+  }
+  .timeline-label { width: 100px; text-align: right; color: var(--dim); font-size: 0.75rem; }
+  .timeline-bar-container { flex: 1; height: 20px; position: relative; background: rgba(30,30,46,0.5); border-radius: 4px; }
+  .timeline-bar {
+    position: absolute;
+    height: 100%;
+    border-radius: 4px;
+    min-width: 2px;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
   @media (max-width: 768px) {
     .header h1 { font-size: 1.8rem; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .nav { flex-wrap: wrap; }
     .trade-table { font-size: 0.78rem; }
+    .heatmap-grid { font-size: 0.7rem; }
   }
 </style>
 </head>
@@ -355,9 +600,14 @@
 
   <div class="nav">
     <button class="active" onclick="showSection('dashboard')">Dashboard</button>
+    <button onclick="showSection('pipeline')">Pipeline</button>
     <button onclick="showSection('trades')">Trade Log</button>
     <button onclick="showSection('positions')">Positions</button>
     <button onclick="showSection('predictions')">Predictions</button>
+    <button onclick="showSection('meta')">Meta-Learning</button>
+    <button onclick="showSection('catalysts')">Catalysts</button>
+    <button onclick="showSection('system')">System</button>
+    <button onclick="showSection('economics')">Economics</button>
     <button onclick="showSection('about')">How It Works</button>
   </div>
 
@@ -379,6 +629,57 @@
     <div class="card">
       <h2>Recent Trades</h2>
       <div id="recent-trades" class="loading">Loading trades...</div>
+    </div>
+  </div>
+
+  <!-- PIPELINE -->
+  <div id="section-pipeline" class="section">
+    <div class="stats-grid">
+      <div class="stat" style="grid-column: span 2">
+        <div class="health-score" id="pipeline-health-score">--</div>
+        <div class="label">7-Day Health Score</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="pipeline-total" style="color:var(--cyan)">--</div>
+        <div class="label">Total Steps</div>
+      </div>
+      <div class="stat">
+        <div class="value positive" id="pipeline-successes">--</div>
+        <div class="label">Successes</div>
+      </div>
+      <div class="stat">
+        <div class="value negative" id="pipeline-failures">--</div>
+        <div class="label">Failures</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">Recent Pipeline Runs</h2>
+        <select id="pipeline-filter" onchange="loadPipelineRuns()" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:0.8rem">
+          <option value="">All Pipelines</option>
+          <option value="pre_market_scan">Pre-Market Scan</option>
+          <option value="market_open">Market Open</option>
+          <option value="midday_check">Midday Check</option>
+          <option value="market_close">Market Close</option>
+          <option value="meta_daily">Meta Daily</option>
+          <option value="meta_weekly">Meta Weekly</option>
+        </select>
+      </div>
+      <div id="pipeline-runs" class="loading">Loading pipeline runs...</div>
+    </div>
+
+    <div class="card">
+      <h2>Pipeline DAG</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Click a run above to view its execution tree</p>
+      <div id="pipeline-dag" class="dag-container">
+        <div class="empty-state">Select a pipeline run to view its DAG</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>7-Day Timeline</h2>
+      <div id="pipeline-timeline" class="loading">Loading timeline...</div>
     </div>
   </div>
 
@@ -423,6 +724,218 @@
     <div class="card">
       <h2>Prediction History</h2>
       <div id="prediction-log" class="loading">Loading predictions...</div>
+    </div>
+  </div>
+
+  <!-- META-LEARNING -->
+  <div id="section-meta" class="section">
+    <div class="card">
+      <h2>Signal Accuracy Heatmap</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Weekly accuracy per signal — green > 60%, red < 40%</p>
+      <div id="signal-heatmap" class="loading">Loading signal accuracy data...</div>
+    </div>
+
+    <div class="card">
+      <h2>Inference Depth Distribution</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">How deep inference chains go per day (tumbler 1-5)</p>
+      <div id="depth-distribution" class="loading">Loading depth data...</div>
+    </div>
+
+    <div class="card">
+      <h2>Confidence Calibration</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Stated confidence vs actual win rate — points on diagonal = well calibrated</p>
+      <div id="calibration-chart" class="loading">Loading calibration data...</div>
+    </div>
+
+    <div class="card">
+      <h2>Pattern Template Gallery</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Discovered reusable trading patterns with success rates</p>
+      <div id="pattern-gallery" class="loading">Loading patterns...</div>
+    </div>
+
+    <div class="card">
+      <h2>Recent Reflections</h2>
+      <div id="meta-reflections" class="loading">Loading meta reflections...</div>
+    </div>
+
+    <div class="card">
+      <h2>Strategy Adjustments</h2>
+      <div id="meta-adjustments" class="loading">Loading strategy adjustments...</div>
+    </div>
+  </div>
+
+  <!-- SYSTEM -->
+  <div id="section-system" class="section">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">Jetson Orin Nano</h2>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="sys-dot" style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite"></span>
+          <span id="sys-label" style="font-size:0.75rem;color:var(--dim)">Updating...</span>
+        </div>
+      </div>
+
+      <div class="stats-grid" id="sys-gauges">
+        <div class="stat">
+          <div class="value" id="sys-cpu" style="color:var(--cyan)">--</div>
+          <div class="label">CPU</div>
+          <div style="margin-top:8px;height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+            <div id="sys-cpu-bar" style="height:100%;border-radius:2px;background:var(--cyan);width:0%;transition:width 0.5s"></div>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="value" id="sys-mem" style="color:var(--purple)">--</div>
+          <div class="label">RAM</div>
+          <div style="margin-top:8px;height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+            <div id="sys-mem-bar" style="height:100%;border-radius:2px;background:var(--purple);width:0%;transition:width 0.5s"></div>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="value" id="sys-gpu" style="color:var(--green)">--</div>
+          <div class="label">GPU</div>
+          <div style="margin-top:8px;height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+            <div id="sys-gpu-bar" style="height:100%;border-radius:2px;background:var(--green);width:0%;transition:width 0.5s"></div>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="value" id="sys-gpu-temp" style="color:var(--orange)">--</div>
+          <div class="label">GPU Temp</div>
+        </div>
+        <div class="stat">
+          <div class="value" id="sys-cpu-temp" style="color:var(--orange)">--</div>
+          <div class="label">CPU Temp</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>System Details</h2>
+      <div id="sys-details" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+        <div class="stat"><div class="value" id="sys-uptime" style="font-size:1.2rem">--</div><div class="label">Uptime</div></div>
+        <div class="stat"><div class="value" id="sys-power" style="font-size:1.2rem;color:var(--gold)">--</div><div class="label">Power Mode</div></div>
+        <div class="stat"><div class="value" id="sys-disk-root" style="font-size:1.2rem">--</div><div class="label">eMMC Disk</div></div>
+        <div class="stat"><div class="value" id="sys-disk-nvme" style="font-size:1.2rem">--</div><div class="label">NVMe Disk</div></div>
+        <div class="stat"><div class="value" id="sys-oc-mem" style="font-size:1.2rem;color:var(--cyan)">--</div><div class="label">OpenClaw RAM</div></div>
+        <div class="stat"><div class="value" id="sys-ol-mem" style="font-size:1.2rem;color:var(--green)">--</div><div class="label">Ollama RAM</div></div>
+        <div class="stat"><div class="value" id="sys-procs" style="font-size:1.2rem">--</div><div class="label">Processes</div></div>
+        <div class="stat"><div class="value" id="sys-ollama-status" style="font-size:1.2rem">--</div><div class="label">Ollama</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>CPU / GPU History (30 min)</h2>
+      <canvas id="sys-chart" width="800" height="200" style="width:100%;height:200px"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Signal Accuracy (Quick View)</h2>
+      <div id="sys-signal-heatmap" class="loading">Loading...</div>
+    </div>
+
+    <div class="card">
+      <h2>LLM Inference Log</h2>
+      <div id="llm-stats" class="loading">Loading LLM stats...</div>
+    </div>
+
+    <div class="card">
+      <h2>RAG Embedding Status</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Embedding coverage per vector-enabled table</p>
+      <div id="rag-status" class="loading">Loading RAG status...</div>
+    </div>
+
+    <div class="card">
+      <h2>Hardware Tuning</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Active tuning profile and performance comparison across versions</p>
+      <div id="tuning-active" class="loading">Loading active profile...</div>
+    </div>
+
+    <div class="card">
+      <h2>Tuning Profile Comparison</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Performance metrics per hardware tuning version — lower latency + higher win rate = better</p>
+      <div id="tuning-compare" class="loading">Loading comparison...</div>
+    </div>
+
+    <div class="card">
+      <h2>Recent Telemetry</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Per-run hardware snapshots from the last 7 days</p>
+      <div id="tuning-telemetry" class="loading">Loading telemetry...</div>
+    </div>
+  </div>
+
+  <!-- CATALYSTS -->
+  <div id="section-catalysts" class="section">
+    <div class="card">
+      <h2>Catalyst Feed</h2>
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+        <select id="catalyst-type-filter" onchange="loadCatalystFeed()" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:0.8rem">
+          <option value="">All Types</option>
+          <option value="earnings_surprise">Earnings</option>
+          <option value="analyst_action">Analyst Action</option>
+          <option value="insider_transaction">Insider Trade</option>
+          <option value="congressional_trade">Congressional</option>
+          <option value="sec_filing">SEC Filing</option>
+          <option value="product_launch">Product Launch</option>
+          <option value="regulatory_action">Regulatory</option>
+          <option value="macro_event">Macro</option>
+          <option value="partnership">Partnership</option>
+        </select>
+        <select id="catalyst-days-filter" onchange="loadCatalystFeed()" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:0.8rem">
+          <option value="7">Last 7 days</option>
+          <option value="14">Last 14 days</option>
+          <option value="30">Last 30 days</option>
+        </select>
+      </div>
+      <div id="catalyst-feed" class="loading">Loading catalysts...</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div class="card">
+        <h2>Catalyst Type Distribution</h2>
+        <div id="catalyst-type-stats" class="loading">Loading...</div>
+      </div>
+      <div class="card">
+        <h2>Impact Scorecard</h2>
+        <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Catalysts with measured price impact</p>
+        <div id="catalyst-impact" class="loading">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ECONOMICS -->
+  <div id="section-economics" class="section">
+    <div class="stats-grid" id="econ-summary">
+      <div class="stat" style="grid-column:span 2">
+        <div class="value" id="econ-net" style="font-size:2.5rem">--</div>
+        <div class="label">Net Profit/Loss</div>
+      </div>
+      <div class="stat">
+        <div class="value positive" id="econ-pnl">--</div>
+        <div class="label">Trading P&L</div>
+      </div>
+      <div class="stat">
+        <div class="value negative" id="econ-costs">--</div>
+        <div class="label">Total Costs</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="econ-roi" style="color:var(--cyan)">--</div>
+        <div class="label">ROI</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Cost Breakdown</h2>
+      <div id="econ-breakdown" class="loading">Loading cost breakdown...</div>
+    </div>
+
+    <div class="card">
+      <h2>P&L Over Time</h2>
+      <canvas id="econ-chart" width="800" height="250" style="width:100%;height:250px"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Budget Caps</h2>
+      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Click a value to edit. Changes take effect immediately.</p>
+      <div id="budget-caps" class="loading">Loading budget config...</div>
     </div>
   </div>
 
@@ -793,10 +1306,11 @@ async function loadLivePredictions() {
       const hoursLeft = Math.max(0, Math.round((expires - now) / 3600000));
       const timeLeft = hoursLeft > 24 ? Math.round(hoursLeft / 24) + 'd left' : hoursLeft + 'h left';
 
-      html += '<div class="live-card ' + trackClass + ' ' + flashClass + '">' +
-        '<div>' +
+      html += '<div class="live-card ' + trackClass + ' ' + flashClass + '" onclick="toggleLiveExpand(\'' + p.id + '\')">' +
+        '<div style="flex:1">' +
           '<div><span class="ticker-big">' + p.ticker + '</span>' +
-          '<span class="direction-tag ' + p.direction + '">' + p.direction + '</span></div>' +
+          '<span class="direction-tag ' + p.direction + '">' + p.direction + '</span>' +
+          '<span style="font-size:0.7rem;color:var(--dim);margin-left:8px;vertical-align:middle">click to expand</span></div>' +
           '<div class="thesis-text">' + (p.thesis.length > 120 ? p.thesis.slice(0, 120) + '...' : p.thesis) + '</div>' +
           '<div style="margin-top:8px;display:flex;align-items:center;gap:12px">' +
             '<div class="confidence-bar"><div class="confidence-fill" style="width:' + confPct + '%"></div></div>' +
@@ -809,6 +1323,9 @@ async function loadLivePredictions() {
           '<div class="current-price" style="color:' + priceColor + '">$' + p.current_price.toFixed(2) + '</div>' +
           '<div class="price-change" style="color:' + priceColor + '">' + sign + '$' + p.change.toFixed(2) + ' (' + sign + p.change_pct.toFixed(2) + '%)</div>' +
           '<div class="entry-price">Entry: $' + p.entry_price.toFixed(2) + '</div>' +
+        '</div>' +
+        '<div class="live-card-expand" id="live-expand-' + p.id + '">' +
+          '<div class="expand-loading">Loading decision context...</div>' +
         '</div>' +
       '</div>';
     });
@@ -841,6 +1358,1296 @@ showSection = function(name) {
   origShowSection(name);
   if (name === 'predictions') startLiveTicker();
   else stopLiveTicker();
+  if (name === 'system') startSystemMonitor();
+  else stopSystemMonitor();
+  if (name === 'pipeline') loadPipelineTab();
+  if (name === 'meta') loadMetaTab();
+  if (name === 'catalysts') loadCatalystsTab();
+  if (name === 'economics') loadEconomicsTab();
+};
+
+// === SYSTEM MONITOR ===
+let _sysInterval = null;
+
+function tempColor(t) {
+  if (t > 75) return 'var(--red)';
+  if (t > 55) return 'var(--orange)';
+  return 'var(--green)';
+}
+
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return d + 'd ' + h + 'h';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+
+function usageColor(pct) {
+  if (pct > 80) return 'var(--red)';
+  if (pct > 60) return 'var(--gold)';
+  return 'var(--cyan)';
+}
+
+async function loadSystemStats() {
+  try {
+    document.getElementById('sys-dot').style.background = 'var(--gold)';
+    document.getElementById('sys-label').textContent = 'Fetching...';
+
+    const s = await fetch('/api/system/current').then(r => r.json());
+    if (!s.cpu_percent && s.cpu_percent !== 0) {
+      document.getElementById('sys-label').textContent = 'No data';
+      return;
+    }
+
+    // Gauges
+    document.getElementById('sys-cpu').textContent = s.cpu_percent + '%';
+    document.getElementById('sys-cpu').style.color = usageColor(s.cpu_percent);
+    document.getElementById('sys-cpu-bar').style.width = s.cpu_percent + '%';
+    document.getElementById('sys-cpu-bar').style.background = usageColor(s.cpu_percent);
+
+    document.getElementById('sys-mem').textContent = s.mem_percent + '%';
+    document.getElementById('sys-mem').style.color = usageColor(s.mem_percent);
+    document.getElementById('sys-mem-bar').style.width = s.mem_percent + '%';
+    document.getElementById('sys-mem-bar').style.background = usageColor(s.mem_percent);
+
+    document.getElementById('sys-gpu').textContent = s.gpu_load_pct + '%';
+    document.getElementById('sys-gpu-bar').style.width = Math.max(1, s.gpu_load_pct) + '%';
+
+    document.getElementById('sys-gpu-temp').textContent = s.gpu_temp_c + '\u00B0C';
+    document.getElementById('sys-gpu-temp').style.color = tempColor(s.gpu_temp_c);
+    document.getElementById('sys-cpu-temp').textContent = s.cpu_temp_c + '\u00B0C';
+    document.getElementById('sys-cpu-temp').style.color = tempColor(s.cpu_temp_c);
+
+    // Details
+    document.getElementById('sys-uptime').textContent = fmtUptime(s.uptime_seconds);
+    document.getElementById('sys-power').textContent = s.power_mode || '--';
+    document.getElementById('sys-disk-root').textContent = s.disk_root_pct + '%';
+    document.getElementById('sys-disk-nvme').textContent = s.disk_nvme_used_gb + ' GB';
+    document.getElementById('sys-oc-mem').textContent = s.openclaw_mem_mb + ' MB';
+    document.getElementById('sys-ol-mem').textContent = s.ollama_mem_mb + ' MB';
+    document.getElementById('sys-procs').textContent = s.process_count;
+
+    const olStatus = document.getElementById('sys-ollama-status');
+    olStatus.textContent = s.ollama_running ? 'Running' : 'Stopped';
+    olStatus.style.color = s.ollama_running ? 'var(--green)' : 'var(--red)';
+
+    document.getElementById('sys-dot').style.background = 'var(--green)';
+    document.getElementById('sys-label').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+    // Load chart
+    loadSystemChart();
+    // Load LLM stats
+    loadLLMStats();
+  } catch(e) {
+    document.getElementById('sys-dot').style.background = 'var(--red)';
+    document.getElementById('sys-label').textContent = 'Error';
+  }
+}
+
+async function loadSystemChart() {
+  try {
+    const data = await fetch('/api/system/history?minutes=30').then(r => r.json());
+    if (!data.length) return;
+
+    const canvas = document.getElementById('sys-chart');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width = canvas.offsetWidth * 2;
+    const H = canvas.height = 400;
+    ctx.clearRect(0, 0, W, H);
+
+    const pad = { top: 20, right: 20, bottom: 30, left: 40 };
+    const chartW = W - pad.left - pad.right;
+    const chartH = H - pad.top - pad.bottom;
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(30,30,46,0.8)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (chartH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+      ctx.fillStyle = 'rgba(107,107,128,0.6)';
+      ctx.font = '20px sans-serif';
+      ctx.fillText((100 - i * 25) + '%', 4, y + 6);
+    }
+
+    function drawLine(values, color) {
+      if (values.length < 2) return;
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      values.forEach((v, i) => {
+        const x = pad.left + (i / (values.length - 1)) * chartW;
+        const y = pad.top + (1 - v / 100) * chartH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    drawLine(data.map(d => d.cpu_percent || 0), '#22d3ee');
+    drawLine(data.map(d => d.gpu_load_pct || 0), '#22c55e');
+    drawLine(data.map(d => d.mem_percent || 0), '#8b5cf6');
+
+    // Legend
+    const legends = [['CPU', '#22d3ee'], ['GPU', '#22c55e'], ['RAM', '#8b5cf6']];
+    legends.forEach(([label, color], i) => {
+      const x = pad.left + i * 80;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, H - 18, 14, 14);
+      ctx.fillStyle = 'rgba(224,224,232,0.7)';
+      ctx.font = '20px sans-serif';
+      ctx.fillText(label, x + 20, H - 6);
+    });
+  } catch(e) {}
+}
+
+async function loadLLMStats() {
+  const el = document.getElementById('llm-stats');
+  try {
+    const data = await fetch('/api/llm/stats').then(r => r.json());
+    const models = data.models || [];
+    const recent = data.recent || [];
+
+    let html = '';
+    if (models.length) {
+      html += '<div class="stats-grid" style="margin-bottom:16px">';
+      models.forEach(m => {
+        html += '<div class="stat">' +
+          '<div class="value" style="font-size:1.2rem;color:var(--cyan)">' + m.total_calls + '</div>' +
+          '<div class="label">' + m.model + '</div>' +
+          '<div style="font-size:0.75rem;color:var(--dim);margin-top:4px">' +
+            (m.avg_duration_ms ? m.avg_duration_ms + 'ms avg' : '') +
+            (m.avg_tokens_per_sec ? ' | ' + m.avg_tokens_per_sec + ' tok/s' : '') +
+          '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    if (recent.length) {
+      html += '<table class="trade-table"><thead><tr><th>Time</th><th>Model</th><th>Purpose</th><th>Tokens</th><th>Duration</th><th>Speed</th></tr></thead><tbody>';
+      recent.forEach(r => {
+        const time = r.created_at ? new Date(r.created_at).toLocaleTimeString() : '--';
+        html += '<tr>' +
+          '<td>' + time + '</td>' +
+          '<td style="color:var(--cyan)">' + (r.model || '--') + '</td>' +
+          '<td>' + (r.purpose || '--') + '</td>' +
+          '<td>' + (r.total_tokens || '--') + '</td>' +
+          '<td>' + (r.duration_ms ? r.duration_ms + 'ms' : '--') + '</td>' +
+          '<td>' + (r.tokens_per_sec ? r.tokens_per_sec + ' tok/s' : '--') + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    el.innerHTML = html || '<div class="empty-state"><div class="icon">&#x1F916;</div>No LLM inferences recorded yet.<br>Stats will appear after the first cron job runs.</div>';
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load LLM stats</div>';
+  }
+}
+
+function startSystemMonitor() {
+  if (_sysInterval) clearInterval(_sysInterval);
+  loadSystemStats();
+  _sysInterval = setInterval(loadSystemStats, 30000);
+}
+
+function stopSystemMonitor() {
+  if (_sysInterval) { clearInterval(_sysInterval); _sysInterval = null; }
+}
+
+// === PIPELINE TAB ===
+async function loadPipelineTab() {
+  loadPipelineHealth();
+  loadPipelineRuns();
+  loadPipelineTimeline();
+}
+
+async function loadPipelineHealth() {
+  try {
+    const data = await fetch('/api/pipeline/health').then(r => r.json());
+    const el = document.getElementById('pipeline-health-score');
+    const score = data.score || 0;
+    el.textContent = score + '%';
+    el.className = 'health-score ' + (score >= 90 ? 'good' : score >= 70 ? 'warn' : 'bad');
+    document.getElementById('pipeline-total').textContent = data.total || 0;
+    document.getElementById('pipeline-successes').textContent = data.successes || 0;
+    document.getElementById('pipeline-failures').textContent = data.failures || 0;
+  } catch(e) {}
+}
+
+async function loadPipelineRuns() {
+  const el = document.getElementById('pipeline-runs');
+  const filter = document.getElementById('pipeline-filter').value;
+  try {
+    const url = '/api/pipeline/runs?days=7' + (filter ? '&pipeline=' + filter : '');
+    const runs = await fetch(url).then(r => r.json());
+    if (!runs.length) {
+      el.innerHTML = '<div class="empty-state">No pipeline runs in the last 7 days.<br>Runs will appear after the next cron job executes.</div>';
+      return;
+    }
+    el.innerHTML = runs.map(r => {
+      const time = r.started_at ? new Date(r.started_at).toLocaleString() : '--';
+      const dur = r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + 's' : 'running...';
+      return '<div class="run-item" onclick="loadPipelineDAG(\'' + r.id + '\')">' +
+        '<div><span class="status-dot ' + r.status + '"></span>' +
+        '<span class="run-name">' + r.pipeline_name + '</span></div>' +
+        '<div style="display:flex;gap:16px;align-items:center">' +
+          '<span class="run-duration">' + dur + '</span>' +
+          '<span class="run-time">' + time + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load pipeline runs</div>';
+  }
+}
+
+async function loadPipelineDAG(runId) {
+  const el = document.getElementById('pipeline-dag');
+  el.innerHTML = '<div class="loading">Loading DAG...</div>';
+  try {
+    const data = await fetch('/api/pipeline/run/' + runId).then(r => r.json());
+    if (!data.root) {
+      el.innerHTML = '<div class="empty-state">Run not found</div>';
+      return;
+    }
+
+    const root = data.root;
+    const steps = data.steps || [];
+    const statusColor = {'success': 'var(--green)', 'failure': 'var(--red)', 'running': 'var(--gold)', 'timeout': 'var(--orange)', 'skipped': 'var(--dim)', 'pending': 'var(--dim)'};
+
+    let html = '';
+    // Root node
+    html += '<div class="dag-node status-' + root.status + '">' +
+      '<span class="status-dot ' + root.status + '"></span>' +
+      '<span class="node-name">' + root.pipeline_name + '</span>' +
+      '<span class="node-duration">' + (root.duration_ms ? (root.duration_ms/1000).toFixed(1) + 's' : '--') + '</span>' +
+      '<span class="node-status" style="color:' + (statusColor[root.status] || 'var(--dim)') + '">' + root.status + '</span>' +
+    '</div>';
+
+    // Child steps
+    steps.filter(s => s.id !== root.id).forEach((s, i) => {
+      html += '<div class="dag-connector"></div>';
+      html += '<div class="dag-node depth-1 status-' + s.status + '" onclick="toggleDetail(\'dag-' + i + '\')" style="cursor:pointer">' +
+        '<span class="status-dot ' + s.status + '"></span>' +
+        '<span class="node-name">' + s.step_name + '</span>' +
+        '<span class="node-duration">' + (s.duration_ms ? s.duration_ms + 'ms' : '--') + '</span>' +
+        '<span class="node-status" style="color:' + (statusColor[s.status] || 'var(--dim)') + '">' + s.status + '</span>' +
+      '</div>';
+
+      // Detail panel
+      let detailHtml = '';
+      if (s.input_snapshot && Object.keys(s.input_snapshot).length) {
+        detailHtml += '<strong style="color:var(--purple)">Input:</strong><pre>' + JSON.stringify(s.input_snapshot, null, 2) + '</pre>';
+      }
+      if (s.output_snapshot && Object.keys(s.output_snapshot).length) {
+        detailHtml += '<strong style="color:var(--purple)">Output:</strong><pre>' + JSON.stringify(s.output_snapshot, null, 2) + '</pre>';
+      }
+      if (s.error_message) {
+        detailHtml += '<strong style="color:var(--red)">Error:</strong> ' + s.error_message;
+      }
+      if (detailHtml) {
+        html += '<div id="dag-' + i + '" class="dag-detail">' + detailHtml + '</div>';
+      }
+    });
+
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load DAG</div>';
+  }
+}
+
+async function loadPipelineTimeline() {
+  const el = document.getElementById('pipeline-timeline');
+  try {
+    const runs = await fetch('/api/pipeline/runs?days=7').then(r => r.json());
+    if (!runs.length) {
+      el.innerHTML = '<div class="empty-state">No runs to display</div>';
+      return;
+    }
+
+    // Group runs by date
+    const byDate = {};
+    runs.forEach(r => {
+      const day = new Date(r.started_at).toLocaleDateString('en-US', {weekday: 'short', month: 'short', day: 'numeric'});
+      if (!byDate[day]) byDate[day] = [];
+      byDate[day].push(r);
+    });
+
+    const statusColor = {'success': 'var(--green)', 'failure': 'var(--red)', 'running': 'var(--gold)', 'timeout': 'var(--orange)', 'skipped': 'var(--dim)', 'pending': 'var(--dim)'};
+
+    let html = '';
+    Object.entries(byDate).forEach(([day, dayRuns]) => {
+      // Find time range for this day
+      const times = dayRuns.map(r => new Date(r.started_at).getTime());
+      const minTime = Math.min(...times);
+      const maxTime = Math.max(...times);
+      const dayRange = Math.max(maxTime - minTime, 3600000); // min 1 hour
+
+      html += '<div class="timeline-row">' +
+        '<div class="timeline-label">' + day + '</div>' +
+        '<div class="timeline-bar-container">';
+
+      dayRuns.forEach(r => {
+        const start = new Date(r.started_at).getTime();
+        const left = ((start - minTime) / dayRange * 100);
+        const width = Math.max(2, (r.duration_ms || 60000) / dayRange * 100);
+        const color = statusColor[r.status] || 'var(--dim)';
+        html += '<div class="timeline-bar" style="left:' + left + '%;width:' + Math.min(width, 100 - left) + '%;background:' + color + '" title="' + r.pipeline_name + ' (' + r.status + ')"></div>';
+      });
+
+      html += '</div></div>';
+    });
+
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load timeline</div>';
+  }
+}
+
+// === META-LEARNING TAB ===
+async function loadMetaTab() {
+  loadSignalHeatmap('signal-heatmap');
+  loadSignalHeatmap('sys-signal-heatmap');
+  loadDepthDistribution();
+  loadCalibrationChart();
+  loadPatternGallery();
+  loadMetaReflections();
+  loadMetaAdjustments();
+}
+
+function heatmapColor(val) {
+  if (val === null || val === undefined) return 'background:rgba(107,107,128,0.1);color:var(--dim)';
+  if (val >= 70) return 'background:rgba(34,197,94,0.2);color:var(--green)';
+  if (val >= 60) return 'background:rgba(34,197,94,0.1);color:var(--green)';
+  if (val >= 50) return 'background:rgba(234,179,8,0.1);color:var(--gold)';
+  if (val >= 40) return 'background:rgba(234,179,8,0.15);color:var(--gold)';
+  return 'background:rgba(239,68,68,0.15);color:var(--red)';
+}
+
+async function loadSignalHeatmap(targetId) {
+  const el = document.getElementById(targetId);
+  try {
+    const data = await fetch('/api/signals/accuracy').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No signal accuracy data yet.<br>Data populates after 1 week of signal evaluations.</div>';
+      return;
+    }
+
+    const signals = ['trend', 'momentum', 'volume', 'fundamental', 'sentiment', 'flow'];
+    let html = '<div class="heatmap-grid">';
+    // Header
+    html += '<div class="heatmap-header">Week</div>';
+    signals.forEach(s => { html += '<div class="heatmap-header">' + s + '</div>'; });
+
+    // Rows
+    data.forEach(row => {
+      const week = new Date(row.week_start).toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+      html += '<div class="heatmap-week">' + week + '</div>';
+      signals.forEach(s => {
+        const val = row[s + '_accuracy'];
+        const display = val !== null && val !== undefined ? val + '%' : '--';
+        html += '<div class="heatmap-cell" style="' + heatmapColor(val) + '">' + display + '</div>';
+      });
+    });
+
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load signal accuracy</div>';
+  }
+}
+
+async function loadMetaReflections() {
+  const el = document.getElementById('meta-reflections');
+  try {
+    const data = await fetch('/api/meta/reflections').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No meta reflections yet.<br>The first reflection will appear after meta_daily.py runs at 4:30 PM ET.</div>';
+      return;
+    }
+
+    el.innerHTML = data.slice(0, 10).map(r => {
+      const date = new Date(r.reflection_date).toLocaleDateString('en-US', {weekday: 'short', month: 'short', day: 'numeric'});
+      const adjCount = (r.adjustments || []).length;
+      const health = r.pipeline_summary?.success_rate;
+
+      return '<div class="reflection-card">' +
+        '<div class="ref-header">' +
+          '<span class="ref-date">' + date + (health !== undefined ? ' &mdash; Health: ' + health + '%' : '') + '</span>' +
+          '<span class="ref-type ' + r.reflection_type + '">' + r.reflection_type + '</span>' +
+        '</div>' +
+        (r.patterns_observed ? '<div class="ref-section"><div class="ref-label">Patterns</div><div class="ref-text">' + r.patterns_observed + '</div></div>' : '') +
+        (r.signal_assessment ? '<div class="ref-section"><div class="ref-label">Signal Assessment</div><div class="ref-text">' + r.signal_assessment + '</div></div>' : '') +
+        (r.operational_issues && r.operational_issues !== 'None' ? '<div class="ref-section"><div class="ref-label">Operational Issues</div><div class="ref-text" style="color:var(--orange)">' + r.operational_issues + '</div></div>' : '') +
+        (r.counterfactuals ? '<div class="ref-section"><div class="ref-label">Counterfactuals</div><div class="ref-text" style="color:var(--dim)">' + r.counterfactuals + '</div></div>' : '') +
+        (adjCount > 0 ? '<div style="font-size:0.8rem;color:var(--cyan);margin-top:8px">' + adjCount + ' adjustment(s) proposed</div>' : '') +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load reflections</div>';
+  }
+}
+
+async function loadMetaAdjustments() {
+  const el = document.getElementById('meta-adjustments');
+  try {
+    const data = await fetch('/api/meta/adjustments').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No strategy adjustments yet.<br>Adjustments are proposed by the meta-learning pipeline.</div>';
+      return;
+    }
+
+    let html = '<table class="trade-table"><thead><tr>' +
+      '<th>Date</th><th>Parameter</th><th>Change</th><th>Reason</th><th>Status</th><th>Impact</th>' +
+    '</tr></thead><tbody>';
+
+    data.forEach(a => {
+      const date = new Date(a.created_at).toLocaleDateString();
+      const impact = a.trades_since_applied
+        ? a.trades_since_applied + ' trades, ' + (a.pnl_since_applied ? '$' + parseFloat(a.pnl_since_applied).toFixed(2) : '--')
+        : '--';
+      html += '<tr>' +
+        '<td>' + date + '</td>' +
+        '<td style="color:var(--cyan);font-weight:600">' + a.parameter_name + '</td>' +
+        '<td>' + a.previous_value + ' &rarr; ' + a.new_value + '</td>' +
+        '<td style="font-size:0.8rem">' + (a.reason || '--') + '</td>' +
+        '<td><span class="adj-status ' + a.status + '">' + a.status + '</span></td>' +
+        '<td style="font-size:0.8rem;color:var(--dim)">' + impact + '</td>' +
+      '</tr>';
+    });
+
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load adjustments</div>';
+  }
+}
+
+// === DEPTH DISTRIBUTION ===
+async function loadDepthDistribution() {
+  const el = document.getElementById('depth-distribution');
+  try {
+    const data = await fetch('/api/inference/depth-distribution?days=7').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No inference chains yet. Data populates after the inference engine runs.</div>';
+      return;
+    }
+    const depthColors = {'0':'var(--dim)','1':'var(--cyan)','2':'var(--green)','3':'var(--gold)','4':'var(--purple)','5':'var(--orange)'};
+    let html = '<div style="overflow-x:auto"><table class="trade-table"><thead><tr><th>Date</th><th>Total</th><th>Avg Conf</th>';
+    for (let d = 1; d <= 5; d++) html += '<th>Depth ' + d + '</th>';
+    html += '<th>Decisions</th></tr></thead><tbody>';
+    data.forEach(row => {
+      html += '<tr><td>' + row.date + '</td><td>' + row.total + '</td>';
+      html += '<td>' + (row.avg_confidence || 0) + '</td>';
+      for (let d = 1; d <= 5; d++) {
+        const count = (row.depths || {})[d] || 0;
+        const pct = row.total ? Math.round(count / row.total * 100) : 0;
+        html += '<td><span style="color:' + (depthColors[d] || 'var(--dim)') + ';font-weight:700">' + count + '</span> <span style="font-size:0.7rem;color:var(--dim)">' + pct + '%</span></td>';
+      }
+      const decs = row.decisions || {};
+      const decParts = Object.entries(decs).map(([k,v]) => {
+        const col = k === 'strong_enter' || k === 'enter' ? 'var(--green)' : k === 'veto' ? 'var(--red)' : 'var(--dim)';
+        return '<span style="color:'+col+'">' + k + ':' + v + '</span>';
+      });
+      html += '<td style="font-size:0.8rem">' + decParts.join(' ') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load depth data</div>';
+  }
+}
+
+// === CALIBRATION CHART ===
+async function loadCalibrationChart() {
+  const el = document.getElementById('calibration-chart');
+  try {
+    const data = await fetch('/api/calibration/latest').then(r => r.json());
+    if (!data.buckets || !data.buckets.length) {
+      el.innerHTML = '<div class="empty-state">No calibration data yet. First calibration runs after 1 week of inference chains.</div>';
+      return;
+    }
+    let html = '<div class="stats-grid" style="margin-bottom:16px">';
+    html += '<div class="stat"><div class="value" style="font-size:1.4rem;color:var(--cyan)">' + (data.brier_score || '--') + '</div><div class="label">Brier Score (0=perfect)</div></div>';
+    html += '<div class="stat"><div class="value" style="font-size:1.4rem;color:var(--gold)">' + (data.calibration_error || '--') + '</div><div class="label">Calibration Error</div></div>';
+    const ocBias = parseFloat(data.overconfidence_bias || 0);
+    html += '<div class="stat"><div class="value" style="font-size:1.4rem;color:' + (ocBias > 0 ? 'var(--red)' : 'var(--green)') + '">' + (ocBias > 0 ? '+' : '') + ocBias + '</div><div class="label">Overconfidence Bias</div></div>';
+    html += '</div>';
+
+    html += '<table class="trade-table"><thead><tr><th>Bucket</th><th>Stated Avg</th><th>Actual Win Rate</th><th>Count</th><th>Calibration Factor</th><th>Status</th></tr></thead><tbody>';
+    data.buckets.forEach(b => {
+      const stated = (b.stated_avg * 100).toFixed(1);
+      const actual = (b.actual_win_rate * 100).toFixed(1);
+      const color = b.overconfident ? 'var(--red)' : 'var(--green)';
+      const status = b.overconfident ? 'Overconfident' : 'Well calibrated';
+      html += '<tr><td style="font-weight:600">' + b.bucket + '</td>';
+      html += '<td>' + stated + '%</td>';
+      html += '<td style="color:' + color + ';font-weight:600">' + actual + '%</td>';
+      html += '<td>' + b.count + '</td>';
+      html += '<td>' + b.calibration_factor + 'x</td>';
+      html += '<td style="color:' + color + ';font-size:0.8rem">' + status + '</td></tr>';
+    });
+    html += '</tbody></table>';
+
+    // Depth factors
+    if (data.depth_factors && Object.keys(data.depth_factors).length) {
+      html += '<h3 style="margin-top:20px">Win Rate by Inference Depth</h3>';
+      html += '<div class="stats-grid" style="margin-top:8px">';
+      Object.entries(data.depth_factors).forEach(([k, v]) => {
+        const wr = (v.actual_win_rate * 100).toFixed(1);
+        html += '<div class="stat"><div class="value" style="font-size:1.2rem;color:var(--cyan)">' + wr + '%</div><div class="label">' + k.replace('_', ' ') + ' (' + v.count + ' chains)</div></div>';
+      });
+      html += '</div>';
+    }
+
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load calibration data</div>';
+  }
+}
+
+// === PATTERN GALLERY ===
+async function loadPatternGallery() {
+  const el = document.getElementById('pattern-gallery');
+  try {
+    const data = await fetch('/api/patterns/active').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No patterns discovered yet. Patterns are identified after 2+ weeks of inference chain data.</div>';
+      return;
+    }
+    let html = '<div class="tool-grid">';
+    data.forEach(p => {
+      const sr = parseFloat(p.success_rate || 0);
+      const srColor = sr >= 60 ? 'var(--green)' : sr >= 40 ? 'var(--gold)' : 'var(--red)';
+      const statusColor = p.status === 'active' ? 'var(--green)' : p.status === 'probation' ? 'var(--gold)' : 'var(--dim)';
+      html += '<div class="tool-card" style="border-left:3px solid ' + statusColor + '">';
+      html += '<div class="name">' + (p.pattern_name || '').replace(/_/g, ' ') + '</div>';
+      html += '<div class="desc">' + (p.pattern_description || '') + '</div>';
+      html += '<div style="margin-top:8px;display:flex;gap:12px;font-size:0.8rem">';
+      html += '<span style="color:' + srColor + ';font-weight:700">' + sr + '% success</span>';
+      html += '<span style="color:var(--dim)">' + (p.times_matched || 0) + ' matches</span>';
+      html += '<span style="color:var(--dim)">' + (p.pattern_category || '').replace(/_/g, ' ') + '</span>';
+      html += '</div>';
+      if (p.avg_return_pct) {
+        const ret = parseFloat(p.avg_return_pct);
+        html += '<div style="font-size:0.75rem;margin-top:4px;color:' + (ret >= 0 ? 'var(--green)' : 'var(--red)') + '">Avg return: ' + (ret >= 0 ? '+' : '') + ret + '%</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load patterns</div>';
+  }
+}
+
+// === CATALYSTS TAB ===
+async function loadCatalystsTab() {
+  loadCatalystFeed();
+  loadCatalystTypeStats();
+  loadCatalystImpact();
+}
+
+async function loadCatalystFeed() {
+  const el = document.getElementById('catalyst-feed');
+  const days = document.getElementById('catalyst-days-filter').value || 7;
+  try {
+    const data = await fetch('/api/catalysts/recent?days=' + days).then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No catalysts ingested yet. Data populates after catalyst_ingest.py runs.</div>';
+      return;
+    }
+    const dirColors = {bullish:'var(--green)', bearish:'var(--red)', neutral:'var(--dim)', ambiguous:'var(--gold)'};
+    const magBadges = {extreme:'background:rgba(239,68,68,0.2);color:var(--red)', major:'background:rgba(234,179,8,0.2);color:var(--gold)', medium:'background:rgba(34,211,238,0.1);color:var(--cyan)', minor:'background:rgba(107,107,128,0.1);color:var(--dim)'};
+
+    let html = '';
+    data.forEach(c => {
+      const time = c.event_time ? new Date(c.event_time).toLocaleString() : '--';
+      const dirColor = dirColors[c.direction] || 'var(--dim)';
+      const magStyle = magBadges[c.magnitude] || '';
+      html += '<div style="padding:12px 16px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;border-left:3px solid ' + dirColor + '">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+      html += '<div>';
+      if (c.ticker) html += '<span style="color:var(--cyan);font-weight:700;margin-right:8px">' + c.ticker + '</span>';
+      html += '<span style="font-size:0.7rem;padding:2px 8px;border-radius:10px;' + magStyle + '">' + c.magnitude + '</span> ';
+      html += '<span style="font-size:0.7rem;color:' + dirColor + ';font-weight:600;text-transform:uppercase">' + c.direction + '</span>';
+      html += '</div>';
+      html += '<div style="font-size:0.75rem;color:var(--dim)">' + time + '</div>';
+      html += '</div>';
+      html += '<div style="margin-top:6px;font-size:0.85rem">' + c.headline + '</div>';
+      html += '<div style="margin-top:4px;font-size:0.75rem;color:var(--dim)">' + (c.catalyst_type || '').replace(/_/g,' ') + ' via ' + c.source;
+      if (c.actual_impact_pct) {
+        const impact = parseFloat(c.actual_impact_pct);
+        html += ' | Impact: <span style="color:' + (impact >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (impact >= 0 ? '+' : '') + impact + '%</span>';
+      }
+      html += '</div></div>';
+    });
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load catalyst feed</div>';
+  }
+}
+
+async function loadCatalystTypeStats() {
+  const el = document.getElementById('catalyst-type-stats');
+  try {
+    const data = await fetch('/api/catalysts/stats').then(r => r.json());
+    if (!data.total) {
+      el.innerHTML = '<div class="empty-state">No catalyst data</div>';
+      return;
+    }
+    let html = '<div style="margin-bottom:12px;font-size:0.85rem">Total: <strong>' + data.total + '</strong> catalysts (30 days)</div>';
+    // Type distribution as horizontal bars
+    const types = Object.entries(data.by_type || {}).sort((a,b) => b[1] - a[1]);
+    const maxCount = types.length ? types[0][1] : 1;
+    html += '<div style="display:flex;flex-direction:column;gap:6px">';
+    types.forEach(([type, count]) => {
+      const pct = Math.round(count / maxCount * 100);
+      html += '<div style="display:flex;align-items:center;gap:8px">';
+      html += '<div style="width:120px;font-size:0.75rem;text-align:right;color:var(--dim)">' + type.replace(/_/g,' ') + '</div>';
+      html += '<div style="flex:1;height:16px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:var(--cyan);border-radius:4px"></div></div>';
+      html += '<div style="width:30px;font-size:0.8rem;font-weight:600">' + count + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    // Direction summary
+    html += '<div style="margin-top:16px;display:flex;gap:16px">';
+    Object.entries(data.by_direction || {}).forEach(([dir, count]) => {
+      const color = dir === 'bullish' ? 'var(--green)' : dir === 'bearish' ? 'var(--red)' : 'var(--dim)';
+      html += '<span style="color:' + color + ';font-weight:600">' + dir + ': ' + count + '</span>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load stats</div>';
+  }
+}
+
+async function loadCatalystImpact() {
+  const el = document.getElementById('catalyst-impact');
+  try {
+    const data = await fetch('/api/catalysts/recent?days=30').then(r => r.json());
+    const withImpact = data.filter(c => c.actual_impact_pct != null).sort((a,b) => Math.abs(b.actual_impact_pct) - Math.abs(a.actual_impact_pct));
+    if (!withImpact.length) {
+      el.innerHTML = '<div class="empty-state">No price impact data yet. Filled by calibrator.py after 1-5 days.</div>';
+      return;
+    }
+    let html = '<table class="trade-table"><thead><tr><th>Ticker</th><th>Catalyst</th><th>Direction</th><th>Impact</th></tr></thead><tbody>';
+    withImpact.slice(0, 15).forEach(c => {
+      const impact = parseFloat(c.actual_impact_pct);
+      const impColor = impact >= 0 ? 'var(--green)' : 'var(--red)';
+      html += '<tr>';
+      html += '<td class="ticker">' + (c.ticker || '--') + '</td>';
+      html += '<td style="font-size:0.8rem">' + (c.headline || '').slice(0, 80) + '</td>';
+      html += '<td style="color:' + (c.direction === 'bullish' ? 'var(--green)' : c.direction === 'bearish' ? 'var(--red)' : 'var(--dim)') + '">' + c.direction + '</td>';
+      html += '<td style="color:' + impColor + ';font-weight:700">' + (impact >= 0 ? '+' : '') + impact + '%</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load impact data</div>';
+  }
+}
+
+// === ECONOMICS TAB ===
+async function loadEconomicsTab() {
+  loadEconSummary();
+  loadEconBreakdown();
+  loadEconChart();
+  loadBudgetCaps();
+}
+
+async function loadEconSummary() {
+  try {
+    const data = await fetch('/api/economics/summary?days=30').then(r => r.json());
+    const net = data.net || 0;
+    const netEl = document.getElementById('econ-net');
+    netEl.textContent = fmt(net, '$');
+    netEl.className = 'value ' + pnlClass(net);
+    document.getElementById('econ-pnl').textContent = fmt(data.total_pnl || 0, '$');
+    document.getElementById('econ-costs').textContent = '-' + fmt(data.total_costs || 0, '$');
+    document.getElementById('econ-roi').textContent = (data.roi_pct || 0) + '%';
+  } catch(e) {}
+}
+
+async function loadEconBreakdown() {
+  const el = document.getElementById('econ-breakdown');
+  try {
+    const data = await fetch('/api/economics/breakdown?days=30').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No cost data yet. Costs are logged automatically by the inference engine and meta-analysis scripts.</div>';
+      return;
+    }
+    const catColors = {claude_api:'var(--purple)', perplexity_api:'var(--cyan)', fly_hosting:'var(--orange)', supabase:'var(--green)', ollama_power:'var(--gold)', trade_pnl:'var(--green)', finnhub_api:'var(--dim)'};
+    let html = '<table class="trade-table"><thead><tr><th>Category</th><th>Detail</th><th>Count</th><th>Total</th></tr></thead><tbody>';
+    data.forEach(row => {
+      const amt = row.total || 0;
+      const color = amt >= 0 ? 'var(--green)' : 'var(--red)';
+      html += '<tr>';
+      html += '<td style="color:' + (catColors[row.category] || 'var(--dim)') + ';font-weight:600">' + (row.category || '').replace(/_/g,' ') + '</td>';
+      html += '<td style="font-size:0.8rem;color:var(--dim)">' + (row.subcategory || '--') + '</td>';
+      html += '<td>' + row.count + '</td>';
+      html += '<td style="color:' + color + ';font-weight:600">' + fmt(amt, '$') + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load breakdown</div>';
+  }
+}
+
+async function loadEconChart() {
+  try {
+    const data = await fetch('/api/economics/history?days=90').then(r => r.json());
+    if (!data.length) return;
+
+    const canvas = document.getElementById('econ-chart');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width = canvas.offsetWidth * 2;
+    const H = canvas.height = 500;
+    ctx.clearRect(0, 0, W, H);
+
+    const pad = { top: 20, right: 20, bottom: 30, left: 60 };
+    const chartW = W - pad.left - pad.right;
+    const chartH = H - pad.top - pad.bottom;
+
+    // Find range
+    const allVals = data.flatMap(d => [d.cum_costs, d.cum_pnl, d.cum_net]);
+    const minVal = Math.min(...allVals, 0);
+    const maxVal = Math.max(...allVals, 1);
+    const range = maxVal - minVal || 1;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(30,30,46,0.8)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (chartH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+      const val = maxVal - (i / 4) * range;
+      ctx.fillStyle = 'rgba(107,107,128,0.6)';
+      ctx.font = '20px sans-serif';
+      ctx.fillText('$' + val.toFixed(2), 4, y + 6);
+    }
+
+    // Zero line
+    const zeroY = pad.top + (maxVal / range) * chartH;
+    ctx.strokeStyle = 'rgba(107,107,128,0.3)';
+    ctx.setLineDash([5,5]);
+    ctx.beginPath(); ctx.moveTo(pad.left, zeroY); ctx.lineTo(W - pad.right, zeroY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    function drawLine(values, color) {
+      if (values.length < 2) return;
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      values.forEach((v, i) => {
+        const x = pad.left + (i / (values.length - 1)) * chartW;
+        const y = pad.top + ((maxVal - v) / range) * chartH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    drawLine(data.map(d => d.cum_pnl), '#22c55e');
+    drawLine(data.map(d => d.cum_costs), '#ef4444');
+    drawLine(data.map(d => d.cum_net), '#22d3ee');
+
+    // Legend
+    const legends = [['Trading P&L', '#22c55e'], ['Costs', '#ef4444'], ['Net', '#22d3ee']];
+    legends.forEach(([label, color], i) => {
+      const x = pad.left + i * 120;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, H - 18, 14, 14);
+      ctx.fillStyle = 'rgba(224,224,232,0.7)';
+      ctx.font = '20px sans-serif';
+      ctx.fillText(label, x + 20, H - 6);
+    });
+  } catch(e) {}
+}
+
+async function loadBudgetCaps() {
+  const el = document.getElementById('budget-caps');
+  try {
+    const data = await fetch('/api/budget/config').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No budget config found.</div>';
+      return;
+    }
+    let html = '<div class="tool-grid">';
+    data.forEach(cfg => {
+      const value = parseFloat(cfg.value || 0);
+      const spend = parseFloat(cfg.today_spend || 0);
+      const pct = value > 0 ? Math.min(100, Math.round(spend / value * 100)) : 0;
+      const barColor = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--gold)' : 'var(--green)';
+
+      html += '<div class="tool-card">';
+      html += '<div class="name">' + (cfg.config_key || '').replace(/_/g, ' ') + '</div>';
+      html += '<div class="desc">' + (cfg.description || '') + '</div>';
+      html += '<div style="margin-top:12px;display:flex;align-items:center;gap:12px">';
+      html += '<span style="font-size:1.2rem;font-weight:800;color:var(--cyan);cursor:pointer" onclick="editBudget(\'' + cfg.config_key + '\',' + value + ')" title="Click to edit">$' + value.toFixed(2) + '</span>';
+      html += '<span style="font-size:0.8rem;color:var(--dim)">per day</span>';
+      html += '</div>';
+      html += '<div style="margin-top:8px">';
+      html += '<div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:4px"><span>Today: $' + spend.toFixed(4) + '</span><span>' + pct + '%</span></div>';
+      html += '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:3px;transition:width 0.3s"></div></div>';
+      html += '</div>';
+      html += '<div style="margin-top:4px;font-size:0.7rem;color:var(--dim)">Updated: ' + (cfg.updated_at ? new Date(cfg.updated_at).toLocaleString() : '--') + ' by ' + (cfg.updated_by || '--') + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load budget config</div>';
+  }
+}
+
+function editBudget(key, currentValue) {
+  const newValue = prompt('New daily budget for ' + key.replace(/_/g, ' ') + ':', currentValue);
+  if (newValue === null) return;
+  const val = parseFloat(newValue);
+  if (isNaN(val) || val < 0 || val > 100) { alert('Invalid value. Must be 0-100.'); return; }
+  fetch('/api/budget/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({config_key: key, value: val}),
+  }).then(r => {
+    if (r.ok) loadBudgetCaps();
+    else alert('Failed to update budget');
+  });
+}
+
+// === RAG STATUS (in System tab) ===
+async function loadRAGStatus() {
+  const el = document.getElementById('rag-status');
+  try {
+    const data = await fetch('/api/rag/status').then(r => r.json());
+    if (!Object.keys(data).length) {
+      el.innerHTML = '<div class="empty-state">No RAG data available</div>';
+      return;
+    }
+    let html = '<table class="trade-table"><thead><tr><th>Table</th><th>Total Rows</th><th>With Embedding</th><th>Coverage</th></tr></thead><tbody>';
+    Object.entries(data).forEach(([table, stats]) => {
+      const cov = stats.coverage_pct || 0;
+      const covColor = cov >= 90 ? 'var(--green)' : cov >= 70 ? 'var(--gold)' : 'var(--red)';
+      html += '<tr>';
+      html += '<td style="color:var(--cyan);font-weight:600">' + table + '</td>';
+      html += '<td>' + stats.total + '</td>';
+      html += '<td>' + stats.with_embedding + '</td>';
+      html += '<td><span style="color:' + covColor + ';font-weight:700">' + cov + '%</span></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load RAG status</div>';
+  }
+}
+
+// === TUNING SYSTEM ===
+async function loadTuningActive() {
+  const el = document.getElementById('tuning-active');
+  try {
+    const data = await fetch('/api/tuning/active').then(r => r.json());
+    if (!data.id) {
+      el.innerHTML = '<div class="empty-state">No active tuning profile. Create one via the tuning_profiles table.</div>';
+      return;
+    }
+    const statusColors = {active:'var(--green)', testing:'var(--gold)', baseline:'var(--cyan)', retired:'var(--dim)'};
+    let html = '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px">';
+    html += '<span style="font-size:1.3rem;font-weight:800;color:var(--cyan)">' + data.profile_name + '</span>';
+    html += '<span style="font-size:0.75rem;padding:3px 10px;border-radius:12px;font-weight:700;color:' + (statusColors[data.status]||'var(--dim)') + ';border:1px solid ' + (statusColors[data.status]||'var(--dim)') + ';text-transform:uppercase">' + data.status + '</span>';
+    html += '<span style="font-size:0.8rem;color:var(--dim)">v' + data.version + '</span>';
+    if (data.power_mode) html += '<span style="font-size:0.8rem;color:var(--gold);font-weight:600">' + data.power_mode + '</span>';
+    html += '</div>';
+
+    if (data.description) html += '<p style="font-size:0.85rem;color:var(--dim);margin-bottom:12px">' + data.description + '</p>';
+
+    // Config details
+    const configs = [
+      ['Ollama Config', data.ollama_config],
+      ['Embedding Config', data.embedding_config],
+      ['System Config', data.system_config],
+    ];
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">';
+    configs.forEach(([label, cfg]) => {
+      if (cfg && Object.keys(cfg).length) {
+        html += '<div style="padding:12px;border:1px solid var(--border);border-radius:8px;font-size:0.8rem">';
+        html += '<div style="font-weight:700;color:var(--purple);margin-bottom:6px">' + label + '</div>';
+        Object.entries(cfg).forEach(([k,v]) => {
+          html += '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--dim)">' + k + '</span><span style="color:var(--text);font-weight:600">' + v + '</span></div>';
+        });
+        html += '</div>';
+      }
+    });
+    html += '</div>';
+
+    if (data.notes) html += '<div style="margin-top:12px;font-size:0.8rem;color:var(--dim);font-style:italic">' + data.notes + '</div>';
+
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load tuning profile</div>';
+  }
+}
+
+async function loadTuningCompare() {
+  const el = document.getElementById('tuning-compare');
+  try {
+    const data = await fetch('/api/tuning/compare').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No tuning data yet. Telemetry populates automatically after pipeline runs.</div>';
+      return;
+    }
+
+    let html = '<div style="overflow-x:auto"><table class="trade-table"><thead><tr>';
+    html += '<th>Version</th><th>Profile</th><th>Power</th><th>Status</th><th>Runs</th>';
+    html += '<th>Avg Time</th><th>Peak RAM</th><th>GPU %</th><th>GPU Temp</th>';
+    html += '<th>Tok/s</th><th>Embed ms</th><th>Throttles</th><th>Watts</th>';
+    html += '<th>Chains</th><th>Win Rate</th>';
+    html += '</tr></thead><tbody>';
+
+    data.forEach(p => {
+      const wr = p.chain_win_rate_pct;
+      const wrColor = wr >= 60 ? 'var(--green)' : wr >= 40 ? 'var(--gold)' : wr !== null ? 'var(--red)' : 'var(--dim)';
+      const statusColors = {active:'var(--green)', testing:'var(--gold)', baseline:'var(--cyan)', retired:'var(--dim)'};
+      html += '<tr>';
+      html += '<td style="font-weight:700;color:var(--cyan)">v' + p.version + '</td>';
+      html += '<td>' + p.profile_name + '</td>';
+      html += '<td style="color:var(--gold)">' + (p.power_mode || '--') + '</td>';
+      html += '<td style="color:' + (statusColors[p.status]||'var(--dim)') + ';font-weight:600;text-transform:uppercase;font-size:0.75rem">' + p.status + '</td>';
+      html += '<td>' + p.total_runs + '</td>';
+      html += '<td>' + (p.avg_wall_clock_ms ? (p.avg_wall_clock_ms/1000).toFixed(1) + 's' : '--') + '</td>';
+      html += '<td>' + (p.avg_ram_peak_mb || '--') + ' MB</td>';
+      html += '<td>' + (p.avg_gpu_pct || '--') + '%</td>';
+      html += '<td>' + (p.avg_gpu_temp_max || '--') + '\u00B0C</td>';
+      html += '<td style="color:var(--green)">' + (p.avg_tokens_per_sec || '--') + '</td>';
+      html += '<td>' + (p.avg_embedding_ms || '--') + '</td>';
+      html += '<td style="color:' + (p.total_throttle_events > 0 ? 'var(--red)' : 'var(--green)') + '">' + (p.total_throttle_events || 0) + '</td>';
+      html += '<td>' + (p.avg_power_watts || '--') + 'W</td>';
+      html += '<td>' + (p.total_chains || 0) + '</td>';
+      html += '<td style="color:' + wrColor + ';font-weight:700">' + (wr !== null ? wr + '%' : '--') + '</td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load comparison</div>';
+  }
+}
+
+async function loadTuningTelemetry() {
+  const el = document.getElementById('tuning-telemetry');
+  try {
+    const data = await fetch('/api/tuning/telemetry?days=7').then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state">No telemetry data yet.</div>';
+      return;
+    }
+    let html = '<div style="overflow-x:auto"><table class="trade-table"><thead><tr>';
+    html += '<th>Time</th><th>Pipeline</th><th>Wall Clock</th><th>RAM Peak</th>';
+    html += '<th>GPU Temp</th><th>Tok/s</th><th>Embeds</th><th>Embed ms</th>';
+    html += '<th>Claude</th><th>Steps</th><th>Throttles</th>';
+    html += '</tr></thead><tbody>';
+
+    data.slice(0, 50).forEach(t => {
+      const time = t.created_at ? new Date(t.created_at).toLocaleString() : '--';
+      html += '<tr>';
+      html += '<td style="font-size:0.75rem;color:var(--dim)">' + time + '</td>';
+      html += '<td style="color:var(--cyan);font-weight:600">' + t.pipeline_name + '</td>';
+      html += '<td>' + (t.wall_clock_ms ? (t.wall_clock_ms/1000).toFixed(1) + 's' : '--') + '</td>';
+      html += '<td>' + (t.ram_peak_mb || '--') + ' MB</td>';
+      html += '<td>' + (t.gpu_temp_max_c || '--') + '\u00B0C</td>';
+      html += '<td style="color:var(--green)">' + (t.ollama_avg_tokens_per_sec || '--') + '</td>';
+      html += '<td>' + (t.embedding_count || 0) + '</td>';
+      html += '<td>' + (t.embedding_avg_ms || '--') + '</td>';
+      html += '<td>' + (t.claude_call_count || 0) + '</td>';
+      html += '<td>' + (t.step_count || 0) + '</td>';
+      html += '<td style="color:' + ((t.thermal_throttle_events||0) > 0 ? 'var(--red)' : 'var(--dim)') + '">' + (t.thermal_throttle_events || 0) + '</td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load telemetry</div>';
+  }
+}
+
+// === LIVE PREDICTION EXPAND ===
+let _expandedPredictions = {};  // cache loaded contexts
+
+async function toggleLiveExpand(predictionId) {
+  const el = document.getElementById('live-expand-' + predictionId);
+  if (!el) return;
+
+  // Toggle visibility
+  if (el.classList.contains('open')) {
+    el.classList.remove('open');
+    return;
+  }
+  el.classList.add('open');
+
+  // If already loaded, don't re-fetch
+  if (_expandedPredictions[predictionId]) {
+    renderPredictionContext(el, _expandedPredictions[predictionId]);
+    return;
+  }
+
+  // Fetch deep context
+  el.innerHTML = '<div class="expand-loading">Loading decision-making context...</div>';
+  try {
+    const ctx = await fetch('/api/predictions/context/' + predictionId).then(r => r.json());
+    _expandedPredictions[predictionId] = ctx;
+    renderPredictionContext(el, ctx);
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--red)">Failed to load context</div>';
+  }
+}
+
+function renderPredictionContext(el, ctx) {
+  const pred = ctx.prediction || {};
+  const chains = ctx.inference_chains || [];
+  const signals = ctx.signal_evaluations || [];
+  const catalysts = ctx.catalysts || [];
+  const patterns = ctx.patterns || [];
+  const reflections = ctx.reflections || [];
+  const calibration = ctx.calibration || null;
+
+  let html = '';
+
+  // === Full thesis ===
+  if (pred.thesis) {
+    html += '<div class="context-section">';
+    html += '<div class="ctx-label">Full Thesis</div>';
+    html += '<div>' + pred.thesis + '</div>';
+    if (pred.regime_at_time) html += '<div style="margin-top:4px;font-size:0.8rem;color:var(--dim)">Regime at time: <strong>' + pred.regime_at_time + '</strong></div>';
+    html += '<div style="font-size:0.75rem;color:var(--dim);margin-top:2px">Prediction created: ' + new Date(pred.created_at).toLocaleString() + '</div>';
+    html += '</div>';
+  }
+
+  // === Signal Evaluations ===
+  if (signals.length) {
+    html += '<div class="context-section">';
+    html += '<div class="ctx-label">Signal Evaluations</div>';
+    signals.forEach(sig => {
+      const sigNames = ['trend','momentum','volume','fundamental','sentiment','flow'];
+      html += '<div style="margin-bottom:8px;padding:8px 12px;border:1px solid var(--border);border-radius:8px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+      html += '<span style="font-weight:600;color:var(--cyan)">' + sig.scan_type.replace(/_/g,' ') + ' scan</span>';
+      html += '<span style="font-size:0.75rem;color:var(--dim)">' + new Date(sig.created_at).toLocaleString() + '</span>';
+      html += '</div>';
+
+      // Signal dots
+      html += '<div style="margin-bottom:6px">';
+      sigNames.forEach(s => {
+        const passed = sig[s] && sig[s].passed;
+        html += '<span class="signal-mini"><span class="dot ' + (passed ? 'on' : 'off') + '"></span>' + s + '</span>';
+      });
+      html += '<span style="font-weight:700;color:var(--cyan);margin-left:8px">' + sig.total_score + '/6</span>';
+      html += ' <span style="font-size:0.8rem;color:' + (sig.decision === 'enter' ? 'var(--green)' : sig.decision === 'veto' ? 'var(--red)' : 'var(--dim)') + ';font-weight:600;text-transform:uppercase">' + sig.decision + '</span>';
+      html += '</div>';
+
+      // Signal details (expandable)
+      if (sig.reasoning) {
+        html += '<div style="font-size:0.8rem;color:var(--dim)">' + sig.reasoning + '</div>';
+      }
+
+      // Individual signal data
+      html += '<div style="margin-top:6px;font-size:0.75rem;display:grid;grid-template-columns:repeat(3,1fr);gap:4px">';
+      sigNames.forEach(s => {
+        const data = sig[s] || {};
+        if (Object.keys(data).length > 1) {
+          const entries = Object.entries(data).filter(([k]) => k !== 'passed').slice(0,3);
+          const vals = entries.map(([k,v]) => k + ': ' + (typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : v)).join(', ');
+          if (vals) html += '<div style="color:var(--dim)"><strong style="color:var(--purple)">' + s + ':</strong> ' + vals + '</div>';
+        }
+      });
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // === Inference Chain (Tumbler Walk) ===
+  if (chains.length) {
+    html += '<div class="context-section">';
+    html += '<div class="ctx-label">Inference Chain — Tumbler Analysis</div>';
+    chains.forEach(chain => {
+      html += '<div style="margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:8px">';
+      html += '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">';
+      html += '<div>';
+      html += '<span style="font-weight:700;color:var(--cyan)">Depth ' + chain.max_depth_reached + '/5</span>';
+      html += ' <span style="font-weight:700;color:' + decisionColor(chain.final_decision) + '">' + chain.final_decision.replace(/_/g,' ').toUpperCase() + '</span>';
+      html += ' <span style="font-size:0.8rem;color:var(--dim)">conf: ' + (chain.final_confidence * 100).toFixed(1) + '%</span>';
+      html += '</div>';
+      html += '<div style="font-size:0.75rem;color:var(--dim)">' + new Date(chain.created_at).toLocaleString() + '</div>';
+      html += '</div>';
+
+      // Stopping reason
+      if (chain.stopping_reason) {
+        const stopColor = chain.stopping_reason === 'all_tumblers_clear' ? 'var(--green)' :
+                          chain.stopping_reason === 'veto_signal' ? 'var(--red)' : 'var(--gold)';
+        html += '<div style="margin-bottom:10px;font-size:0.8rem">Stopped: <span style="color:' + stopColor + ';font-weight:600">' + chain.stopping_reason.replace(/_/g,' ') + '</span></div>';
+      }
+
+      // Tumbler-by-tumbler walk
+      const tumblers = chain.tumblers || [];
+      tumblers.forEach((t, idx) => {
+        const isLast = idx === tumblers.length - 1;
+        const delta = t.confidence_delta || 0;
+        const deltaSign = delta >= 0 ? '+' : '';
+        const deltaColor = delta > 0 ? 'var(--green)' : delta < -0.01 ? 'var(--red)' : 'var(--dim)';
+        const stepClass = isLast && chain.stopping_reason !== 'all_tumblers_clear' ? 't-stop' : 't-advance';
+
+        html += '<div class="tumbler-step ' + stepClass + '">';
+        html += '<div class="t-depth">' + t.depth + '</div>';
+        html += '<div style="flex:1">';
+        html += '<div><span class="t-name">' + (t.tumbler_name || '').replace(/_/g, ' ') + '</span>';
+        html += ' <span class="t-conf" style="color:var(--cyan)">' + ((t.confidence_after || 0) * 100).toFixed(1) + '%</span>';
+        html += ' <span class="t-delta" style="color:' + deltaColor + '">(' + deltaSign + (delta * 100).toFixed(1) + '%)</span>';
+        if (t.rag_contexts_retrieved) {
+          html += ' <span style="font-size:0.7rem;color:var(--dim)">' + t.rag_contexts_retrieved + ' RAG hits, avg sim ' + (t.rag_similarity_avg || 0).toFixed(2) + '</span>';
+        }
+        html += '</div>';
+
+        // Key finding
+        if (t.key_finding) {
+          html += '<div class="t-finding">' + t.key_finding + '</div>';
+        }
+
+        // Data sources
+        if (t.data_sources && t.data_sources.length) {
+          html += '<div style="margin-top:2px;font-size:0.7rem;color:var(--dim)">Sources: ' + t.data_sources.join(', ') + '</div>';
+        }
+
+        // Duration
+        if (t.duration_ms) {
+          html += '<div style="font-size:0.7rem;color:var(--dim)">' + t.duration_ms + 'ms</div>';
+        }
+
+        html += '</div></div>';
+      });
+
+      // Reasoning summary
+      if (chain.reasoning_summary) {
+        html += '<div style="margin-top:8px;font-size:0.8rem;color:var(--dim);padding:8px;background:rgba(139,92,246,0.05);border-radius:6px">' +
+          '<strong style="color:var(--purple)">Summary:</strong> ' + chain.reasoning_summary + '</div>';
+      }
+
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // === Catalysts (with clickable source links and timestamps) ===
+  if (catalysts.length) {
+    html += '<div class="context-section">';
+    html += '<div class="ctx-label">Related Catalysts (' + catalysts.length + ')</div>';
+    catalysts.forEach(c => {
+      const dirClass = c.direction || 'neutral';
+      const time = c.event_time ? new Date(c.event_time).toLocaleString() : '';
+      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">';
+      html += '<span class="catalyst-pill ' + dirClass + '">' + (c.catalyst_type || 'other').replace(/_/g,' ') + '</span>';
+      html += '<div style="flex:1">';
+      // Headline — with link if available
+      if (c.source_url) {
+        html += '<a href="' + c.source_url + '" target="_blank" rel="noopener" class="citation-link">' + c.headline + '</a>';
+      } else {
+        html += '<span>' + c.headline + '</span>';
+      }
+      html += '<span class="citation-time">' + time + '</span>';
+      // Source + sentiment
+      html += '<div style="font-size:0.7rem;color:var(--dim)">via ' + c.source;
+      if (c.sentiment_score != null) {
+        const ss = parseFloat(c.sentiment_score);
+        html += ' | sentiment: <span style="color:' + (ss > 0 ? 'var(--green)' : ss < 0 ? 'var(--red)' : 'var(--dim)') + '">' + (ss > 0 ? '+' : '') + ss.toFixed(2) + '</span>';
+      }
+      if (c.actual_impact_pct != null) {
+        const imp = parseFloat(c.actual_impact_pct);
+        html += ' | 1d impact: <span style="color:' + (imp >= 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:600">' + (imp >= 0 ? '+' : '') + imp + '%</span>';
+      }
+      html += '</div>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  // === Pattern Matches ===
+  if (patterns.length) {
+    html += '<div class="context-section">';
+    html += '<div class="ctx-label">Matched Patterns</div>';
+    patterns.forEach(p => {
+      const sr = parseFloat(p.success_rate || 0);
+      html += '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">';
+      html += '<div><strong style="color:var(--purple)">' + (p.pattern_name || '').replace(/_/g,' ') + '</strong>';
+      html += '<div style="font-size:0.8rem;color:var(--dim)">' + (p.pattern_description || '') + '</div></div>';
+      html += '<div style="text-align:right;font-size:0.85rem">';
+      html += '<div style="color:' + (sr >= 60 ? 'var(--green)' : 'var(--gold)') + ';font-weight:700">' + sr + '% success</div>';
+      html += '<div style="font-size:0.75rem;color:var(--dim)">' + (p.times_matched || 0) + ' matches</div>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  // === Calibration context ===
+  if (calibration) {
+    html += '<div class="context-section">';
+    html += '<div class="ctx-label">Confidence Calibration</div>';
+    const bias = parseFloat(calibration.overconfidence_bias || 0);
+    html += '<div style="font-size:0.85rem">Brier score: <strong>' + (calibration.brier_score || '--') + '</strong>';
+    html += ' | Overconfidence: <span style="color:' + (bias > 0 ? 'var(--red)' : 'var(--green)') + '">' + (bias > 0 ? '+' : '') + bias.toFixed(3) + '</span>';
+
+    // Show the calibration factor for this prediction's confidence bucket
+    const predConf = parseFloat(pred.confidence || 0);
+    const bucket = String(Math.floor(predConf * 10) * 10);
+    const factor = (calibration.active_factors || {})[bucket];
+    if (factor) {
+      html += ' | Calibration factor for ' + bucket + '-' + (parseInt(bucket)+10) + '% bucket: <strong>' + factor + 'x</strong>';
+    }
+    html += '</div></div>';
+  }
+
+  // === Meta reflection ===
+  if (reflections.length) {
+    const ref = reflections[0];
+    html += '<div class="context-section">';
+    html += '<div class="ctx-label">Meta-Analysis (' + ref.reflection_date + ')</div>';
+    if (ref.patterns_observed) html += '<div style="margin-bottom:4px"><strong style="color:var(--purple)">Patterns:</strong> ' + ref.patterns_observed + '</div>';
+    if (ref.signal_assessment) html += '<div style="margin-bottom:4px"><strong style="color:var(--purple)">Signals:</strong> ' + ref.signal_assessment + '</div>';
+    if (ref.counterfactuals) html += '<div><strong style="color:var(--purple)">Counterfactuals:</strong> ' + ref.counterfactuals + '</div>';
+    html += '</div>';
+  }
+
+  // === No data fallback ===
+  if (!chains.length && !signals.length && !catalysts.length) {
+    html += '<div style="color:var(--dim);font-style:italic;padding:12px 0">No inference chain or signal data found for this prediction. ' +
+      'This prediction may have been created before the tumbler engine was active, or the data may not have been linked yet.</div>';
+  }
+
+  el.innerHTML = html;
+}
+
+function decisionColor(decision) {
+  if (decision === 'strong_enter' || decision === 'enter') return 'var(--green)';
+  if (decision === 'veto') return 'var(--red)';
+  if (decision === 'watch') return 'var(--gold)';
+  return 'var(--dim)';
+}
+
+// Patch system monitor to also load RAG status and tuning data
+const _origLoadSystemStats = loadSystemStats;
+loadSystemStats = async function() {
+  await _origLoadSystemStats();
+  loadRAGStatus();
+  loadTuningActive();
+  loadTuningCompare();
+  loadTuningTelemetry();
 };
 
 // Load dashboard on page load
