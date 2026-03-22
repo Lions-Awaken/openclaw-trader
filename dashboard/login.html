@@ -3,26 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OpenClaw // Terminal</title>
+<title>OPENCLAW // TERMINAL</title>
+<link rel="stylesheet" href="/theme.css">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-
-  :root {
-    --phosphor: #33ff88;
-    --phosphor-dim: rgba(51, 255, 136, 0.4);
-    --phosphor-glow: rgba(51, 255, 136, 0.12);
-    --amber: #ffaa22;
-    --bg: #030805;
-    --red: #ff3344;
-    --red-glow: rgba(255, 51, 68, 0.15);
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
-    font-family: 'Share Tech Mono', 'Courier New', monospace;
-    background: var(--bg);
-    color: var(--phosphor);
+    color: var(--green);
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -35,13 +20,9 @@
     content: '';
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      rgba(0, 0, 0, 0) 0px,
-      rgba(0, 0, 0, 0) 1px,
-      rgba(0, 0, 0, 0.15) 1px,
-      rgba(0, 0, 0, 0.15) 2px
-    );
+    background: repeating-linear-gradient(0deg,
+      rgba(0,0,0,0) 0px, rgba(0,0,0,0) 1px,
+      rgba(0,0,0,0.12) 1px, rgba(0,0,0,0.12) 2px);
     pointer-events: none;
     z-index: 100;
   }
@@ -51,135 +32,358 @@
     content: '';
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
+    background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.8) 100%);
     pointer-events: none;
     z-index: 99;
   }
 
-  /* Screen flicker */
   @keyframes flicker {
-    0% { opacity: 0.97; }
-    5% { opacity: 0.95; }
-    10% { opacity: 0.98; }
-    15% { opacity: 0.96; }
-    20% { opacity: 0.99; }
-    50% { opacity: 0.97; }
-    80% { opacity: 0.98; }
-    90% { opacity: 0.96; }
+    0% { opacity: 0.97; } 5% { opacity: 0.95; } 10% { opacity: 0.98; }
+    15% { opacity: 0.96; } 50% { opacity: 0.97; } 90% { opacity: 0.96; }
     100% { opacity: 0.97; }
   }
 
-  .crt-screen {
-    animation: flicker 4s infinite;
+  /* ================================================ */
+  /* FRAME — landscape, rounded, thick glowing border */
+  /* ================================================ */
+
+  .terminal-frame {
     position: relative;
     z-index: 1;
-    width: 100%;
-    max-width: 560px;
-    padding: 0 20px;
+    width: 1100px;
+    max-width: calc(100vw - 40px);
+    height: 620px;
+    max-height: calc(100vh - 40px);
+    border: 3px solid transparent;
+    border-radius: 16px;
+    padding: 0;
+    opacity: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
-  /* Terminal frame */
-  .terminal {
-    border: 1px solid rgba(51, 255, 136, 0.2);
-    border-radius: 4px;
-    padding: 32px 36px;
-    background: rgba(3, 8, 5, 0.95);
-    box-shadow:
-      0 0 60px rgba(51, 255, 136, 0.04),
-      inset 0 0 80px rgba(51, 255, 136, 0.02);
-    position: relative;
+  @keyframes frameFadeIn {
+    0%   { opacity: 0; border-color: transparent; }
+    25%  { opacity: 0.5; border-color: var(--phosphor-border); }
+    40%  { opacity: 0.15; border-color: transparent; }
+    60%  { opacity: 0.7; border-color: var(--phosphor-border); }
+    75%  { opacity: 0.3; border-color: rgba(51,255,136,0.3); }
+    100% { opacity: 1; border-color: var(--phosphor-border);
+           box-shadow: 0 0 40px rgba(51,255,136,0.08), 0 0 80px rgba(51,255,136,0.04),
+                       inset 0 0 40px rgba(51,255,136,0.02); }
   }
 
-  /* Terminal header bar */
-  .term-header {
+  .terminal-frame.visible {
+    animation: frameFadeIn 1.2s ease-out forwards, flicker 4s 1.2s infinite;
+  }
+
+  /* Header bar */
+  .term-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid rgba(51, 255, 136, 0.15);
+    padding: 16px 28px;
+    border-bottom: 2px solid rgba(51,255,136,0.2);
     font-size: 0.7rem;
-    color: var(--phosphor-dim);
-    letter-spacing: 2px;
-    text-transform: uppercase;
+    color: rgba(51,255,136,0.3);
+    letter-spacing: 3px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+    background: rgba(51,255,136,0.02);
+  }
+  .term-bar.visible { opacity: 1; }
+
+  .bar-pill {
+    padding: 5px 18px;
+    border: 1px solid rgba(51,255,136,0.25);
+    border-radius: 16px;
+    background: rgba(51,255,136,0.03);
   }
 
-  .term-header .term-dots {
-    display: flex;
-    gap: 6px;
+  .bar-dots { display: flex; gap: 8px; }
+  .bar-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid rgba(51,255,136,0.2);
+    transition: all 0.4s;
   }
-  .term-header .term-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    border: 1px solid rgba(51, 255, 136, 0.3);
+  .bar-dot.lit {
+    background: var(--phosphor);
+    border-color: var(--phosphor);
+    box-shadow: 0 0 8px var(--phosphor), 0 0 16px rgba(51,255,136,0.3);
   }
 
-  /* ASCII brand */
-  .ascii-brand {
+  /* ================================================ */
+  /* SCROLLABLE OUTPUT                                */
+  /* ================================================ */
+
+  .term-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+    scroll-behavior: smooth;
+  }
+
+  /* Custom scrollbar */
+  .term-body::-webkit-scrollbar { width: 4px; }
+  .term-body::-webkit-scrollbar-track { background: transparent; }
+  .term-body::-webkit-scrollbar-thumb {
+    background: rgba(51,255,136,0.2);
+    border-radius: 2px;
+  }
+  .term-body::-webkit-scrollbar-thumb:hover { background: rgba(51,255,136,0.4); }
+
+  /* ================================================ */
+  /* TITLE AREA                                       */
+  /* ================================================ */
+
+  .title-area {
     text-align: center;
-    margin-bottom: 28px;
-    font-size: 0.65rem;
-    line-height: 1.2;
-    color: var(--phosphor-dim);
-    white-space: pre;
-    text-shadow: 0 0 8px var(--phosphor-glow);
+    padding: 8px 0 20px;
   }
 
-  .system-id {
-    text-align: center;
-    font-size: 0.85rem;
+  .title-box {
+    display: inline-block;
+    padding: 14px 40px;
+    border: 2px solid var(--phosphor-border);
+    border-radius: 12px;
+    box-shadow: 0 0 20px rgba(51,255,136,0.08), 0 0 50px rgba(51,255,136,0.03), inset 0 0 30px rgba(51,255,136,0.02);
+  }
+
+  .typed-title {
+    font-size: 3rem;
+    font-weight: 900;
+    letter-spacing: 14px;
+    text-shadow: 0 0 20px var(--phosphor-glow), 0 0 50px rgba(51,255,136,0.06);
+    display: inline;
+  }
+
+  @keyframes titleGlow {
+    0%   { text-shadow: 0 0 20px var(--phosphor-glow); }
+    50%  { text-shadow: 0 0 30px rgba(51,255,136,0.35), 0 0 60px rgba(51,255,136,0.12); }
+    100% { text-shadow: 0 0 20px var(--phosphor-glow); }
+  }
+  .typed-title.glow { animation: titleGlow 3s ease-in-out infinite; }
+
+  .title-divider {
+    height: 2px;
+    background: linear-gradient(90deg, transparent 5%, var(--phosphor-dim) 30%, var(--phosphor-dim) 70%, transparent 95%);
+    margin: 10px auto;
+    max-width: 500px;
+    opacity: 0.5;
+  }
+
+  .typed-sub {
+    font-size: 1.27rem;
+    font-weight: 900;
+    letter-spacing: 6px;
+    color: var(--phosphor);
+    text-shadow: 0 0 20px var(--phosphor-glow), 0 0 50px rgba(51,255,136,0.06);
+    display: block;
+    margin-top: 6px;
+  }
+
+  /* ================================================ */
+  /* SECTION HEADERS                                  */
+  /* ================================================ */
+
+  .section-header {
+    display: inline-block;
+    font-size: 1.05rem;
+    font-weight: 900;
     letter-spacing: 4px;
-    text-transform: uppercase;
-    margin-bottom: 6px;
-    text-shadow: 0 0 12px var(--phosphor-glow);
+    color: var(--phosphor);
+    text-shadow: 0 0 20px var(--phosphor-glow), 0 0 50px rgba(51,255,136,0.06);
+    padding: 8px 28px;
+    border: 2px solid var(--phosphor-border);
+    border-radius: 24px;
+    background: rgba(51,255,136,0.04);
+    box-shadow: 0 0 16px rgba(51,255,136,0.08), 0 0 32px rgba(51,255,136,0.03);
+    margin: 12px 0 14px;
   }
 
-  .system-sub {
-    text-align: center;
-    font-size: 0.7rem;
-    color: var(--phosphor-dim);
+  /* ================================================ */
+  /* CHECK ROWS — tag + description + status pill     */
+  /* ================================================ */
+
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 7px 0;
+    font-size: 1.12rem;
+    font-weight: 900;
+    min-height: 44px;
+  }
+
+  .check-tag {
+    font-size: 0.65rem;
+    font-weight: 900;
     letter-spacing: 2px;
-    margin-bottom: 28px;
+    color: var(--phosphor);
+    text-shadow: 0 0 10px var(--phosphor-glow);
+    flex-shrink: 0;
+    text-align: center;
+    padding: 4px 12px;
+    border: 2px solid rgba(51,255,136,0.3);
+    border-radius: 16px;
+    background: rgba(51,255,136,0.04);
+    min-width: 56px;
   }
 
-  /* Typing cursor */
+  .check-text {
+    flex: 0 0 auto;
+    color: var(--phosphor);
+    letter-spacing: 1px;
+    font-size: 1.08rem;
+    font-weight: 900;
+    text-shadow: 0 0 20px var(--phosphor-glow), 0 0 50px rgba(51,255,136,0.06);
+    white-space: nowrap;
+  }
+
+  .check-dots {
+    color: rgba(51,255,136,0.1);
+    font-size: 0.65rem;
+    letter-spacing: 2px;
+    flex-shrink: 0;
+  }
+
+  /* Dot trail — fills gap between text and pill */
+  .dot-trail {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    flex: 1;
+    padding: 0 10px 3px;
+    min-width: 0;
+  }
+
+  .trail-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(51,255,136,0.06);
+    transition: all 0.15s ease-out;
+    flex-shrink: 0;
+  }
+
+  .trail-dot.lit {
+    background: var(--phosphor);
+    box-shadow: 0 0 8px var(--phosphor), 0 0 16px rgba(51,255,136,0.2);
+  }
+
+  .trail-dot.lit-red {
+    background: var(--red);
+    box-shadow: 0 0 8px var(--red), 0 0 16px rgba(255,51,68,0.2);
+  }
+
+  /* Status pill */
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 28px;
+    border-radius: 24px;
+    font-size: 0.9rem;
+    font-weight: 900;
+    letter-spacing: 3px;
+    min-width: 140px;
+    text-align: center;
+    flex-shrink: 0;
+    transition: all 0.4s ease-out;
+
+    /* Default: dim, waiting */
+    color: rgba(51,255,136,0.15);
+    border: 2px solid rgba(51,255,136,0.08);
+    background: transparent;
+    text-shadow: none;
+  }
+
+  /* Verified — lights up green with glow */
+  .status-pill.verified {
+    color: var(--phosphor);
+    border-color: rgba(51,255,136,0.5);
+    background: rgba(51,255,136,0.08);
+    box-shadow: 0 0 16px rgba(51,255,136,0.15), 0 0 32px rgba(51,255,136,0.06);
+    text-shadow: 0 0 10px var(--phosphor-glow), 0 0 20px rgba(51,255,136,0.08);
+  }
+
+  /* Failed — lights up red with glow */
+  .status-pill.failed {
+    color: var(--red);
+    border-color: rgba(255,51,68,0.5);
+    background: rgba(255,51,68,0.08);
+    box-shadow: 0 0 16px rgba(255,51,68,0.15), 0 0 32px rgba(255,51,68,0.06);
+    text-shadow: 0 0 10px rgba(255,51,68,0.2), 0 0 20px rgba(255,51,68,0.08);
+  }
+
+  /* Bright variant for final "operational" */
+  .status-pill.verified.bright {
+    color: #ffffff;
+    border-color: var(--phosphor);
+    background: rgba(51,255,136,0.15);
+    box-shadow: 0 0 20px rgba(51,255,136,0.25), 0 0 40px rgba(51,255,136,0.1);
+    text-shadow: 0 0 12px rgba(51,255,136,0.4), 0 0 24px rgba(51,255,136,0.15);
+  }
+
+  @keyframes pillLightUp {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.05); }
+    100% { transform: scale(1); }
+  }
+  .status-pill.verified, .status-pill.failed {
+    animation: pillLightUp 0.3s ease-out;
+  }
+
+  /* ================================================ */
+  /* AWAITING + AUTH                                   */
+  /* ================================================ */
+
+  .awaiting-text {
+    font-size: 1.35rem;
+    font-weight: 900;
+    letter-spacing: 5px;
+    color: var(--amber);
+    text-shadow: 0 0 20px rgba(255,170,34,0.25), 0 0 50px rgba(255,170,34,0.1);
+    padding: 16px 0 8px;
+  }
+
+  .auth-section {
+    display: none;
+    padding: 12px 0 0;
+  }
+  .auth-section.visible { display: block; }
+
+  @keyframes fadeUp {
+    0%   { opacity: 0; transform: translateY(6px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+  .auth-inner {
+    opacity: 0;
+    animation: fadeUp 0.4s ease-out 0.1s forwards;
+    border-top: 1px solid rgba(51,255,136,0.15);
+    padding-top: 16px;
+  }
+
+  .prompt-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+
+  .prompt-caret {
+    font-size: 2.4rem;
+    font-weight: 900;
+    color: var(--phosphor);
+    text-shadow: 0 0 20px var(--phosphor-glow), 0 0 50px rgba(51,255,136,0.06);
+  }
+
   @keyframes blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
-  }
-
-  .cursor {
-    display: inline-block;
-    width: 8px;
-    height: 14px;
-    background: var(--phosphor);
-    margin-left: 2px;
-    animation: blink 1s step-end infinite;
-    vertical-align: text-bottom;
-  }
-
-  /* Boot log lines */
-  .boot-log {
-    margin-bottom: 24px;
-    font-size: 0.72rem;
-    line-height: 1.8;
-    color: var(--phosphor-dim);
-  }
-  .boot-log .ok { color: var(--phosphor); }
-  .boot-log .warn { color: var(--amber); }
-
-  /* Input area */
-  .prompt-line {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-    font-size: 0.8rem;
-  }
-
-  .prompt-symbol {
-    color: var(--phosphor);
-    font-weight: bold;
-    flex-shrink: 0;
   }
 
   .key-input {
@@ -188,479 +392,580 @@
     border: none;
     outline: none;
     color: var(--phosphor);
-    font-family: 'Share Tech Mono', 'Courier New', monospace;
-    font-size: 0.85rem;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.95rem;
+    font-weight: 900;
     caret-color: var(--phosphor);
-    letter-spacing: 1px;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    text-shadow: 0 0 20px var(--phosphor-glow), 0 0 50px rgba(51,255,136,0.06);
   }
 
   .key-input::placeholder {
-    color: rgba(51, 255, 136, 0.2);
+    color: rgba(51,255,136,0.1);
+    letter-spacing: 3px;
+    text-shadow: none;
   }
 
-  .input-underline {
-    height: 1px;
-    background: linear-gradient(90deg, var(--phosphor), transparent);
-    margin-bottom: 24px;
-    opacity: 0.3;
-    transition: opacity 0.3s;
+  .input-line {
+    height: 2px;
+    background: linear-gradient(90deg, var(--phosphor-dim), transparent 70%);
+    opacity: 0.15;
+    transition: opacity 0.3s, box-shadow 0.3s;
+    margin-bottom: 20px;
   }
-  .key-input:focus ~ .nope,
-  .input-area:focus-within .input-underline {
+  .auth-section:focus-within .input-line {
     opacity: 0.7;
+    box-shadow: 0 0 12px var(--phosphor-glow);
   }
 
-  /* Submit */
-  .submit-row {
+  .auth-controls {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding-bottom: 4px;
   }
 
   .submit-btn {
     background: transparent;
-    border: 1px solid rgba(51, 255, 136, 0.3);
+    border: 2px solid rgba(51,255,136,0.25);
+    border-radius: 8px;
     color: var(--phosphor);
-    font-family: 'Share Tech Mono', 'Courier New', monospace;
-    font-size: 0.8rem;
-    padding: 10px 28px;
-    letter-spacing: 3px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.27rem;
+    font-weight: 900;
+    padding: 16px 48px;
+    letter-spacing: 5px;
     text-transform: uppercase;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s;
     position: relative;
     overflow: hidden;
+    text-shadow: 0 0 20px var(--phosphor-glow), 0 0 50px rgba(51,255,136,0.06);
   }
 
   .submit-btn::before {
     content: '';
     position: absolute;
     top: 0; left: -100%; width: 100%; height: 100%;
-    background: linear-gradient(90deg, transparent, var(--phosphor-glow), transparent);
-    transition: left 0.4s;
+    background: linear-gradient(90deg, transparent, rgba(51,255,136,0.06), transparent);
+    transition: left 0.5s;
   }
-
   .submit-btn:hover::before { left: 100%; }
   .submit-btn:hover {
     border-color: var(--phosphor);
-    box-shadow: 0 0 20px var(--phosphor-glow);
-    text-shadow: 0 0 8px var(--phosphor-glow);
+    box-shadow: 0 0 25px var(--phosphor-glow), inset 0 0 20px rgba(51,255,136,0.02);
+    text-shadow: 0 0 10px rgba(51,255,136,0.3);
   }
+  .submit-btn:disabled { opacity: 0.3; cursor: default; }
 
-  .submit-btn:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  .status-indicator {
+  .status-pills-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 0.7rem;
-    color: var(--phosphor-dim);
-    letter-spacing: 1px;
+    gap: 12px;
   }
 
-  .status-dot-live {
-    width: 6px; height: 6px; border-radius: 50%;
+  /* Breathing system pill — dot inside, glow pulses */
+  @keyframes pillBreathe {
+    0%   { box-shadow: 0 0 12px rgba(51,255,136,0.1), 0 0 24px rgba(51,255,136,0.04);
+           text-shadow: 0 0 10px var(--phosphor-glow); }
+    50%  { box-shadow: 0 0 20px rgba(51,255,136,0.25), 0 0 40px rgba(51,255,136,0.1);
+           text-shadow: 0 0 16px rgba(51,255,136,0.3), 0 0 30px rgba(51,255,136,0.1); }
+    100% { box-shadow: 0 0 12px rgba(51,255,136,0.1), 0 0 24px rgba(51,255,136,0.04);
+           text-shadow: 0 0 10px var(--phosphor-glow); }
+  }
+
+  .status-pill.breathing {
+    animation: pillBreathe 2s ease-in-out infinite;
+  }
+
+  .pill-dot {
+    width: 8px; height: 8px; border-radius: 50%;
     background: var(--phosphor);
+    box-shadow: 0 0 8px var(--phosphor), 0 0 16px rgba(51,255,136,0.3);
+    display: inline-block;
+    margin-right: 8px;
     animation: blink 2s ease-in-out infinite;
+    vertical-align: middle;
+  }
+
+  /* Typing cursor */
+  .cursor {
+    display: inline-block;
+    width: 14px;
+    height: 26px;
+    background: var(--phosphor);
+    animation: blink 0.8s step-end infinite;
+    vertical-align: text-bottom;
+    box-shadow: 0 0 12px var(--phosphor-glow), 0 0 24px rgba(51,255,136,0.06);
+    border-radius: 1px;
   }
 
   /* Error state */
   .error {
-    padding: 10px 14px;
-    margin-bottom: 20px;
-    border-left: 2px solid var(--red);
-    background: var(--red-glow);
+    padding: 10px 16px;
+    margin: 8px 0;
+    border-left: 3px solid var(--red);
+    background: rgba(255,51,68,0.06);
     color: var(--red);
-    font-size: 0.78rem;
-    letter-spacing: 0.5px;
-    line-height: 1.6;
-  }
-
-  .error::before {
-    content: '[ERR] ';
-    font-weight: bold;
-  }
-
-  /* Footer */
-  .term-footer {
-    margin-top: 20px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(51, 255, 136, 0.1);
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.6rem;
-    color: rgba(51, 255, 136, 0.25);
+    font-size: 1.05rem;
+    font-weight: 900;
     letter-spacing: 1px;
-    text-transform: uppercase;
+    border-radius: 0 8px 8px 0;
+    text-shadow: 0 0 8px rgba(255,51,68,0.15);
   }
+  .error::before { content: '[ERR] '; font-weight: 900; }
 
   /* ================================================ */
   /* ACCESS GRANTED overlay                           */
   /* ================================================ */
   .access-overlay {
-    display: none;
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 200;
-    background: var(--bg);
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 200; background: var(--bg);
+    flex-direction: column; align-items: center; justify-content: center;
+    font-family: 'Orbitron', sans-serif; text-transform: uppercase; font-weight: 900;
   }
-
-  .access-overlay.active {
-    display: flex;
-  }
-
-  /* Scanlines on overlay too */
+  .access-overlay.active { display: flex; }
   .access-overlay::before {
-    content: '';
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      rgba(0, 0, 0, 0) 0px,
-      rgba(0, 0, 0, 0) 1px,
-      rgba(0, 0, 0, 0.15) 1px,
-      rgba(0, 0, 0, 0.15) 2px
-    );
-    pointer-events: none;
-    z-index: 201;
+    content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 1px, rgba(0,0,0,0.12) 1px, rgba(0,0,0,0.12) 2px);
+    pointer-events: none; z-index: 201;
   }
-
   @keyframes glitchIn {
-    0% { opacity: 0; transform: translateX(-20px) skewX(-5deg); filter: blur(4px); }
+    0%  { opacity: 0; transform: translateX(-20px) skewX(-5deg); filter: blur(4px); }
     20% { opacity: 1; transform: translateX(5px) skewX(2deg); filter: blur(0); }
     30% { transform: translateX(-3px) skewX(-1deg); }
-    40% { transform: translateX(2px) skewX(0.5deg); }
     50% { transform: translateX(0) skewX(0); }
-    100% { opacity: 1; transform: translateX(0) skewX(0); }
+    100% { transform: translateX(0) skewX(0); }
   }
-
   @keyframes grantedPulse {
-    0% { text-shadow: 0 0 10px var(--phosphor-glow); }
-    50% { text-shadow: 0 0 40px rgba(51, 255, 136, 0.5), 0 0 80px rgba(51, 255, 136, 0.2); }
+    0%   { text-shadow: 0 0 10px var(--phosphor-glow); }
+    50%  { text-shadow: 0 0 40px rgba(51,255,136,0.5), 0 0 80px rgba(51,255,136,0.2); }
     100% { text-shadow: 0 0 10px var(--phosphor-glow); }
   }
-
-  @keyframes lineExpand {
-    0% { width: 0; }
-    100% { width: 300px; }
-  }
-
-  @keyframes fadeUp {
-    0% { opacity: 0; transform: translateY(10px); }
-    100% { opacity: 1; transform: translateY(0); }
-  }
+  @keyframes lineExpand { 0% { width: 0; } 100% { width: 340px; } }
 
   .granted-text {
-    font-size: 2.8rem;
-    font-weight: bold;
-    color: var(--phosphor);
-    letter-spacing: 12px;
-    text-transform: uppercase;
+    font-size: 3rem; color: var(--phosphor);
+    letter-spacing: 14px;
     animation: glitchIn 0.6s ease-out, grantedPulse 2s ease-in-out 0.6s infinite;
     text-shadow: 0 0 20px var(--phosphor-glow);
   }
-
   .granted-line {
-    width: 0;
-    height: 1px;
-    background: var(--phosphor);
-    margin: 16px 0;
+    width: 0; height: 2px; background: var(--phosphor); margin: 16px 0;
     animation: lineExpand 0.4s ease-out 0.3s forwards;
-    box-shadow: 0 0 8px var(--phosphor-glow);
+    box-shadow: 0 0 10px var(--phosphor-glow);
   }
-
   .granted-sub {
-    font-size: 0.8rem;
-    color: var(--phosphor-dim);
-    letter-spacing: 4px;
-    text-transform: uppercase;
-    opacity: 0;
-    animation: fadeUp 0.4s ease-out 0.7s forwards;
+    font-size: 0.75rem; color: var(--phosphor-dim); letter-spacing: 5px;
+    opacity: 0; animation: fadeUp 0.4s ease-out 0.7s forwards;
   }
-
   .granted-loading {
-    margin-top: 24px;
-    font-size: 0.7rem;
-    color: rgba(51, 255, 136, 0.3);
-    letter-spacing: 2px;
-    opacity: 0;
-    animation: fadeUp 0.3s ease-out 1.2s forwards;
+    margin-top: 24px; font-size: 0.65rem; color: rgba(51,255,136,0.3);
+    letter-spacing: 3px; opacity: 0; animation: fadeUp 0.3s ease-out 1.2s forwards;
   }
-
   .granted-loading .loading-bar {
-    width: 200px;
-    height: 2px;
-    background: rgba(51, 255, 136, 0.1);
-    margin-top: 8px;
-    border-radius: 1px;
-    overflow: hidden;
+    width: 220px; height: 3px; background: rgba(51,255,136,0.1);
+    margin-top: 10px; overflow: hidden; border-radius: 2px;
   }
-
   .granted-loading .loading-fill {
-    height: 100%;
-    background: var(--phosphor);
-    width: 0;
+    height: 100%; background: var(--phosphor); width: 0;
     animation: loadFill 1s ease-in-out 1.4s forwards;
-    box-shadow: 0 0 6px var(--phosphor);
+    box-shadow: 0 0 8px var(--phosphor); border-radius: 2px;
   }
+  @keyframes loadFill { 0% { width: 0; } 100% { width: 100%; } }
 
-  @keyframes loadFill {
-    0% { width: 0; }
-    100% { width: 100%; }
-  }
-
-  /* DENIED shake */
   @keyframes denied-shake {
     0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-8px); }
-    40% { transform: translateX(8px); }
-    60% { transform: translateX(-4px); }
-    80% { transform: translateX(4px); }
+    20% { transform: translateX(-6px); } 40% { transform: translateX(6px); }
+    60% { transform: translateX(-3px); } 80% { transform: translateX(3px); }
   }
+  .denied-shake { animation: denied-shake 0.4s ease-out; }
 
-  .denied-shake {
-    animation: denied-shake 0.4s ease-out;
-  }
-
-  @media (max-width: 480px) {
-    .terminal { padding: 24px 20px; }
+  @media (max-width: 860px) {
+    .terminal-frame { height: calc(100vh - 24px); border-radius: 10px; }
+    .typed-title { font-size: 1.8rem; letter-spacing: 8px; }
+    .check-row { font-size: 0.65rem; }
+    .status-pill { min-width: 70px; font-size: 0.5rem; padding: 3px 10px; }
     .granted-text { font-size: 1.8rem; letter-spacing: 8px; }
-    .ascii-brand { font-size: 0.5rem; }
   }
 </style>
 </head>
 <body>
 
-<!-- ACCESS GRANTED overlay -->
 <div class="access-overlay" id="accessOverlay">
   <div class="granted-text">ACCESS GRANTED</div>
   <div class="granted-line"></div>
-  <div class="granted-sub">Initializing secure session</div>
+  <div class="granted-sub">INITIALIZING SECURE SESSION</div>
   <div class="granted-loading">
     LOADING DASHBOARD
     <div class="loading-bar"><div class="loading-fill"></div></div>
   </div>
 </div>
 
-<div class="crt-screen">
-  <div class="terminal" id="terminal">
+<div class="terminal-frame" id="frame">
 
-    <div class="term-header">
-      <div class="term-dots">
-        <div class="term-dot"></div>
-        <div class="term-dot"></div>
-        <div class="term-dot"></div>
-      </div>
-      <span>openclaw://auth</span>
+  <div class="term-bar" id="termBar">
+    <div class="bar-dots">
+      <div class="bar-dot" id="dot1"></div>
+      <div class="bar-dot" id="dot2"></div>
+      <div class="bar-dot" id="dot3"></div>
     </div>
+    <span class="bar-pill">OPENCLAW://SECURE-TERMINAL</span>
+  </div>
 
-    <div class="ascii-brand" id="asciiBrand"></div>
-
-    <div class="system-id">OPENCLAW TRADER</div>
-    <div class="system-sub">Autonomous Trading Terminal v4.6</div>
-
-    <div class="boot-log" id="bootLog"></div>
+  <div class="term-body" id="termBody">
+    <div id="output"></div>
 
     <!-- ERROR_PLACEHOLDER -->
 
     <form id="loginForm" onsubmit="return handleSubmit(event)">
       <input type="hidden" name="csrf_token" id="csrfToken" value="CSRF_TOKEN_PLACEHOLDER">
-
-      <div class="input-area">
-        <div class="prompt-line">
-          <span class="prompt-symbol">&gt;</span>
-          <input
-            type="password"
-            id="password"
-            name="password"
-            class="key-input"
-            placeholder="enter access key"
-            autocomplete="current-password"
-            required
-            autofocus
-          >
-        </div>
-        <div class="input-underline"></div>
-      </div>
-
-      <div class="submit-row">
-        <button type="submit" class="submit-btn" id="submitBtn">AUTHENTICATE</button>
-        <div class="status-indicator">
-          <div class="status-dot-live"></div>
-          <span>SYSTEM ONLINE</span>
+      <div class="auth-section" id="authSection">
+        <div class="auth-inner">
+          <div class="prompt-row">
+            <span class="prompt-caret">&gt;</span>
+            <input type="password" id="password" name="password" class="key-input"
+                   placeholder="ENTER ACCESS KEY" autocomplete="current-password" required>
+          </div>
+          <div class="input-line"></div>
+          <div class="auth-controls">
+            <button type="submit" class="submit-btn" id="submitBtn">AUTHENTICATE</button>
+            <div class="status-pills-row">
+              <span class="status-pill verified breathing"><span class="pill-dot"></span>SYSTEM ONLINE</span>
+              <span class="status-pill verified breathing"><span class="pill-dot"></span>SYSTEM SECURE</span>
+            </div>
+          </div>
         </div>
       </div>
     </form>
-
-    <div class="term-footer">
-      <span>CSRF PROTECTED</span>
-      <span>RATE LIMITED</span>
-      <span>ENCRYPTED SESSION</span>
-    </div>
   </div>
 </div>
 
 <script>
-// === ASCII art typed on load ===
-const ASCII_ART = [
-  '    ___  ____  _____ _  __  _____ _      _   _    __',
-  '   / _ \\|  _ \\| ____| \\| |/ ____| |    / \\ | |  / /',
-  '  | | | | |_) |  _| |  ` | |    | |   / _ \\| | / / ',
-  '  | |_| |  __/| |___| |\\  | |____| |_ / ___ \\ |/ /  ',
-  '   \\___/|_|   |_____|_| \\_|\\_____|___/_/   \\_\\__/   ',
-];
+const output = document.getElementById('output');
+const frame = document.getElementById('frame');
+const termBar = document.getElementById('termBar');
+const termBody = document.getElementById('termBody');
 
-const BOOT_LINES = [
-  ['[SYS]  kernel loaded', 'ok'],
-  ['[NET]  supabase connection .... established', 'ok'],
-  ['[GPU]  ollama runtime ......... standing by', 'ok'],
-  ['[MKT]  alpaca api ............. authenticated', 'ok'],
-  ['[SEC]  session encryption ..... active', 'ok'],
-  ['', ''],
-  ['AWAITING OPERATOR CREDENTIALS', 'warn'],
-];
-
-// Type out ASCII art
-const brandEl = document.getElementById('asciiBrand');
-let artIdx = 0;
-function typeArt() {
-  if (artIdx < ASCII_ART.length) {
-    brandEl.textContent += ASCII_ART[artIdx] + '\n';
-    artIdx++;
-    setTimeout(typeArt, 60);
-  } else {
-    typeBoot();
-  }
+function scrollToBottom() {
+  termBody.scrollTop = termBody.scrollHeight;
 }
 
-// Type boot log lines
-const bootEl = document.getElementById('bootLog');
-let bootIdx = 0;
-function typeBoot() {
-  if (bootIdx < BOOT_LINES.length) {
-    const [text, cls] = BOOT_LINES[bootIdx];
-    if (text) {
-      const line = document.createElement('div');
-      line.innerHTML = '<span class="' + cls + '">' + text + '</span>';
-      bootEl.appendChild(line);
-    } else {
-      bootEl.appendChild(document.createElement('br'));
+const SEQUENCE = [
+  { action: 'frame' },
+  { action: 'wait', ms: 400 },
+  { action: 'bar' },
+  { action: 'wait', ms: 300 },
+
+  // Title
+  { action: 'title', text: 'OPENCLAW' },
+  { action: 'wait', ms: 150 },
+  { action: 'subtitle', text: 'AUTONOMOUS TRADING TERMINAL' },
+  { action: 'wait', ms: 500 },
+
+  // System init
+  { action: 'section', text: 'SYSTEM INITIALIZATION' },
+  { action: 'wait', ms: 150 },
+
+  { action: 'check', tag: 'SYS', text: 'LOADING KERNEL MODULES', result: 'LOADED', delay: 350 },
+  { action: 'check', tag: 'MEM', text: 'ALLOCATING SHARED MEMORY', result: '8192 MB', delay: 250 },
+  { action: 'check', tag: 'GPU', text: 'INITIALIZING CUDA RUNTIME', result: 'ORIN NANO', delay: 300 },
+  { action: 'check', tag: 'NET', text: 'ESTABLISHING SUPABASE TUNNEL', result: 'CONNECTED', delay: 450 },
+  { action: 'check', tag: 'MKT', text: 'AUTHENTICATING ALPACA API', result: 'PAPER MODE', delay: 350 },
+  { action: 'check', tag: 'LLM', text: 'LOADING OLLAMA QWEN 2.5', result: 'STANDING BY', delay: 400 },
+  { action: 'check', tag: 'VEC', text: 'MOUNTING PGVECTOR HNSW INDEX', result: '768-DIM', delay: 300 },
+  { action: 'check', tag: 'RAG', text: 'CALIBRATING TUMBLER ENGINE', result: '5 LAYERS', delay: 350 },
+  { action: 'check', tag: 'ING', text: 'ARMING CATALYST PIPELINE', result: '4 SOURCES', delay: 280 },
+  { action: 'dot', idx: 0 },
+
+  // Security
+  { action: 'wait', ms: 350 },
+  { action: 'section', text: 'SECURITY VERIFICATION' },
+  { action: 'wait', ms: 150 },
+
+  { action: 'check', tag: 'SEC', text: 'CSRF TOKEN ROTATION', result: 'ACTIVE', delay: 250 },
+  { action: 'check', tag: 'SEC', text: 'BRUTE FORCE RATE LIMITER', result: '5/5MIN', delay: 200 },
+  { action: 'check', tag: 'SEC', text: 'SESSION ENCRYPTION', result: 'SHA-256', delay: 300 },
+  { action: 'check', tag: 'SEC', text: 'SECRET EXPOSURE SCAN', result: 'CLEAN', delay: 350 },
+  { action: 'check', tag: 'SEC', text: 'ROW LEVEL SECURITY POLICIES', result: '14 TABLES', delay: 250 },
+  { action: 'check', tag: 'SEC', text: 'CONSTANT-TIME COMPARISON', result: 'VERIFIED', delay: 200 },
+  { action: 'dot', idx: 1 },
+
+  // Final
+  { action: 'wait', ms: 250 },
+  { action: 'check', tag: 'RDY', text: 'ALL SYSTEMS NOMINAL', result: 'OPERATIONAL', delay: 200, bright: true },
+  { action: 'dot', idx: 2 },
+  { action: 'wait', ms: 350 },
+  { action: 'awaiting', text: 'AWAITING OPERATOR CREDENTIALS' },
+  { action: 'wait', ms: 200 },
+  { action: 'auth' },
+];
+
+let seqIdx = 0;
+
+function addElement(tag, cls, html) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (html) el.innerHTML = html;
+  output.appendChild(el);
+  scrollToBottom();
+  return el;
+}
+
+function nextStep() {
+  if (seqIdx >= SEQUENCE.length) return;
+  const s = SEQUENCE[seqIdx++];
+
+  switch (s.action) {
+
+    case 'frame':
+      frame.classList.add('visible');
+      setTimeout(nextStep, 200);
+      break;
+
+    case 'bar':
+      termBar.classList.add('visible');
+      setTimeout(nextStep, 100);
+      break;
+
+    case 'wait':
+      setTimeout(nextStep, s.ms);
+      break;
+
+    case 'title': {
+      const area = addElement('div', 'title-area');
+      const box = document.createElement('div');
+      box.className = 'title-box';
+      area.appendChild(box);
+      const title = document.createElement('span');
+      title.className = 'typed-title';
+      title.id = 'titleText';
+      box.appendChild(title);
+      const cur = document.createElement('span');
+      cur.className = 'cursor';
+      box.appendChild(cur);
+      let i = 0;
+      (function tick() {
+        if (i < s.text.length) {
+          title.textContent += s.text[i++];
+          scrollToBottom();
+          setTimeout(tick, 60);
+        } else {
+          cur.remove();
+          title.classList.add('glow');
+          const divLine = document.createElement('div');
+          divLine.className = 'title-divider';
+          area.appendChild(divLine);
+          nextStep();
+        }
+      })();
+      break;
     }
-    bootIdx++;
-    setTimeout(typeBoot, 80);
+
+    case 'subtitle': {
+      const area = output.querySelector('.title-area');
+      const sub = document.createElement('span');
+      sub.className = 'typed-sub';
+      area.appendChild(sub);
+      let i = 0;
+      (function tick() {
+        if (i < s.text.length) {
+          sub.textContent += s.text[i++];
+          setTimeout(tick, 20);
+        } else { nextStep(); }
+      })();
+      break;
+    }
+
+    case 'section':
+      addElement('div', 'section-header', s.text);
+      setTimeout(nextStep, 80);
+      break;
+
+    case 'check': {
+      const row = addElement('div', 'check-row');
+      row.innerHTML = '<span class="check-tag">' + s.tag + '</span>';
+
+      const textEl = document.createElement('span');
+      textEl.className = 'check-text';
+      row.appendChild(textEl);
+
+      // Dot trail — placeholder, dots added after text finishes typing
+      const trail = document.createElement('span');
+      trail.className = 'dot-trail';
+      row.appendChild(trail);
+
+      const pill = document.createElement('span');
+      pill.className = 'status-pill';
+      pill.textContent = s.result;
+      row.appendChild(pill);
+
+      // Type out the check text
+      let i = 0;
+      (function tick() {
+        if (i < s.text.length) {
+          textEl.textContent += s.text[i++];
+          scrollToBottom();
+          setTimeout(tick, 14);
+        } else {
+          // Measure available space and fill with dots
+          const trailWidth = trail.offsetWidth;
+          const dotSize = 5;
+          const dotGap = 6;
+          const numDots = Math.max(3, Math.floor((trailWidth - 20) / (dotSize + dotGap)));
+
+          const dots = [];
+          for (let d = 0; d < numDots; d++) {
+            const dot = document.createElement('span');
+            dot.className = 'trail-dot';
+            trail.appendChild(dot);
+            dots.push(dot);
+          }
+
+          // Animate dots sequentially, then light up pill
+          const dotDelay = Math.max(20, Math.floor((s.delay || 300) / (numDots + 2)));
+          let d = 0;
+          (function lightDot() {
+            if (d < numDots) {
+              const litClass = s.failed ? 'lit-red' : 'lit';
+              dots[d].classList.add(litClass);
+              d++;
+              scrollToBottom();
+              setTimeout(lightDot, dotDelay);
+            } else {
+              // All dots reached the pill — light it up
+              setTimeout(() => {
+                const cls = s.failed ? 'failed' : 'verified';
+                pill.classList.add(cls);
+                if (s.bright) pill.classList.add('bright');
+                scrollToBottom();
+                nextStep();
+              }, dotDelay);
+            }
+          })();
+        }
+      })();
+      break;
+    }
+
+    case 'dot': {
+      const dot = document.getElementById('dot' + (s.idx + 1));
+      if (dot) dot.classList.add('lit');
+      setTimeout(nextStep, 50);
+      break;
+    }
+
+    case 'awaiting': {
+      const el = addElement('div', 'awaiting-text');
+      let i = 0;
+      (function tick() {
+        if (i < s.text.length) {
+          el.textContent += s.text[i++];
+          scrollToBottom();
+          setTimeout(tick, 25);
+        } else { nextStep(); }
+      })();
+      break;
+    }
+
+    case 'auth': {
+      const auth = document.getElementById('authSection');
+      auth.classList.add('visible');
+      auth.style.display = 'block';
+      scrollToBottom();
+      setTimeout(() => { document.getElementById('password').focus(); }, 200);
+      break;
+    }
   }
 }
 
-// Start after small delay
-setTimeout(typeArt, 200);
+setTimeout(nextStep, 600);
 
-// === CSRF fetch ===
+// CSRF
 fetch('/login', { method: 'GET', credentials: 'same-origin' })
   .then(r => {
     const csrf = r.headers.get('X-CSRF-Token');
     if (csrf) document.getElementById('csrfToken').value = csrf;
-  })
-  .catch(() => {});
+  }).catch(() => {});
 
-// === Form submission with animation ===
+// Form
 async function handleSubmit(e) {
   e.preventDefault();
-
   const btn = document.getElementById('submitBtn');
   const pw = document.getElementById('password');
-  const terminal = document.getElementById('terminal');
   const csrf = document.getElementById('csrfToken').value;
-
   btn.disabled = true;
   btn.textContent = 'VERIFYING...';
 
   try {
-    const formData = new URLSearchParams();
-    formData.append('password', pw.value);
-    formData.append('csrf_token', csrf);
-
+    const fd = new URLSearchParams();
+    fd.append('password', pw.value);
+    fd.append('csrf_token', csrf);
     const resp = await fetch('/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-      credentials: 'same-origin',
-      redirect: 'manual',
+      body: fd.toString(), credentials: 'same-origin', redirect: 'manual',
     });
 
-    // 302 redirect = success (browser follows it for normal forms, but fetch with redirect:manual gives opaqueredirect)
-    if (resp.type === 'opaqueredirect' || resp.status === 302 || resp.status === 200) {
-      // Check if we actually got redirected (success) or got an error page back
-      if (resp.type === 'opaqueredirect' || resp.status === 302) {
-        showAccessGranted();
-        return false;
-      }
-
-      // If 200 but has error content, it's a failed login returned as HTML
-      const text = await resp.text();
-      if (text.includes('class="error"')) {
-        showDenied(terminal, btn, pw);
-        // Re-fetch CSRF for next attempt
-        const csrfResp = await fetch('/login', { credentials: 'same-origin' });
-        const newCsrf = csrfResp.headers.get('X-CSRF-Token');
-        if (newCsrf) document.getElementById('csrfToken').value = newCsrf;
-        return false;
-      }
-
-      // Ambiguous 200 — might be success with cookie set
-      showAccessGranted();
-      return false;
+    if (resp.type === 'opaqueredirect' || resp.status === 302) {
+      showGranted(); return false;
     }
-
-    // 401, 403, 429 = explicit failure
-    showDenied(terminal, btn, pw);
-    // Re-fetch CSRF
-    const csrfResp = await fetch('/login', { credentials: 'same-origin' });
-    const newCsrf = csrfResp.headers.get('X-CSRF-Token');
-    if (newCsrf) document.getElementById('csrfToken').value = newCsrf;
-
+    if (resp.status === 200) {
+      const text = await resp.text();
+      if (text.includes('class="error"')) { showDenied(btn, pw); reFetchCsrf(); return false; }
+      showGranted(); return false;
+    }
+    showDenied(btn, pw); reFetchCsrf();
   } catch (err) {
-    // Network error — try normal form submit as fallback
     document.getElementById('loginForm').action = '/login';
     document.getElementById('loginForm').method = 'POST';
     document.getElementById('loginForm').onsubmit = null;
     document.getElementById('loginForm').submit();
   }
-
   return false;
 }
 
-function showAccessGranted() {
-  document.getElementById('accessOverlay').classList.add('active');
-  // Redirect after animation plays
-  setTimeout(() => {
-    window.location.href = '/';
-  }, 2600);
+function reFetchCsrf() {
+  fetch('/login', { credentials: 'same-origin' }).then(r => {
+    const c = r.headers.get('X-CSRF-Token');
+    if (c) document.getElementById('csrfToken').value = c;
+  }).catch(() => {});
 }
 
-function showDenied(terminal, btn, pw) {
-  terminal.classList.add('denied-shake');
-  setTimeout(() => terminal.classList.remove('denied-shake'), 500);
+function showGranted() {
+  document.getElementById('accessOverlay').classList.add('active');
+  setTimeout(() => { window.location.href = '/'; }, 2600);
+}
 
-  // Flash red momentarily
-  terminal.style.borderColor = 'rgba(255, 51, 68, 0.4)';
-  terminal.style.boxShadow = '0 0 40px rgba(255, 51, 68, 0.1)';
-  setTimeout(() => {
-    terminal.style.borderColor = '';
-    terminal.style.boxShadow = '';
-  }, 800);
+function showDenied(btn, pw) {
+  frame.classList.add('denied-shake');
+  setTimeout(() => frame.classList.remove('denied-shake'), 500);
+  frame.style.borderColor = 'rgba(255,51,68,0.4)';
+  frame.style.boxShadow = '0 0 40px rgba(255,51,68,0.08)';
+  setTimeout(() => { frame.style.borderColor = ''; frame.style.boxShadow = ''; }, 800);
 
-  // Add denial line to boot log
-  const bootEl = document.getElementById('bootLog');
-  const line = document.createElement('div');
-  line.innerHTML = '<span style="color:var(--red)">[AUTH] ACCESS DENIED — invalid credentials</span>';
-  bootEl.appendChild(line);
+  // Add failed check row with red dot trail
+  const row = addElement('div', 'check-row');
+  row.innerHTML = '<span class="check-tag" style="color:var(--red);text-shadow:0 0 20px rgba(255,51,68,0.2)">AUTH</span><span class="check-text" style="color:var(--red);text-shadow:0 0 20px rgba(255,51,68,0.2)">ACCESS DENIED</span>';
+  const dtrail = document.createElement('span');
+  dtrail.className = 'dot-trail';
+  row.appendChild(dtrail);
+  const pill = document.createElement('span');
+  pill.className = 'status-pill failed';
+  pill.textContent = 'INVALID';
+  row.appendChild(pill);
+  // Fill dots after layout
+  requestAnimationFrame(() => {
+    const tw = dtrail.offsetWidth;
+    const nd = Math.max(3, Math.floor((tw - 20) / 11));
+    for (let d = 0; d < nd; d++) {
+      const dot = document.createElement('span');
+      dot.className = 'trail-dot lit-red';
+      dtrail.appendChild(dot);
+    }
+  });
+  scrollToBottom();
 
   btn.disabled = false;
   btn.textContent = 'AUTHENTICATE';

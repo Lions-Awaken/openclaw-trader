@@ -63,7 +63,7 @@ DECISION_THRESHOLDS = {
     # Below 0.20 = veto
 }
 
-TODAY = date.today().isoformat()
+TODAY = ""  # Reassigned at the start of run_inference()
 
 
 def sb_get(path: str, params: dict | None = None) -> list:
@@ -631,6 +631,9 @@ def run_inference(
     Returns dict with: inference_chain_id, final_confidence, final_decision,
     max_depth_reached, stopping_reason, patterns_matched, tumblers
     """
+    global TODAY
+    TODAY = date.today().isoformat()
+
     start_time = time.time()
     tumblers = []
     catalyst_event_ids = []

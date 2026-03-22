@@ -11,28 +11,92 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 from fastapi import Cookie, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 app = FastAPI(title="OpenClaw Trader Dashboard", docs_url=None, redoc_url=None)
+
+
+# ============================================================================
+# Security Headers Middleware
+# ============================================================================
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+
+# ============================================================================
+# Security: Global exception handler — never leak stack traces
+# ============================================================================
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+
+# ============================================================================
+# Input validation helpers
+# ============================================================================
+
+_UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+_SAFE_KEY_RE = re.compile(r'^[a-z][a-z0-9_]{1,60}$')
+_SAFE_NAME_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{0,60}$')
+_SAFE_TICKER_RE = re.compile(r'^[A-Z]{1,5}$')
+
+ALLOWED_BUDGET_KEYS = {"daily_claude_budget", "daily_perplexity_budget"}
+
+
+def _validate_uuid(val: str) -> str:
+    if not _UUID_RE.match(val):
+        raise HTTPException(status_code=400, detail="Invalid ID format")
+    return val
+
+
+def _validate_pipeline_name(val: str) -> str:
+    if not _SAFE_NAME_RE.match(val):
+        raise HTTPException(status_code=400, detail="Invalid pipeline name")
+    return val
+
+
+def _validate_ticker(val: str) -> str:
+    if not _SAFE_TICKER_RE.match(val.upper()):
+        raise HTTPException(status_code=400, detail="Invalid ticker")
+    return val.upper()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 ALPACA_KEY = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
 ALPACA_BASE = "https://paper-api.alpaca.markets"
+FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+SENTRY_AUTH_TOKEN = os.environ.get("SENTRY_AUTH_TOKEN", "")
+SENTRY_ORG = os.environ.get("SENTRY_ORG", "lions-awaken")
+SENTRY_PROJECT = os.environ.get("SENTRY_PROJECT", "streamsaber")
 
 # Auth config
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_KEY", "")
 if not DASHBOARD_PASSWORD:
     DASHBOARD_PASSWORD = secrets.token_urlsafe(24)
-    print(f"[Dashboard] Generated password: {DASHBOARD_PASSWORD}")
+    print("[Dashboard] WARNING: No DASHBOARD_KEY set. Using auto-generated password. Set DASHBOARD_KEY env var.")
 
 PASSWORD_HASH = hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
 
@@ -149,7 +213,7 @@ async def login_submit(
     password: str = Form(...),
     csrf_token: str = Form(""),
 ):
-    ip = request.client.host if request.client else "unknown"
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
 
     # Rate limit check
     if _check_rate_limit(ip):
@@ -213,6 +277,14 @@ def _login_error_page(error: str, csrf: str) -> str:
 
 
 # ============================================================================
+# Static Assets
+# ============================================================================
+
+@app.get("/theme.css")
+async def theme_css():
+    return FileResponse(Path(__file__).parent / "theme.css", media_type="text/css")
+
+
 # Dashboard Route
 # ============================================================================
 
@@ -401,7 +473,7 @@ async def get_system_history(request: Request, oc_session: str | None = Cookie(N
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(minutes=minutes)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/system_stats",
@@ -456,7 +528,7 @@ async def get_pipeline_runs(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     params = {
         "select": "id,pipeline_name,step_name,status,started_at,completed_at,duration_ms,error_message,metadata",
         "step_name": "eq.root",
@@ -465,6 +537,7 @@ async def get_pipeline_runs(
         "limit": "100",
     }
     if pipeline:
+        pipeline = _validate_pipeline_name(pipeline)
         params["pipeline_name"] = f"eq.{pipeline}"
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -481,7 +554,7 @@ async def get_pipeline_health(request: Request, oc_session: str | None = Cookie(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {"score": 0, "total": 0}
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/pipeline_runs",
@@ -512,6 +585,7 @@ async def get_pipeline_health(request: Request, oc_session: str | None = Cookie(
 async def get_pipeline_run_detail(run_id: str, request: Request, oc_session: str | None = Cookie(None)):
     """Single pipeline run with all child steps."""
     _require_auth(request, oc_session)
+    run_id = _validate_uuid(run_id)
     if not SUPABASE_URL:
         return {}
     async with httpx.AsyncClient() as client:
@@ -564,7 +638,7 @@ async def get_signal_evaluations(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/signal_evaluations",
@@ -702,7 +776,7 @@ async def get_predictions_live(request: Request, oc_session: str | None = Cookie
                 "expires_at": p.get("expires_at"),
                 "bid": q.get("bid", 0),
                 "ask": q.get("ask", 0),
-                "timestamp": datetime.now(timezone.utc).isoformat() if "datetime" in dir() else None,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
         return results
@@ -716,6 +790,7 @@ async def get_predictions_live(request: Request, oc_session: str | None = Cookie
 async def get_prediction_context(prediction_id: str, request: Request, oc_session: str | None = Cookie(None)):
     """Full decision-making context for a prediction: inference chain, catalysts, signals, reflections."""
     _require_auth(request, oc_session)
+    prediction_id = _validate_uuid(prediction_id)
     if not SUPABASE_URL:
         return {}
 
@@ -762,7 +837,7 @@ async def get_prediction_context(prediction_id: str, request: Request, oc_sessio
         signals = signals_resp.json() if signals_resp.status_code == 200 else []
 
         # 4. Get catalyst events for this ticker (last 7 days from prediction)
-        catalyst_cutoff = (datetime.fromisoformat(pred["created_at"].replace("Z", "+00:00")) - __import__("datetime").timedelta(days=7)).isoformat()
+        catalyst_cutoff = (datetime.fromisoformat(pred["created_at"].replace("Z", "+00:00")) - timedelta(days=7)).isoformat()
         catalysts_resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/catalyst_events",
             headers=sb_headers(),
@@ -849,7 +924,7 @@ async def get_inference_depth_distribution(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/inference_chains",
@@ -890,6 +965,7 @@ async def get_inference_depth_distribution(
 async def get_inference_chain_detail(chain_id: str, request: Request, oc_session: str | None = Cookie(None)):
     """Full chain with tumblers."""
     _require_auth(request, oc_session)
+    chain_id = _validate_uuid(chain_id)
     if not SUPABASE_URL:
         return {}
     async with httpx.AsyncClient() as client:
@@ -934,7 +1010,7 @@ async def get_catalysts_recent(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     params = {
         "select": "id,ticker,catalyst_type,headline,source,event_time,magnitude,direction,sentiment_score,affected_tickers,sector,actual_impact_pct",
         "event_time": f"gte.{cutoff}",
@@ -942,6 +1018,7 @@ async def get_catalysts_recent(
         "limit": "100",
     }
     if ticker:
+        ticker = _validate_ticker(ticker)
         params["ticker"] = f"eq.{ticker}"
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -958,7 +1035,7 @@ async def get_catalyst_stats(request: Request, oc_session: str | None = Cookie(N
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=30)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/catalyst_events",
@@ -1025,7 +1102,7 @@ async def get_economics_summary(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/cost_ledger",
@@ -1075,7 +1152,7 @@ async def get_economics_breakdown(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/cost_ledger",
@@ -1112,7 +1189,7 @@ async def get_economics_history(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/cost_ledger",
@@ -1217,6 +1294,9 @@ async def update_budget_config(
     if not config_key or value is None:
         raise HTTPException(status_code=400, detail="Missing config_key or value")
 
+    if config_key not in ALLOWED_BUDGET_KEYS:
+        raise HTTPException(status_code=400, detail="Invalid config key")
+
     try:
         value = float(value)
     except (ValueError, TypeError):
@@ -1227,7 +1307,8 @@ async def update_budget_config(
 
     async with httpx.AsyncClient() as client:
         resp = await client.patch(
-            f"{SUPABASE_URL}/rest/v1/budget_config?config_key=eq.{config_key}",
+            f"{SUPABASE_URL}/rest/v1/budget_config",
+            params={"config_key": f"eq.{config_key}"},
             headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
             json={"value": value, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": "dashboard_ui"},
         )
@@ -1295,7 +1376,7 @@ async def get_rag_activity(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SUPABASE_URL}/rest/v1/pipeline_runs",
@@ -1309,6 +1390,289 @@ async def get_rag_activity(
             },
         )
         return resp.json() if resp.status_code == 200 else []
+
+
+# ============================================================================
+# ============================================================================
+# SIT-REP: Decision Intelligence Briefing
+# ============================================================================
+
+@app.get("/api/sitrep")
+async def get_sitrep(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 30,
+):
+    """Trade decisions enriched with inference chains, catalysts, and signal data."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # Get trades
+        trades_resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/trade_decisions",
+            headers=sb_headers(),
+            params={
+                "select": "id,ticker,action,entry_price,exit_price,pnl,outcome,signals_fired,hold_days,reasoning,what_worked,improvement,created_at",
+                "created_at": f"gte.{cutoff}",
+                "order": "created_at.desc",
+                "limit": "50",
+            },
+        )
+        trades = trades_resp.json() if trades_resp.status_code == 200 else []
+
+        # Get inference chains for same period
+        chains_resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/inference_chains",
+            headers=sb_headers(),
+            params={
+                "select": "id,ticker,chain_date,max_depth_reached,final_confidence,final_decision,stopping_reason,tumblers,catalyst_event_ids,reasoning_summary,actual_outcome,actual_pnl,created_at",
+                "chain_date": f"gte.{cutoff[:10]}",
+                "order": "created_at.desc",
+                "limit": "100",
+            },
+        )
+        chains = chains_resp.json() if chains_resp.status_code == 200 else []
+
+        # Get signal evaluations for same period
+        signals_resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/signal_evaluations",
+            headers=sb_headers(),
+            params={
+                "select": "id,ticker,scan_date,scan_type,trend,momentum,volume,fundamental,sentiment,flow,total_score,decision,reasoning,created_at",
+                "scan_date": f"gte.{cutoff[:10]}",
+                "order": "created_at.desc",
+                "limit": "100",
+            },
+        )
+        signals = signals_resp.json() if signals_resp.status_code == 200 else []
+
+        # Get recent catalysts
+        catalysts_resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/catalyst_events",
+            headers=sb_headers(),
+            params={
+                "select": "id,ticker,catalyst_type,headline,direction,magnitude,sentiment_score,event_time",
+                "event_time": f"gte.{cutoff}",
+                "order": "event_time.desc",
+                "limit": "100",
+            },
+        )
+        catalysts = catalysts_resp.json() if catalysts_resp.status_code == 200 else []
+
+        # Index chains and signals by ticker for matching
+        chains_by_ticker: dict = {}
+        for c in chains:
+            t = c.get("ticker", "")
+            if t not in chains_by_ticker:
+                chains_by_ticker[t] = []
+            chains_by_ticker[t].append(c)
+
+        signals_by_ticker: dict = {}
+        for s in signals:
+            t = s.get("ticker", "")
+            if t not in signals_by_ticker:
+                signals_by_ticker[t] = []
+            signals_by_ticker[t].append(s)
+
+        catalysts_by_ticker: dict = {}
+        for cat in catalysts:
+            t = cat.get("ticker", "")
+            if t:
+                if t not in catalysts_by_ticker:
+                    catalysts_by_ticker[t] = []
+                catalysts_by_ticker[t].append(cat)
+
+        # Build enriched results
+        results = []
+
+        # Include trades with their matched chains/signals/catalysts
+        for trade in trades:
+            ticker = trade.get("ticker", "")
+            entry = {
+                "type": "trade",
+                "trade": trade,
+                "chains": chains_by_ticker.get(ticker, [])[:3],
+                "signals": signals_by_ticker.get(ticker, [])[:3],
+                "catalysts": catalysts_by_ticker.get(ticker, [])[:5],
+            }
+            results.append(entry)
+
+        # Also include inference chains that didn't result in trades (watch/skip/veto)
+        for chain in chains:
+            if chain.get("final_decision") in ("watch", "skip", "veto"):
+                ticker = chain.get("ticker", "")
+                entry = {
+                    "type": "analysis",
+                    "chain": chain,
+                    "signals": signals_by_ticker.get(ticker, [])[:2],
+                    "catalysts": catalysts_by_ticker.get(ticker, [])[:3],
+                }
+                results.append(entry)
+
+        return results[:60]
+
+
+# ============================================================================
+# Latency Monitor
+# ============================================================================
+
+@app.get("/api/health/latency")
+async def get_latency(request: Request, oc_session: str | None = Cookie(None)):
+    """Measure round-trip latency to Alpaca (NYSE data feed)."""
+    _require_auth(request, oc_session)
+    import time as _time
+
+    result = {"nyse_ms": None, "timestamp": datetime.now(timezone.utc).isoformat()}
+
+    # Ping Alpaca's market data endpoint — this is the actual path to NYSE quotes
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            start = _time.monotonic()
+            r = await client.get(
+                "https://data.alpaca.markets/v2/stocks/SPY/quotes/latest",
+                headers={
+                    "APCA-API-KEY-ID": ALPACA_KEY,
+                    "APCA-API-SECRET-KEY": ALPACA_SECRET,
+                },
+            )
+            elapsed = (_time.monotonic() - start) * 1000
+            if r.status_code == 200:
+                result["nyse_ms"] = round(elapsed)
+    except Exception:
+        pass
+
+    return result
+
+
+# ============================================================================
+# Real Stack Health Checks
+# ============================================================================
+
+@app.get("/api/health/stack")
+async def get_stack_health(request: Request, oc_session: str | None = Cookie(None)):
+    """Real health checks against every service in the tech stack."""
+    _require_auth(request, oc_session)
+
+    results = {}
+
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        # 1. SUPABASE — query a table
+        try:
+            r = await client.get(
+                f"{SUPABASE_URL}/rest/v1/budget_config",
+                headers=sb_headers(),
+                params={"select": "id", "limit": "1"},
+            )
+            results["supabase"] = r.status_code == 200
+        except Exception:
+            results["supabase"] = False
+
+        # 2. ALPACA — hit account endpoint
+        try:
+            r = await client.get(
+                f"{ALPACA_BASE}/v2/account",
+                headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
+            )
+            results["alpaca"] = r.status_code == 200
+        except Exception:
+            results["alpaca"] = False
+
+        # 3. OLLAMA — check heartbeat from Supabase (written by ridley)
+        try:
+            r = await client.get(
+                f"{SUPABASE_URL}/rest/v1/stack_heartbeats",
+                headers=sb_headers(),
+                params={"service": "eq.ollama", "select": "last_seen", "limit": "1"},
+            )
+            if r.status_code == 200 and r.json():
+                last_seen = r.json()[0].get("last_seen", "")
+                # Consider alive if heartbeat within last 10 minutes
+                cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+                results["ollama"] = last_seen > cutoff
+            else:
+                results["ollama"] = False
+        except Exception:
+            results["ollama"] = False
+
+        # 4. FINNHUB — hit the quote endpoint (free, no rate limit concern for 1 call)
+        try:
+            if FINNHUB_KEY:
+                r = await client.get(
+                    "https://finnhub.io/api/v1/quote",
+                    params={"symbol": "AAPL", "token": FINNHUB_KEY},
+                )
+                results["finnhub"] = r.status_code == 200 and r.json().get("c", 0) > 0
+            else:
+                results["finnhub"] = False
+        except Exception:
+            results["finnhub"] = False
+
+        # 5. SENTRY — hit the projects API
+        try:
+            if SENTRY_AUTH_TOKEN:
+                r = await client.get(
+                    f"https://sentry.io/api/0/projects/{SENTRY_ORG}/{SENTRY_PROJECT}/",
+                    headers={"Authorization": f"Bearer {SENTRY_AUTH_TOKEN}"},
+                )
+                results["sentry"] = r.status_code == 200
+            else:
+                results["sentry"] = False
+        except Exception:
+            results["sentry"] = False
+
+        # 6. PGVECTOR — run the match function with a dummy vector to confirm extension works
+        try:
+            r = await client.get(
+                f"{SUPABASE_URL}/rest/v1/signal_evaluations",
+                headers={**sb_headers(), "Prefer": "count=exact"},
+                params={"select": "id", "embedding": "not.is.null", "limit": "0"},
+            )
+            # If we can query the embedding column without error, pgvector is alive
+            results["pgvector"] = r.status_code == 200
+        except Exception:
+            results["pgvector"] = False
+
+        # 7. TUMBLER ENGINE — check heartbeat from Supabase (written by ridley)
+        try:
+            r = await client.get(
+                f"{SUPABASE_URL}/rest/v1/stack_heartbeats",
+                headers=sb_headers(),
+                params={"service": "eq.tumbler", "select": "last_seen", "limit": "1"},
+            )
+            if r.status_code == 200 and r.json():
+                last_seen = r.json()[0].get("last_seen", "")
+                cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+                results["tumbler"] = last_seen > cutoff
+            else:
+                results["tumbler"] = False
+        except Exception:
+            results["tumbler"] = False
+
+        # 8. CLAUDE — validate API key without consuming tokens
+        # Send intentionally invalid request (empty messages) — 400 = key valid, 401 = key invalid
+        try:
+            if ANTHROPIC_API_KEY:
+                r = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={"model": "claude-sonnet-4-6-20250514", "max_tokens": 1, "messages": []},
+                )
+                # 400 = key valid but bad request (expected), 401/403 = key invalid
+                results["claude"] = r.status_code in (200, 400, 429, 529)
+            else:
+                results["claude"] = False
+        except Exception:
+            results["claude"] = False
+
+    return results
 
 
 # ============================================================================
@@ -1362,7 +1726,7 @@ async def get_tuning_telemetry(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     params = {
         "select": "pipeline_name,wall_clock_ms,ram_peak_mb,avg_gpu_pct,gpu_temp_max_c,ollama_avg_tokens_per_sec,embedding_avg_ms,embedding_count,claude_call_count,step_count,thermal_throttle_events,power_draw_avg_watts,created_at",
         "created_at": f"gte.{cutoff}",
@@ -1370,6 +1734,7 @@ async def get_tuning_telemetry(
         "limit": "200",
     }
     if profile_id:
+        profile_id = _validate_uuid(profile_id)
         params["tuning_profile_id"] = f"eq.{profile_id}"
 
     async with httpx.AsyncClient() as client:

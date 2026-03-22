@@ -26,8 +26,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
-TODAY = date.today()
-WEEK_START = (TODAY - timedelta(days=TODAY.weekday())).isoformat()
+TODAY = date.today()  # Reassigned at the start of run()
+WEEK_START = ""  # Reassigned at the start of run()
 
 
 def sb_get(path: str, params: dict | None = None) -> list:
@@ -474,6 +474,10 @@ Respond ONLY with valid JSON, no markdown formatting."""
 
 
 def run():
+    global TODAY, WEEK_START
+    TODAY = date.today()
+    WEEK_START = (TODAY - timedelta(days=TODAY.weekday())).isoformat()
+
     tracer = PipelineTracer("meta_weekly", metadata={"week_start": WEEK_START})
 
     try:

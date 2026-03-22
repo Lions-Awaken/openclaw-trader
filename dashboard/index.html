@@ -4,26 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OpenClaw Trader</title>
+<link rel="stylesheet" href="/theme.css">
 <style>
+  /* Legacy variable mappings for existing dashboard JS */
   :root {
-    --bg: #0a0a0f;
-    --card: #12121a;
-    --border: #1e1e2e;
-    --text: #e0e0e8;
-    --dim: #6b6b80;
-    --green: #22c55e;
-    --red: #ef4444;
-    --gold: #eab308;
-    --cyan: #22d3ee;
-    --purple: #8b5cf6;
-    --orange: #f97316;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.6;
+    --card: var(--bg-card);
+    --dim: var(--text-dim);
+    --gold: var(--yellow);
   }
   .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
 
@@ -589,26 +576,97 @@
 </style>
 </head>
 <body>
-<div class="container">
+<div class="app-layout">
 
-  <div class="header">
-    <a href="/logout" class="logout-btn">Sign Out</a>
-    <h1>OpenClaw Trader</h1>
-    <div class="subtitle">Autonomous Swing Trading Agent on Jetson Orin Nano</div>
-    <div class="paper-badge" id="mode-badge">Paper Trading</div>
-  </div>
+  <!-- LEFT SIDEBAR — TELEMETRY -->
+  <aside class="telemetry-sidebar" id="telemetrySidebar">
+    <div class="telem-title-box">TELEMETRY</div>
 
-  <div class="nav">
-    <button class="active" onclick="showSection('dashboard')">Dashboard</button>
-    <button onclick="showSection('pipeline')">Pipeline</button>
-    <button onclick="showSection('trades')">Trade Log</button>
-    <button onclick="showSection('positions')">Positions</button>
-    <button onclick="showSection('predictions')">Predictions</button>
-    <button onclick="showSection('meta')">Meta-Learning</button>
-    <button onclick="showSection('catalysts')">Catalysts</button>
-    <button onclick="showSection('system')">System</button>
-    <button onclick="showSection('economics')">Economics</button>
-    <button onclick="showSection('about')">How It Works</button>
+    <div class="telem-gauge" id="telem-nyse">
+      <div class="telem-label">NYSE LATENCY</div>
+      <div class="telem-value" id="telem-nyse-val">---</div>
+      <div class="telem-unit">MS</div>
+      <div class="telem-bar-track"><div class="telem-bar-fill" id="telem-nyse-bar"></div></div>
+      <div class="telem-range"><span>0</span><span>50</span><span>120</span><span>250+</span></div>
+    </div>
+
+    <div class="telem-gauge" id="telem-supabase">
+      <div class="telem-label">SUPABASE</div>
+      <div class="telem-value" id="telem-sb-val">---</div>
+      <div class="telem-unit">MS</div>
+      <div class="telem-bar-track"><div class="telem-bar-fill" id="telem-sb-bar"></div></div>
+    </div>
+
+    <div class="telem-divider"></div>
+
+    <div class="telem-stat">
+      <div class="telem-label">MARKET STATUS</div>
+      <div class="telem-pill" id="telem-market">CHECKING</div>
+    </div>
+
+    <div class="telem-stat">
+      <div class="telem-label">CLAUDE BUDGET</div>
+      <div class="telem-value" id="telem-claude-spend" style="font-size:1rem">---</div>
+      <div class="telem-bar-track"><div class="telem-bar-fill" id="telem-claude-bar"></div></div>
+    </div>
+
+    <div class="telem-stat">
+      <div class="telem-label">PIPELINE HEALTH</div>
+      <div class="telem-value" id="telem-health" style="font-size:1.4rem">--</div>
+    </div>
+
+    <div class="telem-divider"></div>
+
+    <div class="telem-stat">
+      <div class="telem-label">LAST UPDATED</div>
+      <div class="telem-value" id="telem-updated" style="font-size:0.65rem;color:var(--text-dim)">---</div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <div class="container">
+
+  <div class="app-header">
+
+    <div class="header-brand">
+      <div class="title-box-tight"><h1>OpenClaw Trader</h1></div>
+      <div class="subtitle">Autonomous Trading Agent</div>
+      <div class="paper-badge" id="mode-badge">Paper Trading</div>
+      <a href="/logout" class="logout-btn header-logout">Sign Out</a>
+
+      <div class="stack-status" id="stackStatus">
+        <span class="stack-pill" id="stack-supabase">Supabase</span>
+        <span class="stack-pill" id="stack-alpaca">Alpaca</span>
+        <span class="stack-pill" id="stack-ollama">Ollama</span>
+        <span class="stack-pill" id="stack-finnhub">Finnhub</span>
+        <span class="stack-pill" id="stack-sentry">Sentry</span>
+        <span class="stack-pill" id="stack-pgvector">pgVector</span>
+        <span class="stack-pill" id="stack-tumbler">Tumbler</span>
+        <span class="stack-pill" id="stack-claude">Claude</span>
+        <span class="stack-pill latency-pill" id="nyse-latency">NYSE ---</span>
+      </div>
+    </div>
+
+    <div class="header-nav">
+      <div class="nav-row">
+        <button class="nav-pill active" onclick="showSection('dashboard')">Dashboard</button>
+        <button class="nav-pill" onclick="showSection('pipeline')">Pipeline</button>
+        <button class="nav-pill" onclick="showSection('trades')">Trade Log</button>
+        <button class="nav-pill" onclick="showSection('positions')">Positions</button>
+        <button class="nav-pill" onclick="showSection('predictions')">Predictions</button>
+      </div>
+      <div class="nav-row">
+        <button class="nav-pill" onclick="showSection('meta')">Meta-Learning</button>
+        <button class="nav-pill" onclick="showSection('catalysts')">Catalysts</button>
+        <button class="nav-pill" onclick="showSection('system')">System</button>
+        <button class="nav-pill" onclick="showSection('economics')">Economics</button>
+        <button class="nav-pill" onclick="showSection('sitrep')">Sit-Rep</button>
+      </div>
+      <div class="nav-row">
+        <button class="nav-pill" onclick="showSection('buildlog')">Build Log</button>
+        <button class="nav-pill" onclick="showSection('about')">How It Works</button>
+      </div>
+    </div>
   </div>
 
   <!-- DASHBOARD -->
@@ -939,6 +997,47 @@
     </div>
   </div>
 
+  <!-- SIT-REP -->
+  <div id="section-sitrep" class="section">
+    <div class="buildlog-frame">
+      <div class="buildlog-header">
+        <div class="buildlog-dots">
+          <span class="buildlog-dot lit"></span>
+          <span class="buildlog-dot lit"></span>
+          <span class="buildlog-dot lit"></span>
+        </div>
+        <span class="buildlog-title-pill">OPENCLAW://SIT-REP</span>
+      </div>
+      <div class="buildlog-body" style="padding:20px 24px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <span class="bl-version-tag" style="font-size:0.9rem;padding:6px 20px">DECISION INTELLIGENCE BRIEFING</span>
+          <select id="sitrep-days" onchange="loadSitRep()" style="background:var(--bg);color:var(--text);border:2px solid rgba(34,211,238,0.3);padding:8px 14px;border-radius:10px;font-family:'Orbitron',sans-serif;font-size:0.7rem;font-weight:900;text-transform:uppercase;letter-spacing:1px">
+            <option value="7">Last 7 Days</option>
+            <option value="14">Last 14 Days</option>
+            <option value="30" selected>Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+          </select>
+        </div>
+        <div id="sitrep-content" class="loading">Loading intelligence briefing...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BUILD LOG -->
+  <div id="section-buildlog" class="section">
+    <div class="buildlog-frame">
+      <div class="buildlog-header">
+        <div class="buildlog-dots">
+          <span class="buildlog-dot lit"></span>
+          <span class="buildlog-dot lit"></span>
+          <span class="buildlog-dot lit"></span>
+        </div>
+        <span class="buildlog-title-pill">OPENCLAW://BUILD-LOG</span>
+      </div>
+      <div class="buildlog-body" id="buildlogBody"></div>
+    </div>
+  </div>
+
   <!-- ABOUT -->
   <div id="section-about" class="section">
     <div class="card about-section">
@@ -1057,12 +1156,18 @@
 <script>
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.nav-pill').forEach(b => b.classList.remove('active'));
   document.getElementById('section-' + name).classList.add('active');
   event.target.classList.add('active');
   if (name === 'trades') loadTrades();
   if (name === 'positions') loadPositions();
   if (name === 'predictions') loadPredictions();
+}
+
+// XSS prevention — escape all API data before innerHTML insertion
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function fmt(n, prefix='') {
@@ -1168,9 +1273,9 @@ function buildTradeTable(trades) {
     </tr>
     <tr><td colspan="10">
       <div id="detail-${i}" class="trade-detail">
-        ${t.reasoning ? `<strong>Reasoning:</strong> ${t.reasoning}<br>` : ''}
-        ${t.what_worked ? `<strong>What worked:</strong> ${t.what_worked}<br>` : ''}
-        ${t.improvement ? `<strong>Improvement:</strong> ${t.improvement}` : ''}
+        ${t.reasoning ? `<strong>Reasoning:</strong> ${esc(t.reasoning)}<br>` : ''}
+        ${t.what_worked ? `<strong>What worked:</strong> ${esc(t.what_worked)}<br>` : ''}
+        ${t.improvement ? `<strong>Improvement:</strong> ${esc(t.improvement)}` : ''}
         ${!t.reasoning && !t.what_worked && !t.improvement ? '<em>No details recorded</em>' : ''}
       </div>
     </td></tr>`;
@@ -1255,10 +1360,10 @@ async function loadPredictions() {
         '<td><button class="expand-btn" onclick="toggleDetail(\'pred-' + i + '\')">details</button></td>' +
         '</tr>' +
         '<tr><td colspan="9"><div id="detail-pred-' + i + '" class="trade-detail">' +
-        '<strong>Thesis:</strong> ' + (p.thesis || '') + '<br>' +
+        '<strong>Thesis:</strong> ' + esc(p.thesis || '') + '<br>' +
         '<strong>Regime:</strong> ' + (p.regime_at_time || '--') + '<br>' +
-        (p.post_mortem ? '<strong>Post-Mortem:</strong> ' + p.post_mortem + '<br>' : '') +
-        (p.lessons_learned ? '<strong>Lesson:</strong> ' + p.lessons_learned : '') +
+        (p.post_mortem ? '<strong>Post-Mortem:</strong> ' + esc(p.post_mortem) + '<br>' : '') +
+        (p.lessons_learned ? '<strong>Lesson:</strong> ' + esc(p.lessons_learned) : '') +
         (p.status === 'open' ? '<em>Prediction is still open — expires ' + new Date(p.expires_at).toLocaleDateString() + '</em>' : '') +
         '</div></td></tr>';
     });
@@ -1311,7 +1416,7 @@ async function loadLivePredictions() {
           '<div><span class="ticker-big">' + p.ticker + '</span>' +
           '<span class="direction-tag ' + p.direction + '">' + p.direction + '</span>' +
           '<span style="font-size:0.7rem;color:var(--dim);margin-left:8px;vertical-align:middle">click to expand</span></div>' +
-          '<div class="thesis-text">' + (p.thesis.length > 120 ? p.thesis.slice(0, 120) + '...' : p.thesis) + '</div>' +
+          '<div class="thesis-text">' + (p.thesis.length > 120 ? esc(p.thesis.slice(0, 120)) + '...' : esc(p.thesis)) + '</div>' +
           '<div style="margin-top:8px;display:flex;align-items:center;gap:12px">' +
             '<div class="confidence-bar"><div class="confidence-fill" style="width:' + confPct + '%"></div></div>' +
             '<span style="font-size:0.7rem;color:var(--dim)">' + confPct + '% conf</span>' +
@@ -1364,6 +1469,8 @@ showSection = function(name) {
   if (name === 'meta') loadMetaTab();
   if (name === 'catalysts') loadCatalystsTab();
   if (name === 'economics') loadEconomicsTab();
+  if (name === 'buildlog') loadBuildLog();
+  if (name === 'sitrep') loadSitRep();
 };
 
 // === SYSTEM MONITOR ===
@@ -1645,7 +1752,7 @@ async function loadPipelineDAG(runId) {
         detailHtml += '<strong style="color:var(--purple)">Output:</strong><pre>' + JSON.stringify(s.output_snapshot, null, 2) + '</pre>';
       }
       if (s.error_message) {
-        detailHtml += '<strong style="color:var(--red)">Error:</strong> ' + s.error_message;
+        detailHtml += '<strong style="color:var(--red)">Error:</strong> ' + esc(s.error_message);
       }
       if (detailHtml) {
         html += '<div id="dag-' + i + '" class="dag-detail">' + detailHtml + '</div>';
@@ -1778,10 +1885,10 @@ async function loadMetaReflections() {
           '<span class="ref-date">' + date + (health !== undefined ? ' &mdash; Health: ' + health + '%' : '') + '</span>' +
           '<span class="ref-type ' + r.reflection_type + '">' + r.reflection_type + '</span>' +
         '</div>' +
-        (r.patterns_observed ? '<div class="ref-section"><div class="ref-label">Patterns</div><div class="ref-text">' + r.patterns_observed + '</div></div>' : '') +
-        (r.signal_assessment ? '<div class="ref-section"><div class="ref-label">Signal Assessment</div><div class="ref-text">' + r.signal_assessment + '</div></div>' : '') +
-        (r.operational_issues && r.operational_issues !== 'None' ? '<div class="ref-section"><div class="ref-label">Operational Issues</div><div class="ref-text" style="color:var(--orange)">' + r.operational_issues + '</div></div>' : '') +
-        (r.counterfactuals ? '<div class="ref-section"><div class="ref-label">Counterfactuals</div><div class="ref-text" style="color:var(--dim)">' + r.counterfactuals + '</div></div>' : '') +
+        (r.patterns_observed ? '<div class="ref-section"><div class="ref-label">Patterns</div><div class="ref-text">' + esc(r.patterns_observed) + '</div></div>' : '') +
+        (r.signal_assessment ? '<div class="ref-section"><div class="ref-label">Signal Assessment</div><div class="ref-text">' + esc(r.signal_assessment) + '</div></div>' : '') +
+        (r.operational_issues && r.operational_issues !== 'None' ? '<div class="ref-section"><div class="ref-label">Operational Issues</div><div class="ref-text" style="color:var(--orange)">' + esc(r.operational_issues) + '</div></div>' : '') +
+        (r.counterfactuals ? '<div class="ref-section"><div class="ref-label">Counterfactuals</div><div class="ref-text" style="color:var(--dim)">' + esc(r.counterfactuals) + '</div></div>' : '') +
         (adjCount > 0 ? '<div style="font-size:0.8rem;color:var(--cyan);margin-top:8px">' + adjCount + ' adjustment(s) proposed</div>' : '') +
       '</div>';
     }).join('');
@@ -1976,7 +2083,7 @@ async function loadCatalystFeed() {
       html += '</div>';
       html += '<div style="font-size:0.75rem;color:var(--dim)">' + time + '</div>';
       html += '</div>';
-      html += '<div style="margin-top:6px;font-size:0.85rem">' + c.headline + '</div>';
+      html += '<div style="margin-top:6px;font-size:0.85rem">' + esc(c.headline) + '</div>';
       html += '<div style="margin-top:4px;font-size:0.75rem;color:var(--dim)">' + (c.catalyst_type || '').replace(/_/g,' ') + ' via ' + c.source;
       if (c.actual_impact_pct) {
         const impact = parseFloat(c.actual_impact_pct);
@@ -2425,7 +2532,7 @@ function renderPredictionContext(el, ctx) {
   if (pred.thesis) {
     html += '<div class="context-section">';
     html += '<div class="ctx-label">Full Thesis</div>';
-    html += '<div>' + pred.thesis + '</div>';
+    html += '<div>' + esc(pred.thesis) + '</div>';
     if (pred.regime_at_time) html += '<div style="margin-top:4px;font-size:0.8rem;color:var(--dim)">Regime at time: <strong>' + pred.regime_at_time + '</strong></div>';
     html += '<div style="font-size:0.75rem;color:var(--dim);margin-top:2px">Prediction created: ' + new Date(pred.created_at).toLocaleString() + '</div>';
     html += '</div>';
@@ -2455,7 +2562,7 @@ function renderPredictionContext(el, ctx) {
 
       // Signal details (expandable)
       if (sig.reasoning) {
-        html += '<div style="font-size:0.8rem;color:var(--dim)">' + sig.reasoning + '</div>';
+        html += '<div style="font-size:0.8rem;color:var(--dim)">' + esc(sig.reasoning) + '</div>';
       }
 
       // Individual signal data
@@ -2557,9 +2664,9 @@ function renderPredictionContext(el, ctx) {
       html += '<div style="flex:1">';
       // Headline — with link if available
       if (c.source_url) {
-        html += '<a href="' + c.source_url + '" target="_blank" rel="noopener" class="citation-link">' + c.headline + '</a>';
+        html += '<a href="' + c.source_url + '" target="_blank" rel="noopener" class="citation-link">' + esc(c.headline) + '</a>';
       } else {
-        html += '<span>' + c.headline + '</span>';
+        html += '<span>' + esc(c.headline) + '</span>';
       }
       html += '<span class="citation-time">' + time + '</span>';
       // Source + sentiment
@@ -2650,10 +2757,400 @@ loadSystemStats = async function() {
   loadTuningTelemetry();
 };
 
+// === STACK STATUS CHECKS — real service pings ===
+async function checkStackStatus() {
+  try {
+    const data = await fetch('/api/health/stack').then(r => r.json());
+    const mapping = {
+      supabase: 'stack-supabase',
+      alpaca: 'stack-alpaca',
+      ollama: 'stack-ollama',
+      finnhub: 'stack-finnhub',
+      sentry: 'stack-sentry',
+      pgvector: 'stack-pgvector',
+      tumbler: 'stack-tumbler',
+      claude: 'stack-claude',
+    };
+    for (const [service, id] of Object.entries(mapping)) {
+      const el = document.getElementById(id);
+      if (el) el.classList.add(data[service] ? 'stack-ok' : 'stack-fail');
+    }
+  } catch(e) {
+    // If healthcheck itself fails, mark all as unknown
+    document.querySelectorAll('.stack-pill').forEach(el => el.classList.add('stack-fail'));
+  }
+}
+checkStackStatus();
+
+// === BUILD LOG DATA + RENDERER ===
+const BUILD_LOG = [
+  {
+    version: 'V2.0.1',
+    date: '2026-03-22',
+    codename: 'HARDENING',
+    entries: [
+      { type: 'sec', text: 'Locked down all 16 database tables — only the service role can read or write now. Previously the public anon key had full access.', status: 'PATCHED' },
+      { type: 'sec', text: 'Budget config is now protected with value constraints and an allowlist. No more setting the Claude budget to $999,999 via the API.', status: 'PATCHED' },
+      { type: 'sec', text: 'All API inputs are now validated — UUIDs checked for format, tickers limited to 1-5 uppercase letters, pipeline names alphanumeric only.', status: 'PATCHED' },
+      { type: 'sec', text: 'Added HTML escaping to every piece of free-text data rendered in the dashboard. LLM-generated text can no longer inject scripts.', status: 'PATCHED' },
+      { type: 'sec', text: 'Added security headers: clickjacking protection, content type sniffing prevention, and referrer policy.', status: 'PATCHED' },
+      { type: 'sec', text: 'Server no longer leaks Python stack traces on errors. Global exception handler returns a generic message.', status: 'PATCHED' },
+      { type: 'sec', text: 'Moved Finnhub API key from URL query params to a request header so it stops showing up in logs and error traces.', status: 'PATCHED' },
+      { type: 'sec', text: 'Auto-generated passwords are no longer printed to container logs. Just a warning message now.', status: 'PATCHED' },
+      { type: 'sec', text: 'Rate limiter now reads the real client IP from the X-Forwarded-For header instead of the Fly proxy IP.', status: 'PATCHED' },
+      { type: 'fix', text: 'Claude health check was burning real API tokens on every poll. Now sends an empty request that validates the key without spending.', status: 'FIXED' },
+      { type: 'fix', text: 'Date constants were computed once at startup and went stale after midnight. All scripts now compute the date fresh on every run.', status: 'FIXED' },
+      { type: 'fix', text: 'Pipeline duration tracking was rounding sub-second runs to zero. Fixed the math order — multiply before casting to integer.', status: 'FIXED' },
+      { type: 'fix', text: 'Tuning telemetry data was being accidentally destroyed when 90-day-old pipeline runs were purged. Decoupled the cascade.', status: 'FIXED' },
+      { type: 'fix', text: 'Pattern templates can no longer have more correct matches than total matches. Database constraint added.', status: 'FIXED' },
+      { type: 'perf', text: 'Cleaned up 13 instances of redundant dynamic imports. Using a proper import statement now.', status: 'FIXED' },
+      { type: 'perf', text: 'Perplexity API responses were being parsed twice. Now parsed once and reused.', status: 'FIXED' },
+      { type: 'perf', text: 'Embedding dedup list was growing without bound during catalyst ingestion. Capped at 100 to prevent Jetson OOM.', status: 'FIXED' },
+    ]
+  },
+  {
+    version: 'V2.0.0',
+    date: '2026-03-22',
+    codename: 'LOCK & TUMBLER',
+    entries: [
+      { type: 'feat', text: 'Built the 5-tumbler inference engine. Each trade candidate goes through layered analysis — technical, fundamental, cross-asset, pattern matching, and counterfactual — with RAG retrieval at every depth.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Catalyst ingestion pipeline polls 4 sources every scan window: Finnhub news, SEC EDGAR filings, QuiverQuant congressional trades, and Perplexity deep search.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Weekly calibration system grades past predictions against actual outcomes, computes Brier scores, and generates calibration factors that feed back into the inference engine.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Pattern template discovery — the weekly meta-analysis now clusters similar inference chains and asks Claude to name recurring patterns with success rates.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Full cost accounting. Every Claude call, Perplexity query, and trade P&L is logged to a cost ledger. The system knows if it is paying for itself.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Hardware tuning system with versioned profiles. Every pipeline run captures RAM, GPU temps, tokens/sec, and correlates hardware config with trading outcomes.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Meta-analysis enhanced with RAG context retrieval, inference chain depth analysis, catalyst correlation, and cross-layer pattern detection.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Pipeline tracer now auto-captures the active tuning profile and hardware telemetry on every run — no manual instrumentation needed.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Live prediction cards are now clickable. Expand to see the full tumbler walk, signal dots, catalyst citations with hyperlinks, and calibration context.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'NYSE latency monitor in the header. Pings Alpaca market data feed every 30 seconds, shows round-trip in milliseconds with color-coded status.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Stack health pills now ping actual services — Supabase, Alpaca, Finnhub, Sentry, pgVector, and Claude each get a real connectivity check.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Heartbeat system for edge devices. Ridley writes Ollama and Tumbler liveness to Supabase every 5 minutes so the dashboard can monitor from anywhere.', status: 'DEPLOYED' },
+      { type: 'infra', text: 'Added 8 new Supabase tables, 3 RAG similarity functions with HNSW vector indexes, and automated retention policies with pg_cron.', status: 'DEPLOYED' },
+      { type: 'infra', text: 'Built 18 new API routes covering inference chains, calibration, catalysts, economics, budget management, RAG status, and tuning telemetry.', status: 'DEPLOYED' },
+      { type: 'ui', text: 'CRT terminal login page with full boot sequence, dot trail progress indicators, glowing status pills, and an ACCESS GRANTED animation.', status: 'DEPLOYED' },
+      { type: 'ui', text: 'Catalysts tab — live feed of market-moving events with direction badges, type distribution charts, and a price impact scorecard.', status: 'DEPLOYED' },
+      { type: 'ui', text: 'Economics tab — project P&L card, cost breakdown by service, cumulative chart, editable budget caps with real-time spend tracking.', status: 'DEPLOYED' },
+      { type: 'ui', text: 'Unified theme system. Single CSS file controls the entire look — Orbitron font, neon borders, glowing containers, color palette. Change once, update everywhere.', status: 'DEPLOYED' },
+      { type: 'ui', text: 'Sit-Rep tab for browsing trade decision intelligence. See every factor that went into each call.', status: 'DEPLOYED' },
+      { type: 'ui', text: 'Build Log — the page you are reading right now.', status: 'LIVE' },
+    ]
+  },
+  {
+    version: 'V1.0.0',
+    date: '2026-03-21',
+    codename: 'FOUNDATION',
+    entries: [
+      { type: 'feat', text: 'Initial dashboard with 7 tabs — account overview, pipeline monitoring, trade log, positions, predictions, meta-learning, and system stats.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Pipeline observability — every automated function call traced as an execution tree with DAG visualization, health scoring, and failure tracking.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Meta-learning loop — daily and weekly Claude reflections, strategy adjustments with auto-approval bounds, and signal accuracy heatmaps.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Live prediction ticker with 30-second auto-refresh. Shows current price, entry price, P&L, confidence, direction, and time remaining.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Full prediction lifecycle — create predictions with a thesis, track them against live prices, auto-grade at expiry, and learn from the results.', status: 'DEPLOYED' },
+      { type: 'feat', text: 'Secure authentication — password login with CSRF tokens, brute-force rate limiting, constant-time comparison, and encrypted session cookies.', status: 'DEPLOYED' },
+      { type: 'infra', text: '6 core Supabase tables for pipeline runs, order events, signal evaluations, meta reflections, strategy adjustments, and data quality checks.', status: 'DEPLOYED' },
+      { type: 'infra', text: 'pgVector embeddings with HNSW indexes for semantic similarity search across signals and reflections.', status: 'DEPLOYED' },
+      { type: 'infra', text: 'Deployed on Fly.io with auto-stop/start machines to keep costs minimal when not in use.', status: 'DEPLOYED' },
+    ]
+  },
+];
+
+const TRAIL_COLORS = { feat:'green', fix:'yellow', sec:'red', perf:'orange', infra:'blue', ui:'pink' };
+
+function loadBuildLog() {
+  const body = document.getElementById('buildlogBody');
+  if (!body) return;
+  body.innerHTML = '';
+
+  BUILD_LOG.forEach(release => {
+    const block = document.createElement('div');
+    block.className = 'bl-version';
+
+    // Version header
+    let headerHtml = '<div class="bl-version-header">';
+    headerHtml += '<span class="bl-version-tag">' + esc(release.version) + '</span>';
+    headerHtml += '<span class="bl-date">' + esc(release.date) + '</span>';
+    if (release.codename) headerHtml += '<span class="bl-codename">' + esc(release.codename) + '</span>';
+    headerHtml += '</div>';
+    block.innerHTML = headerHtml;
+
+    // Entries
+    release.entries.forEach(entry => {
+      const row = document.createElement('div');
+      row.className = 'bl-entry';
+
+      // Tag pill
+      const tag = document.createElement('span');
+      tag.className = 'bl-entry-tag ' + entry.type;
+      tag.textContent = entry.type.toUpperCase();
+      row.appendChild(tag);
+
+      // Text
+      const text = document.createElement('span');
+      text.className = 'bl-entry-text';
+      text.textContent = entry.text;
+      row.appendChild(text);
+
+      // Dot trail
+      const trail = document.createElement('span');
+      trail.className = 'bl-entry-dot-trail';
+      row.appendChild(trail);
+
+      // Status pill
+      const status = document.createElement('span');
+      status.className = 'bl-entry-status';
+      status.textContent = entry.status;
+      row.appendChild(status);
+
+      block.appendChild(row);
+    });
+
+    body.appendChild(block);
+
+    // Fill dot trails after layout
+    requestAnimationFrame(() => {
+      block.querySelectorAll('.bl-entry').forEach(row => {
+        const trail = row.querySelector('.bl-entry-dot-trail');
+        const entryTag = row.querySelector('.bl-entry-tag');
+        if (!trail) return;
+        const tw = trail.offsetWidth;
+        const nd = Math.max(2, Math.floor((tw - 10) / 9));
+        const color = TRAIL_COLORS[entryTag.classList[1]] || 'green';
+        for (let d = 0; d < nd; d++) {
+          const dot = document.createElement('span');
+          dot.className = 'bl-trail-dot ' + color;
+          trail.appendChild(dot);
+        }
+      });
+    });
+  });
+}
+
+// === SIT-REP RENDERER ===
+async function loadSitRep() {
+  const el = document.getElementById('sitrep-content');
+  const days = document.getElementById('sitrep-days').value || 30;
+  el.innerHTML = '<div class="loading">Loading intelligence briefing...</div>';
+
+  try {
+    const data = await fetch('/api/sitrep?days=' + days).then(r => r.json());
+    if (!data.length) {
+      el.innerHTML = '<div class="empty-state" style="padding:40px">No decision data in this timeframe. Decisions will appear here once the inference engine and scanner are active.</div>';
+      return;
+    }
+
+    let html = '';
+    data.forEach(item => {
+      if (item.type === 'trade') {
+        const t = item.trade;
+        const pnl = parseFloat(t.pnl || 0);
+        const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--text-dim)';
+        const outcomeColors = { STRONG_WIN:'green', WIN:'green', SCRATCH:'text-dim', LOSS:'red', STRONG_LOSS:'red' };
+        const oc = outcomeColors[t.outcome] || 'text-dim';
+
+        html += '<div class="bl-version" style="padding-bottom:16px;margin-bottom:20px">';
+        // Header
+        html += '<div class="bl-version-header">';
+        html += '<span class="bl-version-tag" style="border-color:rgba(34,211,238,0.5)">' + esc(t.ticker) + '</span>';
+        html += '<span class="bl-entry-tag feat" style="min-width:50px">' + esc(t.action) + '</span>';
+        if (t.outcome) html += '<span class="bl-entry-tag ' + (pnl >= 0 ? 'feat' : 'sec') + '">' + esc(t.outcome.replace('_',' ')) + '</span>';
+        html += '<span style="color:' + pnlColor + ';font-weight:900;font-size:1rem;text-shadow:0 0 10px ' + pnlColor + '">' + fmt(pnl, '$') + '</span>';
+        html += '<span class="bl-date">' + (t.created_at ? new Date(t.created_at).toLocaleDateString() : '') + '</span>';
+        html += '</div>';
+
+        // Trade details
+        html += '<div class="bl-entry"><span class="bl-entry-tag infra" style="min-width:60px">ENTRY</span>';
+        html += '<span class="bl-entry-text">$' + parseFloat(t.entry_price || 0).toFixed(2) + ' — ' + (t.signals_fired || '?') + '/6 signals — held ' + (t.hold_days || '?') + ' days</span></div>';
+
+        if (t.reasoning) {
+          html += '<div class="bl-entry"><span class="bl-entry-tag ui" style="min-width:60px">WHY</span>';
+          html += '<span class="bl-entry-text" style="color:var(--text)">' + esc(t.reasoning) + '</span></div>';
+        }
+
+        if (t.what_worked) {
+          html += '<div class="bl-entry"><span class="bl-entry-tag feat" style="min-width:60px">WINS</span>';
+          html += '<span class="bl-entry-text">' + esc(t.what_worked) + '</span></div>';
+        }
+
+        if (t.improvement) {
+          html += '<div class="bl-entry"><span class="bl-entry-tag fix" style="min-width:60px">LEARN</span>';
+          html += '<span class="bl-entry-text">' + esc(t.improvement) + '</span></div>';
+        }
+
+        // Inference chains
+        if (item.chains && item.chains.length) {
+          item.chains.forEach(c => {
+            const conf = (parseFloat(c.final_confidence || 0) * 100).toFixed(0);
+            const decColor = c.final_decision === 'strong_enter' || c.final_decision === 'enter' ? 'feat' : c.final_decision === 'veto' ? 'sec' : 'fix';
+            html += '<div class="bl-entry"><span class="bl-entry-tag perf" style="min-width:60px">DEPTH ' + (c.max_depth_reached || 0) + '</span>';
+            html += '<span class="bl-entry-text">' + conf + '% confidence — ' + esc((c.final_decision || '').replace('_',' ')) + ' — stopped: ' + esc((c.stopping_reason || '').replace('_',' ')) + '</span>';
+            // Dot trail + status pill
+            html += '<span class="bl-entry-dot-trail"></span>';
+            html += '<span class="bl-entry-status">' + esc(c.final_decision || '') + '</span>';
+            html += '</div>';
+
+            if (c.reasoning_summary) {
+              html += '<div style="padding:4px 0 4px 82px;font-size:0.75rem;color:var(--text-dim);letter-spacing:0.5px;font-weight:700">' + esc(c.reasoning_summary) + '</div>';
+            }
+          });
+        }
+
+        // Catalysts
+        if (item.catalysts && item.catalysts.length) {
+          item.catalysts.forEach(cat => {
+            const dirTag = cat.direction === 'bullish' ? 'feat' : cat.direction === 'bearish' ? 'sec' : 'fix';
+            html += '<div class="bl-entry"><span class="bl-entry-tag ' + dirTag + '" style="min-width:60px">' + esc(cat.catalyst_type || '').replace('_',' ').slice(0,8) + '</span>';
+            html += '<span class="bl-entry-text" style="font-size:0.8rem">' + esc(cat.headline || '') + '</span></div>';
+          });
+        }
+
+        html += '</div>';
+
+      } else if (item.type === 'analysis') {
+        // Non-trade analysis (watch/skip/veto)
+        const c = item.chain;
+        const conf = (parseFloat(c.final_confidence || 0) * 100).toFixed(0);
+        const decColors = { watch:'fix', skip:'infra', veto:'sec' };
+        const dc = decColors[c.final_decision] || 'infra';
+
+        html += '<div class="bl-version" style="padding-bottom:12px;margin-bottom:16px;opacity:0.7">';
+        html += '<div class="bl-version-header">';
+        html += '<span class="bl-version-tag" style="border-color:rgba(255,255,255,0.15);color:var(--text-dim);box-shadow:none;text-shadow:none">' + esc(c.ticker) + '</span>';
+        html += '<span class="bl-entry-tag ' + dc + '">' + esc((c.final_decision || '').replace('_',' ')) + '</span>';
+        html += '<span class="bl-date">' + esc(c.chain_date || '') + '</span>';
+        html += '<span style="font-size:0.8rem;color:var(--text-dim)">' + conf + '% conf — depth ' + (c.max_depth_reached || 0) + ' — ' + esc((c.stopping_reason || '').replace('_',' ')) + '</span>';
+        html += '</div>';
+
+        if (c.reasoning_summary) {
+          html += '<div style="font-size:0.78rem;color:var(--text-dim);letter-spacing:0.5px;font-weight:700;padding:0 0 4px 0">' + esc(c.reasoning_summary) + '</div>';
+        }
+        html += '</div>';
+      }
+    });
+
+    el.innerHTML = html;
+
+    // Fill dot trails after render
+    requestAnimationFrame(() => {
+      el.querySelectorAll('.bl-entry-dot-trail').forEach(trail => {
+        const tw = trail.offsetWidth;
+        if (tw < 20) return;
+        const nd = Math.max(2, Math.floor((tw - 10) / 9));
+        for (let d = 0; d < nd; d++) {
+          const dot = document.createElement('span');
+          dot.className = 'bl-trail-dot green';
+          trail.appendChild(dot);
+        }
+      });
+    });
+
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state" style="padding:40px">Failed to load sit-rep data.</div>';
+  }
+}
+
+// NYSE latency now handled by telemetry sidebar
+
 // Load dashboard on page load
 loadDashboard();
 // Auto-refresh every 60 seconds
 setInterval(loadDashboard, 60000);
+
+// === TELEMETRY SIDEBAR ===
+async function updateTelemetry() {
+  const now = new Date().toLocaleTimeString();
+  const updEl = document.getElementById('telem-updated');
+  if (updEl) updEl.textContent = now;
+
+  // NYSE latency
+  try {
+    const lat = await fetch('/api/health/latency').then(r => r.json());
+    const ms = lat.nyse_ms;
+    const nyseVal = document.getElementById('telem-nyse-val');
+    const nyseBar = document.getElementById('telem-nyse-bar');
+    if (ms !== null && nyseVal) {
+      nyseVal.textContent = ms;
+      // Thresholds: <50 green, <120 cyan, <250 yellow, 250+ red
+      let color, pct;
+      if (ms < 50) { color = 'var(--green)'; pct = (ms / 50) * 25; }
+      else if (ms < 120) { color = 'var(--cyan)'; pct = 25 + ((ms - 50) / 70) * 25; }
+      else if (ms < 250) { color = 'var(--yellow)'; pct = 50 + ((ms - 120) / 130) * 25; }
+      else { color = 'var(--red)'; pct = 75 + Math.min(25, ((ms - 250) / 250) * 25); }
+      nyseVal.style.color = color;
+      nyseVal.style.textShadow = '0 0 12px ' + color;
+      if (nyseBar) { nyseBar.style.width = Math.min(100, pct) + '%'; nyseBar.style.background = color; nyseBar.style.boxShadow = '0 0 8px ' + color; }
+    }
+  } catch(e) {}
+
+  // Supabase latency
+  try {
+    const start = performance.now();
+    await fetch('/api/pipeline/health');
+    const sbMs = Math.round(performance.now() - start);
+    const sbVal = document.getElementById('telem-sb-val');
+    const sbBar = document.getElementById('telem-sb-bar');
+    if (sbVal) {
+      sbVal.textContent = sbMs;
+      let color;
+      if (sbMs < 100) color = 'var(--green)';
+      else if (sbMs < 300) color = 'var(--cyan)';
+      else if (sbMs < 600) color = 'var(--yellow)';
+      else color = 'var(--red)';
+      sbVal.style.color = color;
+      sbVal.style.textShadow = '0 0 12px ' + color;
+      if (sbBar) { sbBar.style.width = Math.min(100, sbMs / 6) + '%'; sbBar.style.background = color; sbBar.style.boxShadow = '0 0 8px ' + color; }
+    }
+  } catch(e) {}
+
+  // Market status
+  try {
+    const now = new Date();
+    const et = new Date(now.toLocaleString('en-US', {timeZone: 'America/New_York'}));
+    const h = et.getHours(), m = et.getMinutes(), day = et.getDay();
+    const mktEl = document.getElementById('telem-market');
+    if (mktEl) {
+      if (day === 0 || day === 6) { mktEl.textContent = 'CLOSED'; mktEl.style.color = 'var(--red)'; mktEl.style.borderColor = 'rgba(255,51,68,0.4)'; }
+      else if (h < 9 || (h === 9 && m < 30)) { mktEl.textContent = 'PRE-MARKET'; mktEl.style.color = 'var(--yellow)'; mktEl.style.borderColor = 'rgba(250,204,21,0.4)'; }
+      else if (h >= 16) { mktEl.textContent = 'AFTER-HOURS'; mktEl.style.color = 'var(--orange)'; mktEl.style.borderColor = 'rgba(251,146,60,0.4)'; }
+      else { mktEl.textContent = 'OPEN'; mktEl.style.color = 'var(--green)'; mktEl.style.borderColor = 'rgba(51,255,136,0.4)'; }
+    }
+  } catch(e) {}
+
+  // Claude budget
+  try {
+    const budgets = await fetch('/api/budget/config').then(r => r.json());
+    const claude = budgets.find(b => b.config_key === 'daily_claude_budget');
+    if (claude) {
+      const spent = parseFloat(claude.today_spend || 0);
+      const cap = parseFloat(claude.value || 0.50);
+      const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
+      const spendEl = document.getElementById('telem-claude-spend');
+      const barEl = document.getElementById('telem-claude-bar');
+      if (spendEl) spendEl.textContent = '$' + spent.toFixed(3) + ' / $' + cap.toFixed(2);
+      let color = pct < 50 ? 'var(--green)' : pct < 80 ? 'var(--yellow)' : 'var(--red)';
+      if (spendEl) { spendEl.style.color = color; }
+      if (barEl) { barEl.style.width = pct + '%'; barEl.style.background = color; barEl.style.boxShadow = '0 0 6px ' + color; }
+    }
+  } catch(e) {}
+
+  // Pipeline health
+  try {
+    const health = await fetch('/api/pipeline/health').then(r => r.json());
+    const hEl = document.getElementById('telem-health');
+    if (hEl && health.score !== undefined) {
+      hEl.textContent = health.score + '%';
+      let color = health.score >= 90 ? 'var(--green)' : health.score >= 70 ? 'var(--yellow)' : 'var(--red)';
+      hEl.style.color = color;
+      hEl.style.textShadow = '0 0 12px ' + color;
+    }
+  } catch(e) {}
+}
+
+// Remove NYSE pill from header since it moved to sidebar
+const nysePill = document.getElementById('nyse-latency');
+if (nysePill) nysePill.remove();
+
+updateTelemetry();
+setInterval(updateTelemetry, 15000);
 </script>
+</div><!-- end app-layout -->
 </body>
 </html>
