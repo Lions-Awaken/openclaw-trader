@@ -92,6 +92,13 @@ SENTRY_AUTH_TOKEN = os.environ.get("SENTRY_AUTH_TOKEN", "")
 SENTRY_ORG = os.environ.get("SENTRY_ORG", "lions-awaken")
 SENTRY_PROJECT = os.environ.get("SENTRY_PROJECT", "streamsaber")
 
+# Magic link email config
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")  # Gmail app password
+SMTP_FROM = os.environ.get("SMTP_FROM", "") or SMTP_USER
+
 # Auth config
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_KEY", "")
 if not DASHBOARD_PASSWORD:
@@ -274,6 +281,208 @@ def _login_error_page(error: str, csrf: str) -> str:
     html = html.replace("<!-- ERROR_PLACEHOLDER -->", f'<div class="error">{error}</div>')
     html = html.replace("CSRF_TOKEN_PLACEHOLDER", csrf)
     return html
+
+
+# ============================================================================
+# ============================================================================
+# Magic Link System
+# ============================================================================
+
+MAGIC_LINK_DURATIONS = {
+    "1h": 3600,
+    "24h": 86400,
+    "7d": 86400 * 7,
+}
+
+
+def _send_magic_email(email: str, link: str, expires_label: str) -> bool:
+    """Send magic link via SMTP. Returns True on success."""
+    if not SMTP_USER or not SMTP_PASS:
+        return False
+
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "OpenClaw Trader — Access Link"
+    msg["From"] = SMTP_FROM
+    msg["To"] = email
+
+    text = f"Your OpenClaw Trader access link (expires in {expires_label}):\n\n{link}\n\nThis link is one-time use. It will stop working after you click it or after the timer expires."
+
+    html = f"""<div style="font-family:monospace;background:#050508;color:#e8e8f0;padding:40px;border-radius:12px;max-width:500px">
+<h2 style="color:#22d3ee;letter-spacing:3px;margin:0 0 20px">OPENCLAW TRADER</h2>
+<p style="color:#a0a0b0;margin:0 0 20px">You have been granted access to the trading dashboard.</p>
+<a href="{link}" style="display:inline-block;padding:14px 32px;background:transparent;border:2px solid #22d3ee;border-radius:10px;color:#22d3ee;text-decoration:none;font-weight:bold;letter-spacing:2px;font-family:monospace">ACCESS DASHBOARD</a>
+<p style="color:#666;margin:20px 0 0;font-size:12px">This link expires in {expires_label}. One-time use only.</p>
+</div>"""
+
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"[magic-link] SMTP error: {e}")
+        return False
+
+
+@app.post("/api/magic-link/create")
+async def create_magic_link(request: Request, oc_session: str | None = Cookie(None)):
+    """Generate a magic login link. Only authenticated users can create them."""
+    _require_auth(request, oc_session)
+
+    body = await request.json()
+    email = body.get("email", "").strip().lower()
+    duration = body.get("duration", "24h")
+
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email required")
+
+    if duration not in MAGIC_LINK_DURATIONS:
+        raise HTTPException(status_code=400, detail="Invalid duration")
+
+    ttl = MAGIC_LINK_DURATIONS[duration]
+    token = secrets.token_urlsafe(48)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+
+    # Store in Supabase
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+            headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
+            json={
+                "token_hash": token_hash,
+                "email": email,
+                "expires_at": expires_at.isoformat(),
+            },
+        )
+        if resp.status_code not in (200, 201):
+            raise HTTPException(status_code=500, detail="Failed to create token")
+
+    # Build the link
+    host = request.headers.get("host", "openclaw-trader-dash.fly.dev")
+    scheme = "https" if "fly.dev" in host or "https" in request.headers.get("x-forwarded-proto", "") else "http"
+    link = f"{scheme}://{host}/auth/link?t={token}"
+
+    # Try to send email
+    email_sent = _send_magic_email(email, link, duration)
+
+    return {
+        "link": link,
+        "email": email,
+        "expires_at": expires_at.isoformat(),
+        "duration": duration,
+        "email_sent": email_sent,
+    }
+
+
+@app.get("/auth/link")
+async def consume_magic_link(t: str = ""):
+    """Validate and consume a magic link token."""
+    if not t:
+        return RedirectResponse("/login", status_code=302)
+
+    token_hash = hashlib.sha256(t.encode()).hexdigest()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Find the token
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+            headers=sb_headers(),
+            params={
+                "token_hash": f"eq.{token_hash}",
+                "used_at": "is.null",
+                "revoked": "eq.false",
+                "select": "id,expires_at,email",
+            },
+        )
+
+        if resp.status_code != 200 or not resp.json():
+            return HTMLResponse(
+                '<html><body style="background:#050508;color:#ff3344;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center">'
+                '<div><h1 style="letter-spacing:4px">LINK EXPIRED</h1><p style="color:#666;margin-top:12px">This link has been used or has expired.</p>'
+                '<a href="/login" style="color:#22d3ee;margin-top:20px;display:inline-block">GO TO LOGIN</a></div></body></html>',
+                status_code=403,
+            )
+
+        token_row = resp.json()[0]
+        token_id = token_row["id"]
+        expires_at = token_row["expires_at"]
+
+        # Check expiry
+        if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) < datetime.now(timezone.utc):
+            return HTMLResponse(
+                '<html><body style="background:#050508;color:#ff3344;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center">'
+                '<div><h1 style="letter-spacing:4px">FUSE BURNED</h1><p style="color:#666;margin-top:12px">This link has expired.</p>'
+                '<a href="/login" style="color:#22d3ee;margin-top:20px;display:inline-block">GO TO LOGIN</a></div></body></html>',
+                status_code=403,
+            )
+
+        # Consume the token (mark as used)
+        await client.patch(
+            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+            headers={**sb_headers(), "Content-Type": "application/json"},
+            params={"id": f"eq.{token_id}"},
+            json={"used_at": datetime.now(timezone.utc).isoformat()},
+        )
+
+    # Create session
+    session_token = _create_session()
+    resp = RedirectResponse("/", status_code=302)
+    resp.set_cookie(
+        "oc_session",
+        session_token,
+        httponly=True,
+        samesite="strict",
+        secure=True,
+        max_age=SESSION_MAX_AGE,
+    )
+    return resp
+
+
+@app.get("/api/magic-link/list")
+async def list_magic_links(request: Request, oc_session: str | None = Cookie(None)):
+    """List all magic links (for management UI)."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+            headers=sb_headers(),
+            params={
+                "select": "id,email,expires_at,used_at,revoked,created_at",
+                "order": "created_at.desc",
+                "limit": "20",
+            },
+        )
+        return resp.json() if resp.status_code == 200 else []
+
+
+@app.post("/api/magic-link/revoke")
+async def revoke_magic_link(request: Request, oc_session: str | None = Cookie(None)):
+    """Revoke a magic link."""
+    _require_auth(request, oc_session)
+    body = await request.json()
+    link_id = body.get("id", "")
+    link_id = _validate_uuid(link_id)
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.patch(
+            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+            headers={**sb_headers(), "Content-Type": "application/json"},
+            params={"id": f"eq.{link_id}"},
+            json={"revoked": True},
+        )
+        return {"ok": resp.status_code in (200, 204)}
 
 
 # ============================================================================

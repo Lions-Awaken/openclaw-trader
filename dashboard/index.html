@@ -633,6 +633,7 @@
       <div class="subtitle">Autonomous Trading Agent</div>
       <div class="paper-badge" id="mode-badge">Paper Trading</div>
       <a href="/logout" class="logout-btn header-logout">Sign Out</a>
+      <button class="share-access-btn" onclick="toggleSharePanel()">Share Access</button>
 
       <div class="stack-status" id="stackStatus">
         <span class="stack-pill" id="stack-supabase">Supabase</span>
@@ -644,6 +645,23 @@
         <span class="stack-pill" id="stack-tumbler">Tumbler</span>
         <span class="stack-pill" id="stack-claude">Claude</span>
         <span class="stack-pill latency-pill" id="nyse-latency">NYSE ---</span>
+      </div>
+
+      <!-- Share Access Panel -->
+      <div class="share-panel" id="sharePanel" style="display:none">
+        <div class="share-panel-inner">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="email" id="share-email" placeholder="EMAIL ADDRESS" class="share-input">
+            <select id="share-duration" class="share-select">
+              <option value="1h">1 HOUR</option>
+              <option value="24h" selected>24 HOURS</option>
+              <option value="7d">7 DAYS</option>
+            </select>
+            <button onclick="createMagicLink()" class="share-send-btn" id="shareSendBtn">GENERATE LINK</button>
+          </div>
+          <div id="share-result" style="display:none;margin-top:10px"></div>
+          <div id="share-history" style="margin-top:12px"></div>
+        </div>
       </div>
     </div>
 
@@ -3045,6 +3063,105 @@ async function loadSitRep() {
   } catch(e) {
     el.innerHTML = '<div class="empty-state" style="padding:40px">Failed to load sit-rep data.</div>';
   }
+}
+
+// === SHARE ACCESS / MAGIC LINKS ===
+function toggleSharePanel() {
+  const panel = document.getElementById('sharePanel');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    loadShareHistory();
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+async function createMagicLink() {
+  const email = document.getElementById('share-email').value.trim();
+  const duration = document.getElementById('share-duration').value;
+  const btn = document.getElementById('shareSendBtn');
+  const resultEl = document.getElementById('share-result');
+
+  if (!email || !email.includes('@')) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<span style="color:var(--red);font-size:0.75rem;font-weight:900">ENTER A VALID EMAIL</span>';
+    return;
+  }
+
+  btn.textContent = 'GENERATING...';
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch('/api/magic-link/create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, duration}),
+    });
+    const data = await resp.json();
+
+    resultEl.style.display = 'block';
+    if (resp.ok) {
+      const emailNote = data.email_sent
+        ? '<span style="color:var(--green);font-size:0.65rem"> — EMAIL SENT</span>'
+        : '<span style="color:var(--yellow);font-size:0.65rem"> — COPY LINK BELOW (SMTP NOT CONFIGURED)</span>';
+      resultEl.innerHTML =
+        '<div style="margin-bottom:6px"><span style="color:var(--green);font-size:0.75rem;font-weight:900">LINK CREATED</span>' + emailNote + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+        '<input type="text" value="' + esc(data.link) + '" readonly style="flex:1;background:var(--bg);border:2px solid rgba(34,211,238,0.2);border-radius:8px;color:var(--cyan);font-family:Orbitron,sans-serif;font-size:0.55rem;padding:8px 10px;font-weight:700;letter-spacing:0.5px" onclick="this.select()">' +
+        '<button onclick="navigator.clipboard.writeText(\'' + data.link.replace(/'/g,"\\'") + '\');this.textContent=\'COPIED\'" style="background:transparent;border:2px solid rgba(34,211,238,0.3);border-radius:8px;color:var(--cyan);font-family:Orbitron,sans-serif;font-size:0.6rem;font-weight:900;padding:8px 14px;cursor:pointer;letter-spacing:1px">COPY</button>' +
+        '</div>' +
+        '<div style="color:var(--text-dim);font-size:0.55rem;margin-top:6px;font-weight:700">EXPIRES: ' + new Date(data.expires_at).toLocaleString() + ' — FUSE: ' + esc(data.duration) + '</div>';
+      document.getElementById('share-email').value = '';
+      loadShareHistory();
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--red);font-size:0.75rem;font-weight:900">' + esc(data.detail || 'FAILED') + '</span>';
+    }
+  } catch(e) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<span style="color:var(--red);font-size:0.75rem;font-weight:900">REQUEST FAILED</span>';
+  }
+
+  btn.textContent = 'GENERATE LINK';
+  btn.disabled = false;
+}
+
+async function loadShareHistory() {
+  const el = document.getElementById('share-history');
+  try {
+    const data = await fetch('/api/magic-link/list').then(r => r.json());
+    if (!data.length) { el.innerHTML = ''; return; }
+
+    let html = '<div style="font-size:0.55rem;font-weight:900;color:var(--text-dim);letter-spacing:2px;margin-bottom:6px">ACTIVE LINKS</div>';
+    data.forEach(link => {
+      const expired = new Date(link.expires_at) < new Date();
+      const used = !!link.used_at;
+      const revoked = link.revoked;
+      let statusColor, statusText;
+      if (revoked) { statusColor = 'var(--red)'; statusText = 'REVOKED'; }
+      else if (used) { statusColor = 'var(--text-dim)'; statusText = 'USED'; }
+      else if (expired) { statusColor = 'var(--yellow)'; statusText = 'EXPIRED'; }
+      else { statusColor = 'var(--green)'; statusText = 'ACTIVE'; }
+
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:0.6rem;font-weight:900">';
+      html += '<span style="color:var(--cyan);min-width:140px">' + esc(link.email) + '</span>';
+      html += '<span style="color:' + statusColor + ';min-width:60px">' + statusText + '</span>';
+      html += '<span style="color:var(--text-dim)">' + new Date(link.expires_at).toLocaleDateString() + '</span>';
+      if (!used && !revoked && !expired) {
+        html += '<button onclick="revokeMagicLink(\'' + link.id + '\')" style="background:transparent;border:1px solid rgba(255,51,68,0.3);border-radius:6px;color:var(--red);font-family:Orbitron,sans-serif;font-size:0.5rem;font-weight:900;padding:3px 8px;cursor:pointer;letter-spacing:1px">REVOKE</button>';
+      }
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = ''; }
+}
+
+async function revokeMagicLink(id) {
+  await fetch('/api/magic-link/revoke', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id}),
+  });
+  loadShareHistory();
 }
 
 // NYSE latency now handled by telemetry sidebar

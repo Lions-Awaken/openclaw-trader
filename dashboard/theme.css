@@ -278,6 +278,92 @@ body {
 /* Hide old nav if still rendered */
 .nav { display: none !important; }
 
+/* Share Access */
+.share-access-btn {
+  position: absolute !important;
+  top: 14px !important;
+  left: 16px !important;
+  border: 2px solid rgba(168,85,247,0.4) !important;
+  border-radius: 12px !important;
+  color: var(--purple) !important;
+  background: transparent !important;
+  font-family: 'Orbitron', sans-serif !important;
+  font-weight: 900 !important;
+  font-size: 0.6rem !important;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: pointer;
+  text-shadow: var(--glow-purple);
+  box-shadow: var(--glow-purple);
+  z-index: 2;
+  transition: all 0.2s;
+}
+.share-access-btn:hover {
+  border-color: var(--purple) !important;
+  box-shadow: 0 0 16px rgba(168,85,247,0.3) !important;
+}
+
+.share-panel {
+  margin-top: 16px;
+  border: 2px solid rgba(168,85,247,0.3);
+  border-radius: 12px;
+  padding: 16px;
+  background: rgba(168,85,247,0.03);
+  box-shadow: var(--glow-purple);
+}
+
+.share-input {
+  background: var(--bg) !important;
+  border: 2px solid rgba(34,211,238,0.3) !important;
+  border-radius: 10px !important;
+  color: var(--text) !important;
+  font-family: 'Orbitron', sans-serif !important;
+  font-size: 0.7rem !important;
+  font-weight: 700 !important;
+  padding: 10px 14px !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
+  flex: 1;
+  min-width: 200px;
+  outline: none;
+}
+.share-input:focus { border-color: var(--cyan) !important; box-shadow: var(--glow-cyan); }
+.share-input::placeholder { color: var(--text-dim); text-transform: uppercase; }
+
+.share-select {
+  background: var(--bg) !important;
+  border: 2px solid rgba(250,204,21,0.3) !important;
+  border-radius: 10px !important;
+  color: var(--yellow) !important;
+  font-family: 'Orbitron', sans-serif !important;
+  font-size: 0.65rem !important;
+  font-weight: 900 !important;
+  padding: 10px 14px !important;
+  letter-spacing: 1px !important;
+  cursor: pointer;
+}
+
+.share-send-btn {
+  background: transparent !important;
+  border: 2px solid rgba(51,255,136,0.3) !important;
+  border-radius: 10px !important;
+  color: var(--green) !important;
+  font-family: 'Orbitron', sans-serif !important;
+  font-size: 0.65rem !important;
+  font-weight: 900 !important;
+  padding: 10px 20px !important;
+  letter-spacing: 2px !important;
+  text-transform: uppercase !important;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-shadow: var(--glow-green);
+}
+.share-send-btn:hover {
+  border-color: var(--green) !important;
+  box-shadow: var(--glow-green) !important;
+}
+
 /* ================================================================
    CARDS — 4px glowing borders
    ================================================================ */
