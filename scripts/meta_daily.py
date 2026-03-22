@@ -29,7 +29,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
-TODAY = date.today().isoformat()
+TODAY = ""  # Reassigned at the start of run()
 
 
 def sb_get(path: str, params: dict | None = None) -> list:
@@ -432,6 +432,9 @@ def auto_approve_adjustments(adjustments: list[dict]) -> list[dict]:
 
 
 def run():
+    global TODAY
+    TODAY = date.today().isoformat()
+
     tracer = PipelineTracer("meta_daily", metadata={"date": TODAY})
 
     try:

@@ -196,8 +196,8 @@ def fetch_finnhub_news(ticker: str, lookback_hours: int = LOOKBACK_HOURS) -> lis
                     "symbol": ticker,
                     "from": from_date,
                     "to": to_date,
-                    "token": FINNHUB_KEY,
                 },
+                headers={"X-Finnhub-Token": FINNHUB_KEY},
             )
             if resp.status_code == 200:
                 for article in resp.json()[:10]:  # Cap at 10 per ticker
@@ -227,7 +227,8 @@ def fetch_finnhub_insiders(ticker: str) -> list[dict]:
         with httpx.Client(timeout=15.0) as client:
             resp = client.get(
                 "https://finnhub.io/api/v1/stock/insider-transactions",
-                params={"symbol": ticker, "token": FINNHUB_KEY},
+                params={"symbol": ticker},
+                headers={"X-Finnhub-Token": FINNHUB_KEY},
             )
             if resp.status_code == 200:
                 data = resp.json().get("data", [])
@@ -374,7 +375,8 @@ def fetch_perplexity_search(tickers: list[str]) -> list[dict]:
                     },
                 )
                 if resp.status_code == 200:
-                    content = resp.json()["choices"][0]["message"]["content"]
+                    resp_data = resp.json()
+                    content = resp_data["choices"][0]["message"]["content"]
                     if "no significant" not in content.lower():
                         events.append({
                             "ticker": ticker,
@@ -386,7 +388,7 @@ def fetch_perplexity_search(tickers: list[str]) -> list[dict]:
                         })
 
                     # Log cost
-                    usage = resp.json().get("usage", {})
+                    usage = resp_data.get("usage", {})
                     tokens_in = usage.get("prompt_tokens", 0)
                     tokens_out = usage.get("completion_tokens", 0)
                     # Perplexity sonar: ~$0.001/1K tokens
@@ -477,6 +479,9 @@ def run():
 
                 if embedding:
                     recent_embeddings.append(embedding)
+                    # Cap at 100 to prevent unbounded memory growth on Jetson
+                    if len(recent_embeddings) > 100:
+                        recent_embeddings = recent_embeddings[-100:]
 
                 # Determine affected tickers
                 affected = []

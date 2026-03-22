@@ -27,8 +27,8 @@ ALPACA_KEY = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
 ALPACA_DATA_BASE = "https://data.alpaca.markets"
 
-TODAY = date.today()
-WEEK_START = (TODAY - timedelta(days=7)).isoformat()
+TODAY = date.today()  # Reassigned at the start of run()
+WEEK_START = ""  # Reassigned at the start of run()
 
 
 def sb_get(path: str, params: dict | None = None) -> list:
@@ -382,6 +382,10 @@ def update_pattern_templates() -> int:
 
 
 def run():
+    global TODAY, WEEK_START
+    TODAY = date.today()
+    WEEK_START = (TODAY - timedelta(days=7)).isoformat()
+
     tracer = PipelineTracer("calibrator", metadata={"week_start": WEEK_START})
 
     try:
