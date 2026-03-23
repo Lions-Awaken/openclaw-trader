@@ -631,9 +631,17 @@
     <div class="header-brand">
       <div class="title-box-tight"><h1>OpenClaw Trader</h1></div>
       <div class="subtitle">Autonomous Trading Agent</div>
-      <div class="paper-badge" id="mode-badge">Paper Trading</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">
+        <div class="paper-badge" id="mode-badge">Paper Trading</div>
+        <div class="active-profile-badge" id="activeProfileBadge">---</div>
+      </div>
       <a href="/logout" class="logout-btn header-logout">Sign Out</a>
       <button class="share-access-btn" onclick="toggleSharePanel()">Share Access</button>
+
+      <div class="strategy-profile-btn" onclick="toggleStrategyPanel()">PROFILES</div>
+      <div class="strategy-panel" id="strategyPanel" style="display:none">
+        <div id="strategyList"></div>
+      </div>
 
       <div class="stack-status" id="stackStatus">
         <span class="stack-pill" id="stack-supabase">Supabase</span>
@@ -3163,6 +3171,79 @@ async function revokeMagicLink(id) {
   });
   loadShareHistory();
 }
+
+// === STRATEGY PROFILES ===
+function toggleStrategyPanel() {
+  const panel = document.getElementById('strategyPanel');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    loadStrategyProfiles();
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+async function loadActiveStrategy() {
+  try {
+    const data = await fetch('/api/strategy/active').then(r => r.json());
+    const badge = document.getElementById('activeProfileBadge');
+    if (badge && data.profile_name) {
+      badge.textContent = data.profile_name;
+      badge.className = 'active-profile-badge' + (data.profile_name === 'UNLEASHED' ? ' unleashed' : '');
+    } else if (badge) {
+      badge.textContent = 'NO PROFILE';
+    }
+  } catch(e) {
+    const badge = document.getElementById('activeProfileBadge');
+    if (badge) badge.textContent = 'OFFLINE';
+  }
+}
+
+async function loadStrategyProfiles() {
+  const el = document.getElementById('strategyList');
+  if (!el) return;
+  try {
+    const data = await fetch('/api/strategy/profiles').then(r => r.json());
+    let html = '';
+    data.forEach(p => {
+      const isActive = p.active;
+      const selfMod = p.self_modify_enabled ? 'ON' : 'OFF';
+      const cb = p.circuit_breakers_enabled ? 'ON' : 'OFF';
+      html += '<div class="strategy-card' + (isActive ? ' active-profile' : '') + '" onclick="activateStrategy(\'' + p.id + '\')">';
+      html += '<div class="strat-name">' + esc(p.profile_name) + (isActive ? ' — ACTIVE' : '') + '</div>';
+      html += '<div class="strat-desc">' + esc(p.description || '') + '</div>';
+      html += '<div class="strat-stats">';
+      html += '<div class="strat-stat">TARGET <span>' + p.annual_target_pct + '% / YR</span></div>';
+      html += '<div class="strat-stat">DAILY <span>' + p.daily_target_pct + '%</span></div>';
+      html += '<div class="strat-stat">SIGNALS <span>' + p.min_signal_score + '/6</span></div>';
+      html += '<div class="strat-stat">CONF <span>' + (p.min_confidence * 100).toFixed(0) + '%</span></div>';
+      html += '<div class="strat-stat">RISK <span>' + p.max_risk_per_trade_pct + '%</span></div>';
+      html += '<div class="strat-stat">POS <span>' + p.max_concurrent_positions + '</span></div>';
+      html += '<div class="strat-stat">STYLE <span>' + (p.trade_style || '').toUpperCase() + '</span></div>';
+      html += '<div class="strat-stat">SIZE <span>' + (p.position_size_method || '').toUpperCase() + '</span></div>';
+      html += '<div class="strat-stat">BREAKERS <span>' + cb + '</span></div>';
+      html += '<div class="strat-stat">SELF-MOD <span>' + selfMod + '</span></div>';
+      html += '</div></div>';
+    });
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--red);font-size:0.7rem">FAILED TO LOAD PROFILES</div>';
+  }
+}
+
+async function activateStrategy(id) {
+  try {
+    await fetch('/api/strategy/activate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id}),
+    });
+    loadActiveStrategy();
+    loadStrategyProfiles();
+  } catch(e) {}
+}
+
+loadActiveStrategy();
 
 // NYSE latency now handled by telemetry sidebar
 

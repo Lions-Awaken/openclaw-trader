@@ -31,6 +31,9 @@ FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
 PERPLEXITY_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
+# Reusable HTTP client
+_client = httpx.Client(timeout=15.0)
+
 # Lookback window for news (12 hours)
 LOOKBACK_HOURS = 12
 
@@ -66,14 +69,14 @@ BEARISH_KEYWORDS = [
 
 def sb_get(path: str, params: dict | None = None) -> list:
     """GET from Supabase REST API."""
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.get(
-            f"{SUPABASE_URL}/rest/v1/{path}",
-            headers=_sb_headers(),
-            params=params or {},
-        )
-        if resp.status_code == 200:
-            return resp.json()
+    client = _client
+    resp = client.get(
+        f"{SUPABASE_URL}/rest/v1/{path}",
+        headers=_sb_headers(),
+        params=params or {},
+    )
+    if resp.status_code == 200:
+        return resp.json()
     return []
 
 
@@ -189,28 +192,28 @@ def fetch_finnhub_news(ticker: str, lookback_hours: int = LOOKBACK_HOURS) -> lis
 
     events = []
     try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(
-                "https://finnhub.io/api/v1/company-news",
-                params={
-                    "symbol": ticker,
-                    "from": from_date,
-                    "to": to_date,
-                },
-                headers={"X-Finnhub-Token": FINNHUB_KEY},
-            )
-            if resp.status_code == 200:
-                for article in resp.json()[:10]:  # Cap at 10 per ticker
-                    events.append({
-                        "ticker": ticker,
-                        "headline": article.get("headline", ""),
-                        "content": article.get("summary", ""),
-                        "source": "finnhub",
-                        "source_url": article.get("url", ""),
-                        "event_time": datetime.fromtimestamp(
-                            article.get("datetime", time.time()), tz=timezone.utc
-                        ).isoformat(),
-                    })
+        client = _client
+        resp = client.get(
+            "https://finnhub.io/api/v1/company-news",
+            params={
+                "symbol": ticker,
+                "from": from_date,
+                "to": to_date,
+            },
+            headers={"X-Finnhub-Token": FINNHUB_KEY},
+        )
+        if resp.status_code == 200:
+            for article in resp.json()[:10]:  # Cap at 10 per ticker
+                events.append({
+                    "ticker": ticker,
+                    "headline": article.get("headline", ""),
+                    "content": article.get("summary", ""),
+                    "source": "finnhub",
+                    "source_url": article.get("url", ""),
+                    "event_time": datetime.fromtimestamp(
+                        article.get("datetime", time.time()), tz=timezone.utc
+                    ).isoformat(),
+                })
     except Exception as e:
         print(f"[catalyst_ingest] Finnhub news error for {ticker}: {e}")
 
@@ -224,42 +227,42 @@ def fetch_finnhub_insiders(ticker: str) -> list[dict]:
 
     events = []
     try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(
-                "https://finnhub.io/api/v1/stock/insider-transactions",
-                params={"symbol": ticker},
-                headers={"X-Finnhub-Token": FINNHUB_KEY},
-            )
-            if resp.status_code == 200:
-                data = resp.json().get("data", [])
-                cutoff = datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS * 4)
-                for txn in data[:5]:
-                    filing_date = txn.get("filingDate", "")
-                    if filing_date:
-                        try:
-                            fd = datetime.strptime(filing_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                            if fd < cutoff:
-                                continue
-                        except ValueError:
-                            pass
+        client = _client
+        resp = client.get(
+            "https://finnhub.io/api/v1/stock/insider-transactions",
+            params={"symbol": ticker},
+            headers={"X-Finnhub-Token": FINNHUB_KEY},
+        )
+        if resp.status_code == 200:
+            data = resp.json().get("data", [])
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS * 4)
+            for txn in data[:5]:
+                filing_date = txn.get("filingDate", "")
+                if filing_date:
+                    try:
+                        fd = datetime.strptime(filing_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                        if fd < cutoff:
+                            continue
+                    except ValueError:
+                        pass
 
-                    txn_type = txn.get("transactionType", "").lower()
-                    shares = txn.get("share", 0) or 0
-                    value = txn.get("transactionPrice", 0) or 0
-                    name = txn.get("name", "Unknown")
+                txn_type = txn.get("transactionType", "").lower()
+                shares = txn.get("share", 0) or 0
+                value = txn.get("transactionPrice", 0) or 0
+                name = txn.get("name", "Unknown")
 
-                    headline = f"Insider {txn_type}: {name} — {abs(shares):.0f} shares @ ${value:.2f}"
-                    events.append({
-                        "ticker": ticker,
-                        "headline": headline,
-                        "content": f"Insider transaction by {name}. Type: {txn_type}. "
-                                   f"Shares: {shares}. Price: ${value}. Filing: {filing_date}",
-                        "source": "finnhub",
-                        "source_url": "",
-                        "event_time": (datetime.strptime(filing_date, "%Y-%m-%d").replace(
-                            tzinfo=timezone.utc
-                        ) if filing_date else datetime.now(timezone.utc)).isoformat(),
-                    })
+                headline = f"Insider {txn_type}: {name} — {abs(shares):.0f} shares @ ${value:.2f}"
+                events.append({
+                    "ticker": ticker,
+                    "headline": headline,
+                    "content": f"Insider transaction by {name}. Type: {txn_type}. "
+                               f"Shares: {shares}. Price: ${value}. Filing: {filing_date}",
+                    "source": "finnhub",
+                    "source_url": "",
+                    "event_time": (datetime.strptime(filing_date, "%Y-%m-%d").replace(
+                        tzinfo=timezone.utc
+                    ) if filing_date else datetime.now(timezone.utc)).isoformat(),
+                })
     except Exception as e:
         print(f"[catalyst_ingest] Finnhub insiders error for {ticker}: {e}")
 
@@ -275,29 +278,29 @@ def fetch_sec_edgar_rss() -> list[dict]:
 
     for feed_url in feeds:
         try:
-            with httpx.Client(timeout=15.0) as client:
-                resp = client.get(feed_url, headers={"User-Agent": "OpenClaw Trading Bot research@openclaw.dev"})
-                if resp.status_code == 200:
-                    # Simple XML parsing for Atom feed
-                    text = resp.text
-                    entries = text.split("<entry>")[1:]  # Skip header
-                    for entry in entries[:10]:
-                        title_match = re.search(r"<title[^>]*>(.*?)</title>", entry, re.DOTALL)
-                        link_match = re.search(r'<link[^>]*href="([^"]*)"', entry)
-                        updated_match = re.search(r"<updated>(.*?)</updated>", entry)
+            client = _client
+            resp = client.get(feed_url, headers={"User-Agent": "OpenClaw Trading Bot research@openclaw.dev"})
+            if resp.status_code == 200:
+                # Simple XML parsing for Atom feed
+                text = resp.text
+                entries = text.split("<entry>")[1:]  # Skip header
+                for entry in entries[:10]:
+                    title_match = re.search(r"<title[^>]*>(.*?)</title>", entry, re.DOTALL)
+                    link_match = re.search(r'<link[^>]*href="([^"]*)"', entry)
+                    updated_match = re.search(r"<updated>(.*?)</updated>", entry)
 
-                        if title_match:
-                            title = title_match.group(1).strip()
-                            # Extract ticker from title (usually in format "TICKER - 8-K")
-                            ticker_match = re.search(r"([A-Z]{1,5})\s*[-—]", title)
-                            events.append({
-                                "ticker": ticker_match.group(1) if ticker_match else None,
-                                "headline": title[:200],
-                                "content": title,
-                                "source": "sec_edgar",
-                                "source_url": link_match.group(1) if link_match else "",
-                                "event_time": updated_match.group(1) if updated_match else datetime.now(timezone.utc).isoformat(),
-                            })
+                    if title_match:
+                        title = title_match.group(1).strip()
+                        # Extract ticker from title (usually in format "TICKER - 8-K")
+                        ticker_match = re.search(r"([A-Z]{1,5})\s*[-—]", title)
+                        events.append({
+                            "ticker": ticker_match.group(1) if ticker_match else None,
+                            "headline": title[:200],
+                            "content": title,
+                            "source": "sec_edgar",
+                            "source_url": link_match.group(1) if link_match else "",
+                            "event_time": updated_match.group(1) if updated_match else datetime.now(timezone.utc).isoformat(),
+                        })
         except Exception as e:
             print(f"[catalyst_ingest] SEC EDGAR RSS error: {e}")
 
@@ -308,36 +311,36 @@ def fetch_quiverquant_trades() -> list[dict]:
     """Fetch recent congressional trades from QuiverQuant."""
     events = []
     try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(
-                "https://api.quiverquant.com/beta/live/congresstrading",
-                headers={"Authorization": "Bearer free"},
-            )
-            if resp.status_code == 200:
-                trades = resp.json()
-                cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-                for trade in trades[:20]:
-                    report_date = trade.get("ReportDate", "")
-                    if report_date and report_date < cutoff[:10]:
-                        continue
+        client = _client
+        resp = client.get(
+            "https://api.quiverquant.com/beta/live/congresstrading",
+            headers={"Authorization": "Bearer free"},
+        )
+        if resp.status_code == 200:
+            trades = resp.json()
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+            for trade in trades[:20]:
+                report_date = trade.get("ReportDate", "")
+                if report_date and report_date < cutoff[:10]:
+                    continue
 
-                    ticker = trade.get("Ticker", "")
-                    name = trade.get("Representative", "Unknown")
-                    txn_type = trade.get("Transaction", "")
-                    amount = trade.get("Amount", "")
+                ticker = trade.get("Ticker", "")
+                name = trade.get("Representative", "Unknown")
+                txn_type = trade.get("Transaction", "")
+                amount = trade.get("Amount", "")
 
-                    headline = f"Congressional trade: {name} — {txn_type} {ticker} ({amount})"
-                    events.append({
-                        "ticker": ticker if ticker else None,
-                        "headline": headline,
-                        "content": f"Congressional trading disclosure. {name} {txn_type} {ticker}. "
-                                   f"Amount range: {amount}. Report date: {report_date}.",
-                        "source": "quiverquant",
-                        "source_url": "",
-                        "event_time": (datetime.strptime(report_date, "%Y-%m-%d").replace(
-                            tzinfo=timezone.utc
-                        ) if report_date else datetime.now(timezone.utc)).isoformat(),
-                    })
+                headline = f"Congressional trade: {name} — {txn_type} {ticker} ({amount})"
+                events.append({
+                    "ticker": ticker if ticker else None,
+                    "headline": headline,
+                    "content": f"Congressional trading disclosure. {name} {txn_type} {ticker}. "
+                               f"Amount range: {amount}. Report date: {report_date}.",
+                    "source": "quiverquant",
+                    "source_url": "",
+                    "event_time": (datetime.strptime(report_date, "%Y-%m-%d").replace(
+                        tzinfo=timezone.utc
+                    ) if report_date else datetime.now(timezone.utc)).isoformat(),
+                })
     except Exception as e:
         print(f"[catalyst_ingest] QuiverQuant error: {e}")
 
@@ -353,55 +356,55 @@ def fetch_perplexity_search(tickers: list[str]) -> list[dict]:
     # Only search top 3 tickers to stay within budget
     for ticker in tickers[:3]:
         try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.post(
-                    "https://api.perplexity.ai/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {PERPLEXITY_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "sonar",
-                        "messages": [
-                            {"role": "user", "content": (
-                                f"What are the most important breaking news, catalysts, or market-moving "
-                                f"events for {ticker} stock in the last 4 hours? Include analyst actions, "
-                                f"insider trades, SEC filings, earnings, product announcements. "
-                                f"If nothing significant, say 'No significant catalysts'. "
-                                f"Be concise, 2-3 bullet points max."
-                            )}
-                        ],
-                        "max_tokens": 300,
-                    },
-                )
-                if resp.status_code == 200:
-                    resp_data = resp.json()
-                    content = resp_data["choices"][0]["message"]["content"]
-                    if "no significant" not in content.lower():
-                        events.append({
-                            "ticker": ticker,
-                            "headline": f"Perplexity catalyst scan: {ticker}",
-                            "content": content,
-                            "source": "perplexity",
-                            "source_url": "",
-                            "event_time": datetime.now(timezone.utc).isoformat(),
-                        })
+            client = _client
+            resp = client.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {PERPLEXITY_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "sonar",
+                    "messages": [
+                        {"role": "user", "content": (
+                            f"What are the most important breaking news, catalysts, or market-moving "
+                            f"events for {ticker} stock in the last 4 hours? Include analyst actions, "
+                            f"insider trades, SEC filings, earnings, product announcements. "
+                            f"If nothing significant, say 'No significant catalysts'. "
+                            f"Be concise, 2-3 bullet points max."
+                        )}
+                    ],
+                    "max_tokens": 300,
+                },
+            )
+            if resp.status_code == 200:
+                resp_data = resp.json()
+                content = resp_data["choices"][0]["message"]["content"]
+                if "no significant" not in content.lower():
+                    events.append({
+                        "ticker": ticker,
+                        "headline": f"Perplexity catalyst scan: {ticker}",
+                        "content": content,
+                        "source": "perplexity",
+                        "source_url": "",
+                        "event_time": datetime.now(timezone.utc).isoformat(),
+                    })
 
-                    # Log cost
-                    usage = resp_data.get("usage", {})
-                    tokens_in = usage.get("prompt_tokens", 0)
-                    tokens_out = usage.get("completion_tokens", 0)
-                    # Perplexity sonar: ~$0.001/1K tokens
-                    cost = (tokens_in + tokens_out) * 0.001 / 1000
-                    if cost > 0:
-                        _post_to_supabase("cost_ledger", {
-                            "ledger_date": datetime.now(timezone.utc).date().isoformat(),
-                            "category": "perplexity_api",
-                            "subcategory": f"catalyst_ingest_{ticker}",
-                            "amount": round(-cost, 6),
-                            "description": f"Perplexity catalyst scan for {ticker}",
-                            "metadata": {"tokens_in": tokens_in, "tokens_out": tokens_out, "model": "sonar"},
-                        })
+                # Log cost
+                usage = resp_data.get("usage", {})
+                tokens_in = usage.get("prompt_tokens", 0)
+                tokens_out = usage.get("completion_tokens", 0)
+                # Perplexity sonar: ~$0.001/1K tokens
+                cost = (tokens_in + tokens_out) * 0.001 / 1000
+                if cost > 0:
+                    _post_to_supabase("cost_ledger", {
+                        "ledger_date": datetime.now(timezone.utc).date().isoformat(),
+                        "category": "perplexity_api",
+                        "subcategory": f"catalyst_ingest_{ticker}",
+                        "amount": round(-cost, 6),
+                        "description": f"Perplexity catalyst scan for {ticker}",
+                        "metadata": {"tokens_in": tokens_in, "tokens_out": tokens_out, "model": "sonar"},
+                    })
 
         except Exception as e:
             print(f"[catalyst_ingest] Perplexity search error for {ticker}: {e}")

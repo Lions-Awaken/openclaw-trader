@@ -26,32 +26,35 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
+# Reusable HTTP client
+_client = httpx.Client(timeout=15.0)
+
 TODAY = date.today()  # Reassigned at the start of run()
 WEEK_START = ""  # Reassigned at the start of run()
 
 
 def sb_get(path: str, params: dict | None = None) -> list:
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.get(
-            f"{SUPABASE_URL}/rest/v1/{path}",
-            headers=_sb_headers(),
-            params=params or {},
-        )
-        if resp.status_code == 200:
-            return resp.json()
+    client = _client
+    resp = client.get(
+        f"{SUPABASE_URL}/rest/v1/{path}",
+        headers=_sb_headers(),
+        params=params or {},
+    )
+    if resp.status_code == 200:
+        return resp.json()
     return []
 
 
 def sb_rpc(fn_name: str, params: dict) -> list:
     """Call a Supabase RPC function."""
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.post(
-            f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
-            headers=_sb_headers(),
-            json=params,
-        )
-        if resp.status_code == 200:
-            return resp.json()
+    client = _client
+    resp = client.post(
+        f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
+        headers=_sb_headers(),
+        json=params,
+    )
+    if resp.status_code == 200:
+        return resp.json()
     return []
 
 
@@ -267,45 +270,45 @@ If no new patterns are worth creating, respond with an empty array: []
 Respond ONLY with valid JSON."""
 
     try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-6-20250514",
-                    "max_tokens": 512,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                content = data["content"][0]["text"]
-                if content.startswith("```"):
-                    content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        client = _client
+        resp = client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6-20250514",
+                "max_tokens": 512,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            content = data["content"][0]["text"]
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1].rsplit("```", 1)[0]
 
-                # Log cost
-                usage = data.get("usage", {})
-                input_tokens = usage.get("input_tokens", 0)
-                output_tokens = usage.get("output_tokens", 0)
-                cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
-                if cost > 0:
-                    _post_to_supabase("cost_ledger", {
-                        "ledger_date": TODAY.isoformat(),
-                        "category": "claude_api",
-                        "subcategory": "meta_weekly_pattern_discovery",
-                        "amount": round(-cost, 6),
-                        "description": "Weekly pattern template discovery",
-                        "metadata": {"model": "claude-sonnet-4-6", "input_tokens": input_tokens, "output_tokens": output_tokens},
-                    })
+            # Log cost
+            usage = data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
+            if cost > 0:
+                _post_to_supabase("cost_ledger", {
+                    "ledger_date": TODAY.isoformat(),
+                    "category": "claude_api",
+                    "subcategory": "meta_weekly_pattern_discovery",
+                    "amount": round(-cost, 6),
+                    "description": "Weekly pattern template discovery",
+                    "metadata": {"model": "claude-sonnet-4-6", "input_tokens": input_tokens, "output_tokens": output_tokens},
+                })
 
-                patterns = json.loads(content)
-                # Filter out duplicates
-                new_patterns = [p for p in patterns if p.get("pattern_name") not in existing_names]
-                return new_patterns[:3]
+            patterns = json.loads(content)
+            # Filter out duplicates
+            new_patterns = [p for p in patterns if p.get("pattern_name") not in existing_names]
+            return new_patterns[:3]
     except Exception as e:
         print(f"[meta_weekly] Pattern discovery failed: {e}")
 

@@ -39,55 +39,103 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 PERPLEXITY_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
-# Confidence thresholds per tumbler depth
+# Reusable HTTP client
+_client = httpx.Client(timeout=15.0)
+
+# Default confidence thresholds (overridden by active strategy profile)
 CONFIDENCE_THRESHOLDS = {
-    1: 0.25,  # Technical must show something
-    2: 0.40,  # Fundamentals must support
-    3: 0.55,  # Cross-asset must align
-    4: 0.65,  # Pattern match needed
-    5: 0.75,  # Final synthesis threshold
+    1: 0.25,
+    2: 0.40,
+    3: 0.55,
+    4: 0.65,
+    5: 0.75,
 }
 
-# Delta threshold for forced connection detection
 FORCED_CONNECTION_DELTA = 0.03
-
-# Time limit (seconds)
 TIME_LIMIT = 30
 
-# Decision thresholds on final confidence
 DECISION_THRESHOLDS = {
     "strong_enter": 0.75,
     "enter": 0.60,
     "watch": 0.45,
     "skip": 0.20,
-    # Below 0.20 = veto
 }
 
 TODAY = ""  # Reassigned at the start of run_inference()
 
+# Active strategy profile — loaded at runtime
+_active_profile: dict | None = None
+
+
+def load_active_profile() -> dict:
+    """Load the active strategy profile from Supabase."""
+    global _active_profile
+    rows = sb_get("strategy_profiles", {
+        "select": "profile_name,min_signal_score,min_tumbler_depth,min_confidence,"
+                  "max_risk_per_trade_pct,max_concurrent_positions,position_size_method,"
+                  "trade_style,circuit_breakers_enabled,self_modify_enabled,"
+                  "self_modify_requires_approval,annual_target_pct",
+        "active": "eq.true",
+        "limit": "1",
+    })
+    if rows:
+        _active_profile = rows[0]
+        # Override decision thresholds based on profile's min_confidence
+        min_conf = float(_active_profile.get("min_confidence", 0.60))
+        DECISION_THRESHOLDS["enter"] = min_conf
+        DECISION_THRESHOLDS["strong_enter"] = min(1.0, min_conf + 0.15)
+        DECISION_THRESHOLDS["watch"] = max(0.10, min_conf - 0.15)
+        DECISION_THRESHOLDS["skip"] = max(0.05, min_conf - 0.40)
+
+        # Override confidence floor thresholds based on min_tumbler_depth
+        min_depth = int(_active_profile.get("min_tumbler_depth", 3))
+        base_conf = float(_active_profile.get("min_confidence", 0.60))
+        for d in range(1, 6):
+            if d < min_depth:
+                # Below min depth, use scaled-down thresholds
+                CONFIDENCE_THRESHOLDS[d] = max(0.10, base_conf * (d / 5) * 0.6)
+            else:
+                CONFIDENCE_THRESHOLDS[d] = max(0.10, base_conf * (d / 5))
+
+        print(f"[inference_engine] Loaded profile: {_active_profile.get('profile_name', '?')} "
+              f"(min_signals={_active_profile.get('min_signal_score')}, "
+              f"min_conf={min_conf}, style={_active_profile.get('trade_style')})")
+    else:
+        _active_profile = {}
+        print("[inference_engine] No active profile found, using defaults")
+
+    return _active_profile
+
+
+def get_min_signal_score() -> int:
+    """Get minimum signal score from active profile."""
+    if _active_profile:
+        return int(_active_profile.get("min_signal_score", 4))
+    return 4
+
 
 def sb_get(path: str, params: dict | None = None) -> list:
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.get(
-            f"{SUPABASE_URL}/rest/v1/{path}",
-            headers=_sb_headers(),
-            params=params or {},
-        )
-        if resp.status_code == 200:
-            return resp.json()
+    client = _client
+    resp = client.get(
+        f"{SUPABASE_URL}/rest/v1/{path}",
+        headers=_sb_headers(),
+        params=params or {},
+    )
+    if resp.status_code == 200:
+        return resp.json()
     return []
 
 
 def sb_rpc(fn_name: str, params: dict) -> list:
     """Call a Supabase RPC function (for RAG queries)."""
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.post(
-            f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
-            headers=_sb_headers(),
-            json=params,
-        )
-        if resp.status_code == 200:
-            return resp.json()
+    client = _client
+    resp = client.post(
+        f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
+        headers=_sb_headers(),
+        json=params,
+    )
+    if resp.status_code == 200:
+        return resp.json()
     return []
 
 
@@ -170,29 +218,29 @@ def call_claude(prompt: str, max_tokens: int = 1024) -> tuple[str | None, float]
         return None, 0.0
 
     try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-6-20250514",
-                    "max_tokens": max_tokens,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                content = data["content"][0]["text"]
-                usage = data.get("usage", {})
-                input_tokens = usage.get("input_tokens", 0)
-                output_tokens = usage.get("output_tokens", 0)
-                # Claude Sonnet pricing: $3/1M input, $15/1M output
-                cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
-                return content, cost
+        client = _client
+        resp = client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6-20250514",
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            content = data["content"][0]["text"]
+            usage = data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            # Claude Sonnet pricing: $3/1M input, $15/1M output
+            cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
+            return content, cost
     except Exception as e:
         print(f"[inference_engine] Claude error: {e}")
 
@@ -634,6 +682,25 @@ def run_inference(
     global TODAY
     TODAY = date.today().isoformat()
 
+    # Load active strategy profile
+    profile = load_active_profile()
+    min_score = get_min_signal_score()
+
+    # Check if this ticker meets the profile's minimum signal threshold
+    if total_score < min_score:
+        print(f"[inference_engine] {ticker}: score {total_score} < min {min_score} for profile {profile.get('profile_name', '?')}, skipping")
+        return {
+            "inference_chain_id": None,
+            "ticker": ticker,
+            "final_confidence": 0.0,
+            "final_decision": "skip",
+            "max_depth_reached": 0,
+            "stopping_reason": "confidence_floor",
+            "patterns_matched": [],
+            "tumblers": [],
+            "profile": profile.get("profile_name", "DEFAULT"),
+        }
+
     start_time = time.time()
     tumblers = []
     catalyst_event_ids = []
@@ -791,8 +858,9 @@ def _finalize_chain(
     stored = _post_to_supabase("inference_chains", chain_data)
     chain_id = stored.get("id") if stored else None
 
+    profile_name = _active_profile.get("profile_name", "DEFAULT") if _active_profile else "DEFAULT"
     print(
-        f"[inference_engine] {ticker}: depth={max_depth}, "
+        f"[inference_engine] [{profile_name}] {ticker}: depth={max_depth}, "
         f"confidence={confidence:.3f}, decision={decision}, "
         f"stop={stopping_reason}"
     )
@@ -806,6 +874,7 @@ def _finalize_chain(
         "stopping_reason": stopping_reason,
         "patterns_matched": [pid for pid in pattern_template_ids if pid],
         "tumblers": stored_tumblers,
+        "profile": profile_name,
     }
 
 

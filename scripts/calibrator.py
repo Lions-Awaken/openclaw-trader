@@ -27,19 +27,22 @@ ALPACA_KEY = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
 ALPACA_DATA_BASE = "https://data.alpaca.markets"
 
+# Reusable HTTP client
+_client = httpx.Client(timeout=15.0)
+
 TODAY = date.today()  # Reassigned at the start of run()
 WEEK_START = ""  # Reassigned at the start of run()
 
 
 def sb_get(path: str, params: dict | None = None) -> list:
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.get(
-            f"{SUPABASE_URL}/rest/v1/{path}",
-            headers=_sb_headers(),
-            params=params or {},
-        )
-        if resp.status_code == 200:
-            return resp.json()
+    client = _client
+    resp = client.get(
+        f"{SUPABASE_URL}/rest/v1/{path}",
+        headers=_sb_headers(),
+        params=params or {},
+    )
+    if resp.status_code == 200:
+        return resp.json()
     return []
 
 
@@ -297,36 +300,36 @@ def _get_price_history(ticker: str, event_date: datetime) -> dict:
         start = event_date.strftime("%Y-%m-%d")
         end = (event_date + timedelta(days=7)).strftime("%Y-%m-%d")
 
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(
-                f"{ALPACA_DATA_BASE}/v2/stocks/{ticker}/bars",
-                headers={
-                    "APCA-API-KEY-ID": ALPACA_KEY,
-                    "APCA-API-SECRET-KEY": ALPACA_SECRET,
-                },
-                params={
-                    "start": start,
-                    "end": end,
-                    "timeframe": "1Day",
-                    "limit": 10,
-                },
-            )
-            if resp.status_code == 200:
-                bars = resp.json().get("bars", [])
-                if not bars:
-                    return {}
+        client = _client
+        resp = client.get(
+            f"{ALPACA_DATA_BASE}/v2/stocks/{ticker}/bars",
+            headers={
+                "APCA-API-KEY-ID": ALPACA_KEY,
+                "APCA-API-SECRET-KEY": ALPACA_SECRET,
+            },
+            params={
+                "start": start,
+                "end": end,
+                "timeframe": "1Day",
+                "limit": 10,
+            },
+        )
+        if resp.status_code == 200:
+            bars = resp.json().get("bars", [])
+            if not bars:
+                return {}
 
-                prices = {}
-                if len(bars) >= 1:
-                    prices["at_event"] = float(bars[0].get("c", 0))  # Close on event day
-                if len(bars) >= 2:
-                    prices["1d_after"] = float(bars[1].get("c", 0))
-                if len(bars) >= 5:
-                    prices["5d_after"] = float(bars[4].get("c", 0))
-                elif len(bars) >= 3:
-                    prices["5d_after"] = float(bars[-1].get("c", 0))
+            prices = {}
+            if len(bars) >= 1:
+                prices["at_event"] = float(bars[0].get("c", 0))  # Close on event day
+            if len(bars) >= 2:
+                prices["1d_after"] = float(bars[1].get("c", 0))
+            if len(bars) >= 5:
+                prices["5d_after"] = float(bars[4].get("c", 0))
+            elif len(bars) >= 3:
+                prices["5d_after"] = float(bars[-1].get("c", 0))
 
-                return prices
+            return prices
     except Exception as e:
         print(f"[calibrator] Price history error for {ticker}: {e}")
 

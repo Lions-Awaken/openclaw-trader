@@ -29,32 +29,35 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
+# Reusable HTTP client
+_client = httpx.Client(timeout=15.0)
+
 TODAY = ""  # Reassigned at the start of run()
 
 
 def sb_get(path: str, params: dict | None = None) -> list:
     """GET from Supabase REST API."""
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.get(
-            f"{SUPABASE_URL}/rest/v1/{path}",
-            headers=_sb_headers(),
-            params=params or {},
-        )
-        if resp.status_code == 200:
-            return resp.json()
+    client = _client
+    resp = client.get(
+        f"{SUPABASE_URL}/rest/v1/{path}",
+        headers=_sb_headers(),
+        params=params or {},
+    )
+    if resp.status_code == 200:
+        return resp.json()
     return []
 
 
 def sb_rpc(fn_name: str, params: dict) -> list:
     """Call a Supabase RPC function."""
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.post(
-            f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
-            headers=_sb_headers(),
-            json=params,
-        )
-        if resp.status_code == 200:
-            return resp.json()
+    client = _client
+    resp = client.post(
+        f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
+        headers=_sb_headers(),
+        json=params,
+    )
+    if resp.status_code == 200:
+        return resp.json()
     return []
 
 
@@ -371,34 +374,34 @@ Respond ONLY with valid JSON, no markdown formatting."""
 
     cost = 0.0
     try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-6-20250514",
-                    "max_tokens": 1024,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                content = data["content"][0]["text"]
-                # Strip markdown code fences if present
-                if content.startswith("```"):
-                    content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        client = _client
+        resp = client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6-20250514",
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            content = data["content"][0]["text"]
+            # Strip markdown code fences if present
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1].rsplit("```", 1)[0]
 
-                # Calculate cost
-                usage = data.get("usage", {})
-                input_tokens = usage.get("input_tokens", 0)
-                output_tokens = usage.get("output_tokens", 0)
-                cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
+            # Calculate cost
+            usage = data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
 
-                return json.loads(content), cost
+            return json.loads(content), cost
     except Exception as e:
         print(f"[meta_daily] Claude reflection failed: {e}")
 
@@ -412,15 +415,38 @@ Respond ONLY with valid JSON, no markdown formatting."""
     }, cost
 
 
+def get_active_profile() -> dict:
+    """Load the active strategy profile."""
+    rows = sb_get("strategy_profiles", {
+        "select": "profile_name,self_modify_enabled,self_modify_requires_approval,self_modify_max_delta_pct",
+        "active": "eq.true",
+        "limit": "1",
+    })
+    return rows[0] if rows else {}
+
+
 def auto_approve_adjustments(adjustments: list[dict]) -> list[dict]:
-    """Auto-approve adjustments within +/-5% weight bounds."""
+    """Auto-approve adjustments based on active strategy profile settings."""
+    profile = get_active_profile()
+    self_modify = profile.get("self_modify_enabled", False)
+    needs_approval = profile.get("self_modify_requires_approval", True)
+    max_delta = float(profile.get("self_modify_max_delta_pct", 5.0))
+
     approved = []
     for adj in adjustments:
         try:
             prev = float(adj.get("current_value", "0").replace("%", ""))
             new = float(adj.get("suggested_value", "0").replace("%", ""))
             delta = abs(new - prev)
-            if delta <= 5.0 and 5.0 <= new <= 40.0:
+
+            if self_modify and not needs_approval:
+                # UNLEASHED mode: auto-approve within max_delta, no bounds check
+                if delta <= max_delta:
+                    adj["status"] = "applied"
+                else:
+                    adj["status"] = "approved"
+            elif delta <= 5.0 and 5.0 <= new <= 40.0:
+                # CONSERVATIVE mode: tight bounds
                 adj["status"] = "approved"
             else:
                 adj["status"] = "proposed"

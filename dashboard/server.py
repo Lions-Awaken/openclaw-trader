@@ -7,6 +7,7 @@ Authentication: password login form with session tokens, rate limiting,
 and CSRF protection. No query-param key exposure.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -23,6 +24,32 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from starlette.middleware.base import BaseHTTPMiddleware
 
 app = FastAPI(title="OpenClaw Trader Dashboard", docs_url=None, redoc_url=None)
+
+# ============================================================================
+# Persistent HTTP clients — reuse connections across requests
+# ============================================================================
+
+_http: httpx.AsyncClient | None = None
+
+
+def get_http() -> httpx.AsyncClient:
+    """Get the shared async HTTP client."""
+    global _http
+    if _http is None or _http.is_closed:
+        _http = httpx.AsyncClient(timeout=10.0)
+    return _http
+
+
+@app.on_event("startup")
+async def startup():
+    global _http
+    _http = httpx.AsyncClient(timeout=10.0)
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    if _http:
+        await _http.aclose()
 
 
 # ============================================================================
@@ -353,18 +380,18 @@ async def create_magic_link(request: Request, oc_session: str | None = Cookie(No
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
 
     # Store in Supabase
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
-            headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
-            json={
-                "token_hash": token_hash,
-                "email": email,
-                "expires_at": expires_at.isoformat(),
-            },
-        )
-        if resp.status_code not in (200, 201):
-            raise HTTPException(status_code=500, detail="Failed to create token")
+    client = get_http()
+    resp = await client.post(
+        f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+        headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
+        json={
+            "token_hash": token_hash,
+            "email": email,
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=500, detail="Failed to create token")
 
     # Build the link
     host = request.headers.get("host", "openclaw-trader-dash.fly.dev")
@@ -391,47 +418,47 @@ async def consume_magic_link(t: str = ""):
 
     token_hash = hashlib.sha256(t.encode()).hexdigest()
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        # Find the token
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
-            headers=sb_headers(),
-            params={
-                "token_hash": f"eq.{token_hash}",
-                "used_at": "is.null",
-                "revoked": "eq.false",
-                "select": "id,expires_at,email",
-            },
+    client = get_http()
+    # Find the token
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+        headers=sb_headers(),
+        params={
+            "token_hash": f"eq.{token_hash}",
+            "used_at": "is.null",
+            "revoked": "eq.false",
+            "select": "id,expires_at,email",
+        },
+    )
+
+    if resp.status_code != 200 or not resp.json():
+        return HTMLResponse(
+            '<html><body style="background:#050508;color:#ff3344;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center">'
+            '<div><h1 style="letter-spacing:4px">LINK EXPIRED</h1><p style="color:#666;margin-top:12px">This link has been used or has expired.</p>'
+            '<a href="/login" style="color:#22d3ee;margin-top:20px;display:inline-block">GO TO LOGIN</a></div></body></html>',
+            status_code=403,
         )
 
-        if resp.status_code != 200 or not resp.json():
-            return HTMLResponse(
-                '<html><body style="background:#050508;color:#ff3344;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center">'
-                '<div><h1 style="letter-spacing:4px">LINK EXPIRED</h1><p style="color:#666;margin-top:12px">This link has been used or has expired.</p>'
-                '<a href="/login" style="color:#22d3ee;margin-top:20px;display:inline-block">GO TO LOGIN</a></div></body></html>',
-                status_code=403,
-            )
+    token_row = resp.json()[0]
+    token_id = token_row["id"]
+    expires_at = token_row["expires_at"]
 
-        token_row = resp.json()[0]
-        token_id = token_row["id"]
-        expires_at = token_row["expires_at"]
-
-        # Check expiry
-        if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) < datetime.now(timezone.utc):
-            return HTMLResponse(
-                '<html><body style="background:#050508;color:#ff3344;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center">'
-                '<div><h1 style="letter-spacing:4px">FUSE BURNED</h1><p style="color:#666;margin-top:12px">This link has expired.</p>'
-                '<a href="/login" style="color:#22d3ee;margin-top:20px;display:inline-block">GO TO LOGIN</a></div></body></html>',
-                status_code=403,
-            )
-
-        # Consume the token (mark as used)
-        await client.patch(
-            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
-            headers={**sb_headers(), "Content-Type": "application/json"},
-            params={"id": f"eq.{token_id}"},
-            json={"used_at": datetime.now(timezone.utc).isoformat()},
+    # Check expiry
+    if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) < datetime.now(timezone.utc):
+        return HTMLResponse(
+            '<html><body style="background:#050508;color:#ff3344;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center">'
+            '<div><h1 style="letter-spacing:4px">FUSE BURNED</h1><p style="color:#666;margin-top:12px">This link has expired.</p>'
+            '<a href="/login" style="color:#22d3ee;margin-top:20px;display:inline-block">GO TO LOGIN</a></div></body></html>',
+            status_code=403,
         )
+
+    # Consume the token (mark as used)
+    await client.patch(
+        f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+        headers={**sb_headers(), "Content-Type": "application/json"},
+        params={"id": f"eq.{token_id}"},
+        json={"used_at": datetime.now(timezone.utc).isoformat()},
+    )
 
     # Create session
     session_token = _create_session()
@@ -454,17 +481,17 @@ async def list_magic_links(request: Request, oc_session: str | None = Cookie(Non
     if not SUPABASE_URL:
         return []
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
-            headers=sb_headers(),
-            params={
-                "select": "id,email,expires_at,used_at,revoked,created_at",
-                "order": "created_at.desc",
-                "limit": "20",
-            },
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+        headers=sb_headers(),
+        params={
+            "select": "id,email,expires_at,used_at,revoked,created_at",
+            "order": "created_at.desc",
+            "limit": "20",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.post("/api/magic-link/revoke")
@@ -475,14 +502,14 @@ async def revoke_magic_link(request: Request, oc_session: str | None = Cookie(No
     link_id = body.get("id", "")
     link_id = _validate_uuid(link_id)
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.patch(
-            f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
-            headers={**sb_headers(), "Content-Type": "application/json"},
-            params={"id": f"eq.{link_id}"},
-            json={"revoked": True},
-        )
-        return {"ok": resp.status_code in (200, 204)}
+    client = get_http()
+    resp = await client.patch(
+        f"{SUPABASE_URL}/rest/v1/magic_link_tokens",
+        headers={**sb_headers(), "Content-Type": "application/json"},
+        params={"id": f"eq.{link_id}"},
+        json={"revoked": True},
+    )
+    return {"ok": resp.status_code in (200, 204)}
 
 
 # ============================================================================
@@ -511,54 +538,54 @@ async def index(request: Request, oc_session: str | None = Cookie(None)):
 @app.get("/api/account")
 async def get_account(request: Request, oc_session: str | None = Cookie(None)):
     _require_auth(request, oc_session)
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{ALPACA_BASE}/v2/account",
-            headers={
-                "APCA-API-KEY-ID": ALPACA_KEY,
-                "APCA-API-SECRET-KEY": ALPACA_SECRET,
-            },
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            return {
-                "equity": float(data.get("equity", 0)),
-                "cash": float(data.get("cash", 0)),
-                "buying_power": float(data.get("buying_power", 0)),
-                "portfolio_value": float(data.get("portfolio_value", 0)),
-                "account_number": data.get("account_number", ""),
-                "status": data.get("status", ""),
-                "paper": data.get("account_number", "").startswith("PA"),
-            }
-        return {"error": f"Alpaca {resp.status_code}"}
+    client = get_http()
+    resp = await client.get(
+        f"{ALPACA_BASE}/v2/account",
+        headers={
+            "APCA-API-KEY-ID": ALPACA_KEY,
+            "APCA-API-SECRET-KEY": ALPACA_SECRET,
+        },
+    )
+    if resp.status_code == 200:
+        data = resp.json()
+        return {
+            "equity": float(data.get("equity", 0)),
+            "cash": float(data.get("cash", 0)),
+            "buying_power": float(data.get("buying_power", 0)),
+            "portfolio_value": float(data.get("portfolio_value", 0)),
+            "account_number": data.get("account_number", ""),
+            "status": data.get("status", ""),
+            "paper": data.get("account_number", "").startswith("PA"),
+        }
+    return {"error": f"Alpaca {resp.status_code}"}
 
 
 @app.get("/api/positions")
 async def get_positions(request: Request, oc_session: str | None = Cookie(None)):
     _require_auth(request, oc_session)
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{ALPACA_BASE}/v2/positions",
-            headers={
-                "APCA-API-KEY-ID": ALPACA_KEY,
-                "APCA-API-SECRET-KEY": ALPACA_SECRET,
-            },
-        )
-        if resp.status_code == 200:
-            positions = []
-            for p in resp.json():
-                positions.append({
-                    "symbol": p.get("symbol"),
-                    "qty": float(p.get("qty", 0)),
-                    "avg_entry": float(p.get("avg_entry_price", 0)),
-                    "current_price": float(p.get("current_price", 0)),
-                    "market_value": float(p.get("market_value", 0)),
-                    "unrealized_pl": float(p.get("unrealized_pl", 0)),
-                    "unrealized_plpc": float(p.get("unrealized_plpc", 0)) * 100,
-                    "side": p.get("side", ""),
-                })
-            return positions
-        return []
+    client = get_http()
+    resp = await client.get(
+        f"{ALPACA_BASE}/v2/positions",
+        headers={
+            "APCA-API-KEY-ID": ALPACA_KEY,
+            "APCA-API-SECRET-KEY": ALPACA_SECRET,
+        },
+    )
+    if resp.status_code == 200:
+        positions = []
+        for p in resp.json():
+            positions.append({
+                "symbol": p.get("symbol"),
+                "qty": float(p.get("qty", 0)),
+                "avg_entry": float(p.get("avg_entry_price", 0)),
+                "current_price": float(p.get("current_price", 0)),
+                "market_value": float(p.get("market_value", 0)),
+                "unrealized_pl": float(p.get("unrealized_pl", 0)),
+                "unrealized_plpc": float(p.get("unrealized_plpc", 0)) * 100,
+                "side": p.get("side", ""),
+            })
+        return positions
+    return []
 
 
 @app.get("/api/trades")
@@ -566,19 +593,19 @@ async def get_trades(request: Request, oc_session: str | None = Cookie(None)):
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/trade_decisions",
-            headers=sb_headers(),
-            params={
-                "select": "id,ticker,action,entry_price,exit_price,pnl,outcome,signals_fired,hold_days,reasoning,what_worked,improvement,created_at",
-                "order": "created_at.desc",
-                "limit": "50",
-            },
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/trade_decisions",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,action,entry_price,exit_price,pnl,outcome,signals_fired,hold_days,reasoning,what_worked,improvement,created_at",
+            "order": "created_at.desc",
+            "limit": "50",
+        },
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    return []
 
 
 @app.get("/api/performance")
@@ -586,15 +613,15 @@ async def get_performance(request: Request, oc_session: str | None = Cookie(None
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/account_performance",
-            headers=sb_headers(),
-        )
-        if resp.status_code == 200:
-            rows = resp.json()
-            return rows[0] if rows else {}
-        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/account_performance",
+        headers=sb_headers(),
+    )
+    if resp.status_code == 200:
+        rows = resp.json()
+        return rows[0] if rows else {}
+    return {}
 
 
 @app.get("/api/regime")
@@ -611,15 +638,15 @@ async def get_regime_history(request: Request, oc_session: str | None = Cookie(N
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/regime_log",
-            headers=sb_headers(),
-            params={"order": "logged_at.desc", "limit": "30"},
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/regime_log",
+        headers=sb_headers(),
+        params={"order": "logged_at.desc", "limit": "30"},
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    return []
 
 
 @app.get("/api/predictions")
@@ -627,19 +654,19 @@ async def get_predictions(request: Request, oc_session: str | None = Cookie(None
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/predictions",
-            headers=sb_headers(),
-            params={
-                "select": "id,ticker,prediction_type,thesis,predicted_direction,predicted_target,entry_price,confidence,timeframe,regime_at_time,actual_price,actual_direction,accuracy_score,correct,post_mortem,lessons_learned,status,expires_at,graded_at,created_at",
-                "order": "created_at.desc",
-                "limit": "50",
-            },
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/predictions",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,prediction_type,thesis,predicted_direction,predicted_target,entry_price,confidence,timeframe,regime_at_time,actual_price,actual_direction,accuracy_score,correct,post_mortem,lessons_learned,status,expires_at,graded_at,created_at",
+            "order": "created_at.desc",
+            "limit": "50",
+        },
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    return []
 
 
 @app.get("/api/prediction-accuracy")
@@ -647,15 +674,15 @@ async def get_prediction_accuracy(request: Request, oc_session: str | None = Coo
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/prediction_accuracy",
-            headers=sb_headers(),
-        )
-        if resp.status_code == 200:
-            rows = resp.json()
-            return rows[0] if rows else {}
-        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/prediction_accuracy",
+        headers=sb_headers(),
+    )
+    if resp.status_code == 200:
+        rows = resp.json()
+        return rows[0] if rows else {}
+    return {}
 
 
 @app.get("/api/system/current")
@@ -664,16 +691,16 @@ async def get_system_current(request: Request, oc_session: str | None = Cookie(N
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/system_stats",
-            headers=sb_headers(),
-            params={"order": "collected_at.desc", "limit": "1"},
-        )
-        if resp.status_code == 200:
-            rows = resp.json()
-            return rows[0] if rows else {}
-        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_stats",
+        headers=sb_headers(),
+        params={"order": "collected_at.desc", "limit": "1"},
+    )
+    if resp.status_code == 200:
+        rows = resp.json()
+        return rows[0] if rows else {}
+    return {}
 
 
 @app.get("/api/system/history")
@@ -683,19 +710,19 @@ async def get_system_history(request: Request, oc_session: str | None = Cookie(N
     if not SUPABASE_URL:
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/system_stats",
-            headers=sb_headers(),
-            params={
-                "select": "cpu_percent,mem_percent,gpu_load_pct,gpu_temp_c,cpu_temp_c,collected_at",
-                "collected_at": f"gte.{cutoff}",
-                "order": "collected_at.asc",
-            },
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_stats",
+        headers=sb_headers(),
+        params={
+            "select": "cpu_percent,mem_percent,gpu_load_pct,gpu_temp_c,cpu_temp_c,collected_at",
+            "collected_at": f"gte.{cutoff}",
+            "order": "collected_at.asc",
+        },
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    return []
 
 
 @app.get("/api/llm/stats")
@@ -704,22 +731,22 @@ async def get_llm_stats(request: Request, oc_session: str | None = Cookie(None))
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/llm_stats",
-            headers=sb_headers(),
-        )
-        stats = resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/llm_stats",
+        headers=sb_headers(),
+    )
+    stats = resp.json() if resp.status_code == 200 else []
 
-        # Also get recent inferences
-        resp2 = await client.get(
-            f"{SUPABASE_URL}/rest/v1/llm_inferences",
-            headers=sb_headers(),
-            params={"order": "created_at.desc", "limit": "20"},
-        )
-        recent = resp2.json() if resp2.status_code == 200 else []
+    # Also get recent inferences
+    resp2 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/llm_inferences",
+        headers=sb_headers(),
+        params={"order": "created_at.desc", "limit": "20"},
+    )
+    recent = resp2.json() if resp2.status_code == 200 else []
 
-        return {"models": stats, "recent": recent}
+    return {"models": stats, "recent": recent}
 
 
 # ============================================================================
@@ -748,13 +775,13 @@ async def get_pipeline_runs(
     if pipeline:
         pipeline = _validate_pipeline_name(pipeline)
         params["pipeline_name"] = f"eq.{pipeline}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/pipeline_runs",
-            headers=sb_headers(),
-            params=params,
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params=params,
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.get("/api/pipeline/health")
@@ -764,30 +791,30 @@ async def get_pipeline_health(request: Request, oc_session: str | None = Cookie(
     if not SUPABASE_URL:
         return {"score": 0, "total": 0}
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/pipeline_runs",
-            headers=sb_headers(),
-            params={
-                "select": "status",
-                "step_name": "neq.root",
-                "started_at": f"gte.{cutoff}",
-            },
-        )
-        if resp.status_code != 200:
-            return {"score": 0, "total": 0}
-        runs = resp.json()
-        total = len(runs)
-        if total == 0:
-            return {"score": 100, "total": 0, "successes": 0, "failures": 0}
-        successes = sum(1 for r in runs if r["status"] == "success")
-        failures = sum(1 for r in runs if r["status"] == "failure")
-        return {
-            "score": round(successes / total * 100, 1) if total else 0,
-            "total": total,
-            "successes": successes,
-            "failures": failures,
-        }
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "status",
+            "step_name": "neq.root",
+            "started_at": f"gte.{cutoff}",
+        },
+    )
+    if resp.status_code != 200:
+        return {"score": 0, "total": 0}
+    runs = resp.json()
+    total = len(runs)
+    if total == 0:
+        return {"score": 100, "total": 0, "successes": 0, "failures": 0}
+    successes = sum(1 for r in runs if r["status"] == "success")
+    failures = sum(1 for r in runs if r["status"] == "failure")
+    return {
+        "score": round(successes / total * 100, 1) if total else 0,
+        "total": total,
+        "successes": successes,
+        "failures": failures,
+    }
 
 
 @app.get("/api/pipeline/run/{run_id}")
@@ -797,29 +824,29 @@ async def get_pipeline_run_detail(run_id: str, request: Request, oc_session: str
     run_id = _validate_uuid(run_id)
     if not SUPABASE_URL:
         return {}
-    async with httpx.AsyncClient() as client:
-        # Get root run
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/pipeline_runs",
-            headers=sb_headers(),
-            params={"id": f"eq.{run_id}"},
-        )
-        root = resp.json()[0] if resp.status_code == 200 and resp.json() else None
-        if not root:
-            return {}
+    client = get_http()
+    # Get root run
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={"id": f"eq.{run_id}"},
+    )
+    root = resp.json()[0] if resp.status_code == 200 and resp.json() else None
+    if not root:
+        return {}
 
-        # Get all children (recursive via parent_run_id)
-        resp2 = await client.get(
-            f"{SUPABASE_URL}/rest/v1/pipeline_runs",
-            headers=sb_headers(),
-            params={
-                "select": "id,step_name,status,started_at,completed_at,duration_ms,input_snapshot,output_snapshot,error_message,parent_run_id",
-                "or": f"(id.eq.{run_id},parent_run_id.eq.{run_id})",
-                "order": "started_at.asc",
-            },
-        )
-        steps = resp2.json() if resp2.status_code == 200 else []
-        return {"root": root, "steps": steps}
+    # Get all children (recursive via parent_run_id)
+    resp2 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "id,step_name,status,started_at,completed_at,duration_ms,input_snapshot,output_snapshot,error_message,parent_run_id",
+            "or": f"(id.eq.{run_id},parent_run_id.eq.{run_id})",
+            "order": "started_at.asc",
+        },
+    )
+    steps = resp2.json() if resp2.status_code == 200 else []
+    return {"root": root, "steps": steps}
 
 
 @app.get("/api/signals/accuracy")
@@ -828,13 +855,13 @@ async def get_signal_accuracy(request: Request, oc_session: str | None = Cookie(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/signal_accuracy_report",
-            headers=sb_headers(),
-            params={"order": "week_start.desc", "limit": "12"},
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/signal_accuracy_report",
+        headers=sb_headers(),
+        params={"order": "week_start.desc", "limit": "12"},
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.get("/api/signals/evaluations")
@@ -848,18 +875,18 @@ async def get_signal_evaluations(
     if not SUPABASE_URL:
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/signal_evaluations",
-            headers=sb_headers(),
-            params={
-                "select": "id,ticker,scan_date,scan_type,trend,momentum,volume,fundamental,sentiment,flow,total_score,decision,reasoning",
-                "scan_date": f"gte.{cutoff}",
-                "order": "created_at.desc",
-                "limit": "100",
-            },
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/signal_evaluations",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,scan_date,scan_type,trend,momentum,volume,fundamental,sentiment,flow,total_score,decision,reasoning",
+            "scan_date": f"gte.{cutoff}",
+            "order": "created_at.desc",
+            "limit": "100",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.get("/api/meta/reflections")
@@ -868,17 +895,17 @@ async def get_meta_reflections(request: Request, oc_session: str | None = Cookie
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/meta_reflections",
-            headers=sb_headers(),
-            params={
-                "select": "id,reflection_date,reflection_type,patterns_observed,signal_assessment,operational_issues,counterfactuals,adjustments,pipeline_summary,signal_accuracy,created_at",
-                "order": "reflection_date.desc",
-                "limit": "20",
-            },
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/meta_reflections",
+        headers=sb_headers(),
+        params={
+            "select": "id,reflection_date,reflection_type,patterns_observed,signal_assessment,operational_issues,counterfactuals,adjustments,pipeline_summary,signal_accuracy,created_at",
+            "order": "reflection_date.desc",
+            "limit": "20",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.get("/api/meta/adjustments")
@@ -887,17 +914,17 @@ async def get_meta_adjustments(request: Request, oc_session: str | None = Cookie
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/strategy_adjustments",
-            headers=sb_headers(),
-            params={
-                "select": "id,parameter_name,previous_value,new_value,reason,status,impact_assessment,trades_since_applied,pnl_since_applied,applied_at,created_at",
-                "order": "created_at.desc",
-                "limit": "30",
-            },
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/strategy_adjustments",
+        headers=sb_headers(),
+        params={
+            "select": "id,parameter_name,previous_value,new_value,reason,status,impact_assessment,trades_since_applied,pnl_since_applied,applied_at,created_at",
+            "order": "created_at.desc",
+            "limit": "30",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.get("/api/predictions/live")
@@ -907,88 +934,91 @@ async def get_predictions_live(request: Request, oc_session: str | None = Cookie
     if not SUPABASE_URL:
         return []
 
-    async with httpx.AsyncClient() as client:
-        # Get open predictions
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/predictions",
-            headers=sb_headers(),
-            params={
-                "select": "id,ticker,predicted_direction,entry_price,confidence,timeframe,thesis,expires_at,created_at",
-                "status": "eq.open",
-                "order": "created_at.desc",
-            },
-        )
-        if resp.status_code != 200:
-            return []
+    client = get_http()
+    # Get open predictions
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/predictions",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,predicted_direction,entry_price,confidence,timeframe,thesis,expires_at,created_at",
+            "status": "eq.open",
+            "order": "created_at.desc",
+        },
+    )
+    if resp.status_code != 200:
+        return []
 
-        predictions = resp.json()
-        if not predictions:
-            return []
+    predictions = resp.json()
+    if not predictions:
+        return []
 
-        # Get unique tickers
-        tickers = list(set(p["ticker"] for p in predictions))
+    # Get unique tickers
+    tickers = list(set(p["ticker"] for p in predictions))
 
-        # Batch fetch latest quotes from Alpaca
-        quotes = {}
-        for ticker in tickers:
-            try:
-                qr = await client.get(
-                    f"https://data.alpaca.markets/v2/stocks/{ticker}/quotes/latest",
-                    headers={
-                        "APCA-API-KEY-ID": ALPACA_KEY,
-                        "APCA-API-SECRET-KEY": ALPACA_SECRET,
-                    },
-                )
-                if qr.status_code == 200:
-                    data = qr.json()
-                    quote = data.get("quote", data)
-                    bid = float(quote.get("bp", 0))
-                    ask = float(quote.get("ap", 0))
-                    mid = round((bid + ask) / 2, 2) if bid and ask else 0
-                    quotes[ticker] = {
-                        "price": mid,
-                        "bid": bid,
-                        "ask": ask,
-                        "spread": round(ask - bid, 4),
-                    }
-            except Exception:
-                pass
+    # Fetch latest quotes from Alpaca in parallel
+    async def _fetch_quote(t: str):
+        try:
+            qr = await client.get(
+                f"https://data.alpaca.markets/v2/stocks/{t}/quotes/latest",
+                headers={
+                    "APCA-API-KEY-ID": ALPACA_KEY,
+                    "APCA-API-SECRET-KEY": ALPACA_SECRET,
+                },
+            )
+            if qr.status_code == 200:
+                data = qr.json()
+                quote = data.get("quote", data)
+                bid = float(quote.get("bp", 0))
+                ask = float(quote.get("ap", 0))
+                mid = round((bid + ask) / 2, 2) if bid and ask else 0
+                return t, {
+                    "price": mid,
+                    "bid": bid,
+                    "ask": ask,
+                    "spread": round(ask - bid, 4),
+                }
+        except Exception:
+            pass
+        return t, None
 
-        # Enrich predictions with live data
-        results = []
-        for p in predictions:
-            ticker = p["ticker"]
-            entry = float(p["entry_price"])
-            q = quotes.get(ticker, {})
-            current = q.get("price", 0)
-            change = current - entry if current else 0
-            pct = (change / entry * 100) if entry and current else 0
-            direction = p["predicted_direction"]
+    quote_results = await asyncio.gather(*[_fetch_quote(t) for t in tickers])
+    quotes = {t: q for t, q in quote_results if q is not None}
 
-            # Is the prediction currently on track?
-            on_track = (direction == "bullish" and change > 0) or \
-                       (direction == "bearish" and change < 0) or \
-                       (direction == "neutral" and abs(pct) < 1)
+    # Enrich predictions with live data
+    results = []
+    for p in predictions:
+        ticker = p["ticker"]
+        entry = float(p["entry_price"])
+        q = quotes.get(ticker, {})
+        current = q.get("price", 0)
+        change = current - entry if current else 0
+        pct = (change / entry * 100) if entry and current else 0
+        direction = p["predicted_direction"]
 
-            results.append({
-                "id": p["id"],
-                "ticker": ticker,
-                "direction": direction,
-                "entry_price": entry,
-                "current_price": current,
-                "change": round(change, 2),
-                "change_pct": round(pct, 2),
-                "on_track": on_track,
-                "confidence": float(p.get("confidence", 0)),
-                "timeframe": p.get("timeframe"),
-                "thesis": p.get("thesis", ""),
-                "expires_at": p.get("expires_at"),
-                "bid": q.get("bid", 0),
-                "ask": q.get("ask", 0),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+        # Is the prediction currently on track?
+        on_track = (direction == "bullish" and change > 0) or \
+                   (direction == "bearish" and change < 0) or \
+                   (direction == "neutral" and abs(pct) < 1)
 
-        return results
+        results.append({
+            "id": p["id"],
+            "ticker": ticker,
+            "direction": direction,
+            "entry_price": entry,
+            "current_price": current,
+            "change": round(change, 2),
+            "change_pct": round(pct, 2),
+            "on_track": on_track,
+            "confidence": float(p.get("confidence", 0)),
+            "timeframe": p.get("timeframe"),
+            "thesis": p.get("thesis", ""),
+            "expires_at": p.get("expires_at"),
+            "bid": q.get("bid", 0),
+            "ask": q.get("ask", 0),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    return results
 
 
 # ============================================================================
@@ -1003,120 +1033,120 @@ async def get_prediction_context(prediction_id: str, request: Request, oc_sessio
     if not SUPABASE_URL:
         return {}
 
-    async with httpx.AsyncClient() as client:
-        # 1. Get the prediction itself
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/predictions",
-            headers=sb_headers(),
-            params={"id": f"eq.{prediction_id}"},
-        )
-        pred = resp.json()[0] if resp.status_code == 200 and resp.json() else None
-        if not pred:
-            return {}
+    client = get_http()
+    # 1. Get the prediction itself
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/predictions",
+        headers=sb_headers(),
+        params={"id": f"eq.{prediction_id}"},
+    )
+    pred = resp.json()[0] if resp.status_code == 200 and resp.json() else None
+    if not pred:
+        return {}
 
-        ticker = pred["ticker"]
-        pred_date = pred["created_at"][:10]
+    ticker = pred["ticker"]
+    pred_date = pred["created_at"][:10]
 
-        # 2. Get inference chains for this ticker around prediction date (±1 day)
-        chains_resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/inference_chains",
-            headers=sb_headers(),
-            params={
-                "select": "id,ticker,chain_date,max_depth_reached,final_confidence,final_decision,stopping_reason,tumblers,reasoning_summary,catalyst_event_ids,pattern_template_ids,created_at",
-                "ticker": f"eq.{ticker}",
-                "chain_date": f"gte.{pred_date}",
-                "order": "chain_date.desc",
-                "limit": "3",
-            },
-        )
-        chains = chains_resp.json() if chains_resp.status_code == 200 else []
+    # 2. Get inference chains for this ticker around prediction date (±1 day)
+    chains_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/inference_chains",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,chain_date,max_depth_reached,final_confidence,final_decision,stopping_reason,tumblers,reasoning_summary,catalyst_event_ids,pattern_template_ids,created_at",
+            "ticker": f"eq.{ticker}",
+            "chain_date": f"gte.{pred_date}",
+            "order": "chain_date.desc",
+            "limit": "3",
+        },
+    )
+    chains = chains_resp.json() if chains_resp.status_code == 200 else []
 
-        # 3. Get signal evaluations for this ticker around prediction date
-        signals_resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/signal_evaluations",
-            headers=sb_headers(),
-            params={
-                "select": "id,ticker,scan_date,scan_type,trend,momentum,volume,fundamental,sentiment,flow,total_score,decision,reasoning,created_at",
-                "ticker": f"eq.{ticker}",
-                "scan_date": f"gte.{pred_date}",
-                "order": "created_at.desc",
-                "limit": "3",
-            },
-        )
-        signals = signals_resp.json() if signals_resp.status_code == 200 else []
+    # 3. Get signal evaluations for this ticker around prediction date
+    signals_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/signal_evaluations",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,scan_date,scan_type,trend,momentum,volume,fundamental,sentiment,flow,total_score,decision,reasoning,created_at",
+            "ticker": f"eq.{ticker}",
+            "scan_date": f"gte.{pred_date}",
+            "order": "created_at.desc",
+            "limit": "3",
+        },
+    )
+    signals = signals_resp.json() if signals_resp.status_code == 200 else []
 
-        # 4. Get catalyst events for this ticker (last 7 days from prediction)
-        catalyst_cutoff = (datetime.fromisoformat(pred["created_at"].replace("Z", "+00:00")) - timedelta(days=7)).isoformat()
-        catalysts_resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/catalyst_events",
-            headers=sb_headers(),
-            params={
-                "select": "id,ticker,catalyst_type,headline,source,source_url,event_time,magnitude,direction,sentiment_score,actual_impact_pct",
-                "or": f"(ticker.eq.{ticker},affected_tickers.cs.{{{ticker}}})",
-                "event_time": f"gte.{catalyst_cutoff}",
-                "order": "event_time.desc",
-                "limit": "10",
-            },
-        )
-        catalysts = catalysts_resp.json() if catalysts_resp.status_code == 200 else []
+    # 4. Get catalyst events for this ticker (last 7 days from prediction)
+    catalyst_cutoff = (datetime.fromisoformat(pred["created_at"].replace("Z", "+00:00")) - timedelta(days=7)).isoformat()
+    catalysts_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/catalyst_events",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,catalyst_type,headline,source,source_url,event_time,magnitude,direction,sentiment_score,actual_impact_pct",
+            "or": f"(ticker.eq.{ticker},affected_tickers.cs.{{{ticker}}})",
+            "event_time": f"gte.{catalyst_cutoff}",
+            "order": "event_time.desc",
+            "limit": "10",
+        },
+    )
+    catalysts = catalysts_resp.json() if catalysts_resp.status_code == 200 else []
 
-        # 5. Get matched pattern templates if any chain has them
-        pattern_ids = set()
-        for c in chains:
-            for pid in (c.get("pattern_template_ids") or []):
-                if pid:
-                    pattern_ids.add(pid)
+    # 5. Get matched pattern templates if any chain has them
+    pattern_ids = set()
+    for c in chains:
+        for pid in (c.get("pattern_template_ids") or []):
+            if pid:
+                pattern_ids.add(pid)
 
-        patterns = []
-        if pattern_ids:
-            # Fetch each pattern (small set, typically 0-3)
-            for pid in list(pattern_ids)[:5]:
-                pt_resp = await client.get(
-                    f"{SUPABASE_URL}/rest/v1/pattern_templates",
-                    headers=sb_headers(),
-                    params={
-                        "select": "id,pattern_name,pattern_description,pattern_category,success_rate,times_matched,avg_return_pct",
-                        "id": f"eq.{pid}",
-                    },
-                )
-                if pt_resp.status_code == 200 and pt_resp.json():
-                    patterns.extend(pt_resp.json())
+    patterns = []
+    if pattern_ids:
+        # Fetch each pattern (small set, typically 0-3)
+        for pid in list(pattern_ids)[:5]:
+            pt_resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/pattern_templates",
+                headers=sb_headers(),
+                params={
+                    "select": "id,pattern_name,pattern_description,pattern_category,success_rate,times_matched,avg_return_pct",
+                    "id": f"eq.{pid}",
+                },
+            )
+            if pt_resp.status_code == 200 and pt_resp.json():
+                patterns.extend(pt_resp.json())
 
-        # 6. Get latest meta reflection that mentions this ticker (or just latest daily)
-        ref_resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/meta_reflections",
-            headers=sb_headers(),
-            params={
-                "select": "reflection_date,reflection_type,patterns_observed,signal_assessment,counterfactuals",
-                "reflection_date": f"gte.{pred_date}",
-                "reflection_type": "eq.daily",
-                "order": "reflection_date.desc",
-                "limit": "1",
-            },
-        )
-        reflections = ref_resp.json() if ref_resp.status_code == 200 else []
+    # 6. Get latest meta reflection that mentions this ticker (or just latest daily)
+    ref_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/meta_reflections",
+        headers=sb_headers(),
+        params={
+            "select": "reflection_date,reflection_type,patterns_observed,signal_assessment,counterfactuals",
+            "reflection_date": f"gte.{pred_date}",
+            "reflection_type": "eq.daily",
+            "order": "reflection_date.desc",
+            "limit": "1",
+        },
+    )
+    reflections = ref_resp.json() if ref_resp.status_code == 200 else []
 
-        # 7. Get latest calibration
-        cal_resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/confidence_calibration",
-            headers=sb_headers(),
-            params={
-                "select": "calibration_week,brier_score,overconfidence_bias,active_factors",
-                "order": "calibration_week.desc",
-                "limit": "1",
-            },
-        )
-        calibration = cal_resp.json()[0] if cal_resp.status_code == 200 and cal_resp.json() else None
+    # 7. Get latest calibration
+    cal_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/confidence_calibration",
+        headers=sb_headers(),
+        params={
+            "select": "calibration_week,brier_score,overconfidence_bias,active_factors",
+            "order": "calibration_week.desc",
+            "limit": "1",
+        },
+    )
+    calibration = cal_resp.json()[0] if cal_resp.status_code == 200 and cal_resp.json() else None
 
-        return {
-            "prediction": pred,
-            "inference_chains": chains,
-            "signal_evaluations": signals,
-            "catalysts": catalysts,
-            "patterns": patterns,
-            "reflections": reflections,
-            "calibration": calibration,
-        }
+    return {
+        "prediction": pred,
+        "inference_chains": chains,
+        "signal_evaluations": signals,
+        "catalysts": catalysts,
+        "patterns": patterns,
+        "reflections": reflections,
+        "calibration": calibration,
+    }
 
 
 # ============================================================================
@@ -1134,40 +1164,40 @@ async def get_inference_depth_distribution(
     if not SUPABASE_URL:
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/inference_chains",
-            headers=sb_headers(),
-            params={
-                "select": "chain_date,max_depth_reached,final_decision,final_confidence,stopping_reason",
-                "chain_date": f"gte.{cutoff}",
-                "order": "chain_date.asc",
-            },
-        )
-        if resp.status_code != 200:
-            return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/inference_chains",
+        headers=sb_headers(),
+        params={
+            "select": "chain_date,max_depth_reached,final_decision,final_confidence,stopping_reason",
+            "chain_date": f"gte.{cutoff}",
+            "order": "chain_date.asc",
+        },
+    )
+    if resp.status_code != 200:
+        return []
 
-        chains = resp.json()
-        # Group by date
-        by_date: dict = {}
-        for c in chains:
-            d = c["chain_date"]
-            if d not in by_date:
-                by_date[d] = {"date": d, "depths": {}, "decisions": {}, "total": 0, "avg_confidence": 0}
-            by_date[d]["total"] += 1
-            by_date[d]["avg_confidence"] += float(c.get("final_confidence", 0))
+    chains = resp.json()
+    # Group by date
+    by_date: dict = {}
+    for c in chains:
+        d = c["chain_date"]
+        if d not in by_date:
+            by_date[d] = {"date": d, "depths": {}, "decisions": {}, "total": 0, "avg_confidence": 0}
+        by_date[d]["total"] += 1
+        by_date[d]["avg_confidence"] += float(c.get("final_confidence", 0))
 
-            depth = str(c.get("max_depth_reached", 0))
-            by_date[d]["depths"][depth] = by_date[d]["depths"].get(depth, 0) + 1
+        depth = str(c.get("max_depth_reached", 0))
+        by_date[d]["depths"][depth] = by_date[d]["depths"].get(depth, 0) + 1
 
-            dec = c.get("final_decision", "skip")
-            by_date[d]["decisions"][dec] = by_date[d]["decisions"].get(dec, 0) + 1
+        dec = c.get("final_decision", "skip")
+        by_date[d]["decisions"][dec] = by_date[d]["decisions"].get(dec, 0) + 1
 
-        for d in by_date.values():
-            if d["total"] > 0:
-                d["avg_confidence"] = round(d["avg_confidence"] / d["total"], 3)
+    for d in by_date.values():
+        if d["total"] > 0:
+            d["avg_confidence"] = round(d["avg_confidence"] / d["total"], 3)
 
-        return sorted(by_date.values(), key=lambda x: x["date"])
+    return sorted(by_date.values(), key=lambda x: x["date"])
 
 
 @app.get("/api/inference/chain/{chain_id}")
@@ -1177,15 +1207,15 @@ async def get_inference_chain_detail(chain_id: str, request: Request, oc_session
     chain_id = _validate_uuid(chain_id)
     if not SUPABASE_URL:
         return {}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/inference_chains",
-            headers=sb_headers(),
-            params={"id": f"eq.{chain_id}"},
-        )
-        if resp.status_code == 200 and resp.json():
-            return resp.json()[0]
-        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/inference_chains",
+        headers=sb_headers(),
+        params={"id": f"eq.{chain_id}"},
+    )
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    return {}
 
 
 @app.get("/api/calibration/latest")
@@ -1194,18 +1224,18 @@ async def get_calibration_latest(request: Request, oc_session: str | None = Cook
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/confidence_calibration",
-            headers=sb_headers(),
-            params={
-                "order": "calibration_week.desc",
-                "limit": "1",
-            },
-        )
-        if resp.status_code == 200 and resp.json():
-            return resp.json()[0]
-        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/confidence_calibration",
+        headers=sb_headers(),
+        params={
+            "order": "calibration_week.desc",
+            "limit": "1",
+        },
+    )
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    return {}
 
 
 @app.get("/api/catalysts/recent")
@@ -1229,13 +1259,13 @@ async def get_catalysts_recent(
     if ticker:
         ticker = _validate_ticker(ticker)
         params["ticker"] = f"eq.{ticker}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/catalyst_events",
-            headers=sb_headers(),
-            params=params,
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/catalyst_events",
+        headers=sb_headers(),
+        params=params,
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.get("/api/catalysts/stats")
@@ -1245,37 +1275,37 @@ async def get_catalyst_stats(request: Request, oc_session: str | None = Cookie(N
     if not SUPABASE_URL:
         return {}
     cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/catalyst_events",
-            headers=sb_headers(),
-            params={
-                "select": "catalyst_type,direction,magnitude",
-                "event_time": f"gte.{cutoff}",
-            },
-        )
-        if resp.status_code != 200:
-            return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/catalyst_events",
+        headers=sb_headers(),
+        params={
+            "select": "catalyst_type,direction,magnitude",
+            "event_time": f"gte.{cutoff}",
+        },
+    )
+    if resp.status_code != 200:
+        return {}
 
-        events = resp.json()
-        by_type: dict = {}
-        by_direction: dict = {}
-        by_magnitude: dict = {}
+    events = resp.json()
+    by_type: dict = {}
+    by_direction: dict = {}
+    by_magnitude: dict = {}
 
-        for e in events:
-            ct = e.get("catalyst_type", "other")
-            by_type[ct] = by_type.get(ct, 0) + 1
-            d = e.get("direction", "neutral")
-            by_direction[d] = by_direction.get(d, 0) + 1
-            m = e.get("magnitude", "medium")
-            by_magnitude[m] = by_magnitude.get(m, 0) + 1
+    for e in events:
+        ct = e.get("catalyst_type", "other")
+        by_type[ct] = by_type.get(ct, 0) + 1
+        d = e.get("direction", "neutral")
+        by_direction[d] = by_direction.get(d, 0) + 1
+        m = e.get("magnitude", "medium")
+        by_magnitude[m] = by_magnitude.get(m, 0) + 1
 
-        return {
-            "total": len(events),
-            "by_type": by_type,
-            "by_direction": by_direction,
-            "by_magnitude": by_magnitude,
-        }
+    return {
+        "total": len(events),
+        "by_type": by_type,
+        "by_direction": by_direction,
+        "by_magnitude": by_magnitude,
+    }
 
 
 @app.get("/api/patterns/active")
@@ -1284,17 +1314,17 @@ async def get_active_patterns(request: Request, oc_session: str | None = Cookie(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/pattern_templates",
-            headers=sb_headers(),
-            params={
-                "select": "id,pattern_name,pattern_description,pattern_category,times_matched,times_correct,success_rate,avg_return_pct,template_confidence,status,last_matched_at,created_at",
-                "order": "times_matched.desc",
-                "limit": "50",
-            },
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pattern_templates",
+        headers=sb_headers(),
+        params={
+            "select": "id,pattern_name,pattern_description,pattern_category,times_matched,times_correct,success_rate,avg_return_pct,template_confidence,status,last_matched_at,created_at",
+            "order": "times_matched.desc",
+            "limit": "50",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 # ============================================================================
@@ -1312,43 +1342,43 @@ async def get_economics_summary(
     if not SUPABASE_URL:
         return {}
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/cost_ledger",
-            headers=sb_headers(),
-            params={
-                "select": "category,amount",
-                "ledger_date": f"gte.{cutoff}",
-            },
-        )
-        if resp.status_code != 200:
-            return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/cost_ledger",
+        headers=sb_headers(),
+        params={
+            "select": "category,amount",
+            "ledger_date": f"gte.{cutoff}",
+        },
+    )
+    if resp.status_code != 200:
+        return {}
 
-        entries = resp.json()
-        total_costs = 0.0
-        total_pnl = 0.0
-        by_category: dict = {}
+    entries = resp.json()
+    total_costs = 0.0
+    total_pnl = 0.0
+    by_category: dict = {}
 
-        for e in entries:
-            amt = float(e.get("amount", 0))
-            cat = e.get("category", "other")
-            by_category[cat] = by_category.get(cat, 0) + amt
-            if cat == "trade_pnl":
-                total_pnl += amt
-            else:
-                total_costs += amt
+    for e in entries:
+        amt = float(e.get("amount", 0))
+        cat = e.get("category", "other")
+        by_category[cat] = by_category.get(cat, 0) + amt
+        if cat == "trade_pnl":
+            total_pnl += amt
+        else:
+            total_costs += amt
 
-        net = total_pnl + total_costs  # costs are negative
-        roi = round(total_pnl / abs(total_costs) * 100, 1) if total_costs != 0 else 0
+    net = total_pnl + total_costs  # costs are negative
+    roi = round(total_pnl / abs(total_costs) * 100, 1) if total_costs != 0 else 0
 
-        return {
-            "total_costs": round(abs(total_costs), 2),
-            "total_pnl": round(total_pnl, 2),
-            "net": round(net, 2),
-            "roi_pct": roi,
-            "by_category": {k: round(v, 4) for k, v in by_category.items()},
-            "days": days,
-        }
+    return {
+        "total_costs": round(abs(total_costs), 2),
+        "total_pnl": round(total_pnl, 2),
+        "net": round(net, 2),
+        "roi_pct": roi,
+        "by_category": {k: round(v, 4) for k, v in by_category.items()},
+        "days": days,
+    }
 
 
 @app.get("/api/economics/breakdown")
@@ -1362,30 +1392,30 @@ async def get_economics_breakdown(
     if not SUPABASE_URL:
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/cost_ledger",
-            headers=sb_headers(),
-            params={
-                "select": "category,subcategory,amount,ledger_date",
-                "ledger_date": f"gte.{cutoff}",
-                "order": "ledger_date.desc",
-            },
-        )
-        if resp.status_code != 200:
-            return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/cost_ledger",
+        headers=sb_headers(),
+        params={
+            "select": "category,subcategory,amount,ledger_date",
+            "ledger_date": f"gte.{cutoff}",
+            "order": "ledger_date.desc",
+        },
+    )
+    if resp.status_code != 200:
+        return []
 
-        entries = resp.json()
-        # Group by category + subcategory
-        breakdown: dict = {}
-        for e in entries:
-            key = f"{e.get('category', 'other')}|{e.get('subcategory', '')}"
-            if key not in breakdown:
-                breakdown[key] = {"category": e["category"], "subcategory": e.get("subcategory", ""), "total": 0, "count": 0}
-            breakdown[key]["total"] += float(e.get("amount", 0))
-            breakdown[key]["count"] += 1
+    entries = resp.json()
+    # Group by category + subcategory
+    breakdown: dict = {}
+    for e in entries:
+        key = f"{e.get('category', 'other')}|{e.get('subcategory', '')}"
+        if key not in breakdown:
+            breakdown[key] = {"category": e["category"], "subcategory": e.get("subcategory", ""), "total": 0, "count": 0}
+        breakdown[key]["total"] += float(e.get("amount", 0))
+        breakdown[key]["count"] += 1
 
-        return sorted(breakdown.values(), key=lambda x: x["total"])
+    return sorted(breakdown.values(), key=lambda x: x["total"])
 
 
 @app.get("/api/economics/history")
@@ -1399,45 +1429,45 @@ async def get_economics_history(
     if not SUPABASE_URL:
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/cost_ledger",
-            headers=sb_headers(),
-            params={
-                "select": "ledger_date,category,amount",
-                "ledger_date": f"gte.{cutoff}",
-                "order": "ledger_date.asc",
-            },
-        )
-        if resp.status_code != 200:
-            return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/cost_ledger",
+        headers=sb_headers(),
+        params={
+            "select": "ledger_date,category,amount",
+            "ledger_date": f"gte.{cutoff}",
+            "order": "ledger_date.asc",
+        },
+    )
+    if resp.status_code != 200:
+        return []
 
-        entries = resp.json()
-        by_date: dict = {}
-        for e in entries:
-            d = e["ledger_date"]
-            if d not in by_date:
-                by_date[d] = {"date": d, "costs": 0, "pnl": 0}
-            amt = float(e.get("amount", 0))
-            if e.get("category") == "trade_pnl":
-                by_date[d]["pnl"] += amt
-            else:
-                by_date[d]["costs"] += amt
+    entries = resp.json()
+    by_date: dict = {}
+    for e in entries:
+        d = e["ledger_date"]
+        if d not in by_date:
+            by_date[d] = {"date": d, "costs": 0, "pnl": 0}
+        amt = float(e.get("amount", 0))
+        if e.get("category") == "trade_pnl":
+            by_date[d]["pnl"] += amt
+        else:
+            by_date[d]["costs"] += amt
 
-        # Compute cumulative
-        result = sorted(by_date.values(), key=lambda x: x["date"])
-        cum_costs = 0
-        cum_pnl = 0
-        for row in result:
-            cum_costs += row["costs"]
-            cum_pnl += row["pnl"]
-            row["cum_costs"] = round(cum_costs, 2)
-            row["cum_pnl"] = round(cum_pnl, 2)
-            row["cum_net"] = round(cum_pnl + cum_costs, 2)
-            row["costs"] = round(row["costs"], 4)
-            row["pnl"] = round(row["pnl"], 4)
+    # Compute cumulative
+    result = sorted(by_date.values(), key=lambda x: x["date"])
+    cum_costs = 0
+    cum_pnl = 0
+    for row in result:
+        cum_costs += row["costs"]
+        cum_pnl += row["pnl"]
+        row["cum_costs"] = round(cum_costs, 2)
+        row["cum_pnl"] = round(cum_pnl, 2)
+        row["cum_net"] = round(cum_pnl + cum_costs, 2)
+        row["costs"] = round(row["costs"], 4)
+        row["pnl"] = round(row["pnl"], 4)
 
-        return result
+    return result
 
 
 @app.get("/api/budget/config")
@@ -1448,42 +1478,42 @@ async def get_budget_config(request: Request, oc_session: str | None = Cookie(No
         return []
 
     today = datetime.now(timezone.utc).date().isoformat()
-    async with httpx.AsyncClient() as client:
-        # Get config
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/budget_config",
-            headers=sb_headers(),
-            params={"order": "config_key.asc"},
-        )
-        configs = resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    # Get config
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/budget_config",
+        headers=sb_headers(),
+        params={"order": "config_key.asc"},
+    )
+    configs = resp.json() if resp.status_code == 200 else []
 
-        # Get today's spend
-        resp2 = await client.get(
-            f"{SUPABASE_URL}/rest/v1/cost_ledger",
-            headers=sb_headers(),
-            params={
-                "select": "category,amount",
-                "ledger_date": f"eq.{today}",
-            },
-        )
-        today_costs = resp2.json() if resp2.status_code == 200 else []
+    # Get today's spend
+    resp2 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/cost_ledger",
+        headers=sb_headers(),
+        params={
+            "select": "category,amount",
+            "ledger_date": f"eq.{today}",
+        },
+    )
+    today_costs = resp2.json() if resp2.status_code == 200 else []
 
-        spend_by_cat: dict = {}
-        for c in today_costs:
-            cat = c.get("category", "")
-            spend_by_cat[cat] = spend_by_cat.get(cat, 0) + abs(float(c.get("amount", 0)))
+    spend_by_cat: dict = {}
+    for c in today_costs:
+        cat = c.get("category", "")
+        spend_by_cat[cat] = spend_by_cat.get(cat, 0) + abs(float(c.get("amount", 0)))
 
-        # Enrich configs with today's spend
-        for cfg in configs:
-            key = cfg.get("config_key", "")
-            if "claude" in key:
-                cfg["today_spend"] = round(spend_by_cat.get("claude_api", 0), 4)
-            elif "perplexity" in key:
-                cfg["today_spend"] = round(spend_by_cat.get("perplexity_api", 0), 4)
-            else:
-                cfg["today_spend"] = 0
+    # Enrich configs with today's spend
+    for cfg in configs:
+        key = cfg.get("config_key", "")
+        if "claude" in key:
+            cfg["today_spend"] = round(spend_by_cat.get("claude_api", 0), 4)
+        elif "perplexity" in key:
+            cfg["today_spend"] = round(spend_by_cat.get("perplexity_api", 0), 4)
+        else:
+            cfg["today_spend"] = 0
 
-        return configs
+    return configs
 
 
 @app.post("/api/budget/config")
@@ -1514,16 +1544,16 @@ async def update_budget_config(
     if value < 0 or value > 100:
         raise HTTPException(status_code=400, detail="Value must be between 0 and 100")
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.patch(
-            f"{SUPABASE_URL}/rest/v1/budget_config",
-            params={"config_key": f"eq.{config_key}"},
-            headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
-            json={"value": value, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": "dashboard_ui"},
-        )
-        if resp.status_code in (200, 204):
-            return {"ok": True}
-        raise HTTPException(status_code=resp.status_code, detail="Failed to update")
+    client = get_http()
+    resp = await client.patch(
+        f"{SUPABASE_URL}/rest/v1/budget_config",
+        params={"config_key": f"eq.{config_key}"},
+        headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
+        json={"value": value, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": "dashboard_ui"},
+    )
+    if resp.status_code in (200, 204):
+        return {"ok": True}
+    raise HTTPException(status_code=resp.status_code, detail="Failed to update")
 
 
 # ============================================================================
@@ -1540,30 +1570,30 @@ async def get_rag_status(request: Request, oc_session: str | None = Cookie(None)
     tables = ["signal_evaluations", "meta_reflections", "catalyst_events", "inference_chains", "pattern_templates"]
     result = {}
 
-    async with httpx.AsyncClient() as client:
-        for table in tables:
-            # Get total count
-            resp = await client.get(
-                f"{SUPABASE_URL}/rest/v1/{table}",
-                headers={**sb_headers(), "Prefer": "count=exact"},
-                params={"select": "id", "limit": "0"},
-            )
-            total = int(resp.headers.get("content-range", "0/0").split("/")[-1]) if resp.status_code == 200 else 0
+    client = get_http()
+    for table in tables:
+        # Get total count
+        resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers={**sb_headers(), "Prefer": "count=exact"},
+            params={"select": "id", "limit": "0"},
+        )
+        total = int(resp.headers.get("content-range", "0/0").split("/")[-1]) if resp.status_code == 200 else 0
 
-            # Get count with embeddings
-            resp2 = await client.get(
-                f"{SUPABASE_URL}/rest/v1/{table}",
-                headers={**sb_headers(), "Prefer": "count=exact"},
-                params={"select": "id", "embedding": "not.is.null", "limit": "0"},
-            )
-            with_embedding = int(resp2.headers.get("content-range", "0/0").split("/")[-1]) if resp2.status_code == 200 else 0
+        # Get count with embeddings
+        resp2 = await client.get(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers={**sb_headers(), "Prefer": "count=exact"},
+            params={"select": "id", "embedding": "not.is.null", "limit": "0"},
+        )
+        with_embedding = int(resp2.headers.get("content-range", "0/0").split("/")[-1]) if resp2.status_code == 200 else 0
 
-            coverage = round(with_embedding / total * 100, 1) if total > 0 else 0
-            result[table] = {
-                "total": total,
-                "with_embedding": with_embedding,
-                "coverage_pct": coverage,
-            }
+        coverage = round(with_embedding / total * 100, 1) if total > 0 else 0
+        result[table] = {
+            "total": total,
+            "with_embedding": with_embedding,
+            "coverage_pct": coverage,
+        }
 
     return result
 
@@ -1586,19 +1616,19 @@ async def get_rag_activity(
     if not SUPABASE_URL:
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/pipeline_runs",
-            headers=sb_headers(),
-            params={
-                "select": "pipeline_name,step_name,output_snapshot,duration_ms,started_at",
-                "step_name": "like.*rag*",
-                "started_at": f"gte.{cutoff}",
-                "order": "started_at.desc",
-                "limit": "20",
-            },
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "pipeline_name,step_name,output_snapshot,duration_ms,started_at",
+            "step_name": "like.*rag*",
+            "started_at": f"gte.{cutoff}",
+            "order": "started_at.desc",
+            "limit": "20",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 # ============================================================================
@@ -1619,9 +1649,10 @@ async def get_sitrep(
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        # Get trades
-        trades_resp = await client.get(
+    client = get_http()
+    # Fetch trades, chains, signals, and catalysts in parallel
+    trades_resp, chains_resp, signals_resp, catalysts_resp = await asyncio.gather(
+        client.get(
             f"{SUPABASE_URL}/rest/v1/trade_decisions",
             headers=sb_headers(),
             params={
@@ -1630,11 +1661,8 @@ async def get_sitrep(
                 "order": "created_at.desc",
                 "limit": "50",
             },
-        )
-        trades = trades_resp.json() if trades_resp.status_code == 200 else []
-
-        # Get inference chains for same period
-        chains_resp = await client.get(
+        ),
+        client.get(
             f"{SUPABASE_URL}/rest/v1/inference_chains",
             headers=sb_headers(),
             params={
@@ -1643,11 +1671,8 @@ async def get_sitrep(
                 "order": "created_at.desc",
                 "limit": "100",
             },
-        )
-        chains = chains_resp.json() if chains_resp.status_code == 200 else []
-
-        # Get signal evaluations for same period
-        signals_resp = await client.get(
+        ),
+        client.get(
             f"{SUPABASE_URL}/rest/v1/signal_evaluations",
             headers=sb_headers(),
             params={
@@ -1656,11 +1681,8 @@ async def get_sitrep(
                 "order": "created_at.desc",
                 "limit": "100",
             },
-        )
-        signals = signals_resp.json() if signals_resp.status_code == 200 else []
-
-        # Get recent catalysts
-        catalysts_resp = await client.get(
+        ),
+        client.get(
             f"{SUPABASE_URL}/rest/v1/catalyst_events",
             headers=sb_headers(),
             params={
@@ -1669,60 +1691,135 @@ async def get_sitrep(
                 "order": "event_time.desc",
                 "limit": "100",
             },
-        )
-        catalysts = catalysts_resp.json() if catalysts_resp.status_code == 200 else []
+        ),
+    )
+    trades = trades_resp.json() if trades_resp.status_code == 200 else []
+    chains = chains_resp.json() if chains_resp.status_code == 200 else []
+    signals = signals_resp.json() if signals_resp.status_code == 200 else []
+    catalysts = catalysts_resp.json() if catalysts_resp.status_code == 200 else []
 
-        # Index chains and signals by ticker for matching
-        chains_by_ticker: dict = {}
-        for c in chains:
-            t = c.get("ticker", "")
-            if t not in chains_by_ticker:
-                chains_by_ticker[t] = []
-            chains_by_ticker[t].append(c)
+    # Index chains and signals by ticker for matching
+    chains_by_ticker: dict = {}
+    for c in chains:
+        t = c.get("ticker", "")
+        if t not in chains_by_ticker:
+            chains_by_ticker[t] = []
+        chains_by_ticker[t].append(c)
 
-        signals_by_ticker: dict = {}
-        for s in signals:
-            t = s.get("ticker", "")
-            if t not in signals_by_ticker:
-                signals_by_ticker[t] = []
-            signals_by_ticker[t].append(s)
+    signals_by_ticker: dict = {}
+    for s in signals:
+        t = s.get("ticker", "")
+        if t not in signals_by_ticker:
+            signals_by_ticker[t] = []
+        signals_by_ticker[t].append(s)
 
-        catalysts_by_ticker: dict = {}
-        for cat in catalysts:
-            t = cat.get("ticker", "")
-            if t:
-                if t not in catalysts_by_ticker:
-                    catalysts_by_ticker[t] = []
-                catalysts_by_ticker[t].append(cat)
+    catalysts_by_ticker: dict = {}
+    for cat in catalysts:
+        t = cat.get("ticker", "")
+        if t:
+            if t not in catalysts_by_ticker:
+                catalysts_by_ticker[t] = []
+            catalysts_by_ticker[t].append(cat)
 
-        # Build enriched results
-        results = []
+    # Build enriched results
+    results = []
 
-        # Include trades with their matched chains/signals/catalysts
-        for trade in trades:
-            ticker = trade.get("ticker", "")
+    # Include trades with their matched chains/signals/catalysts
+    for trade in trades:
+        ticker = trade.get("ticker", "")
+        entry = {
+            "type": "trade",
+            "trade": trade,
+            "chains": chains_by_ticker.get(ticker, [])[:3],
+            "signals": signals_by_ticker.get(ticker, [])[:3],
+            "catalysts": catalysts_by_ticker.get(ticker, [])[:5],
+        }
+        results.append(entry)
+
+    # Also include inference chains that didn't result in trades (watch/skip/veto)
+    for chain in chains:
+        if chain.get("final_decision") in ("watch", "skip", "veto"):
+            ticker = chain.get("ticker", "")
             entry = {
-                "type": "trade",
-                "trade": trade,
-                "chains": chains_by_ticker.get(ticker, [])[:3],
-                "signals": signals_by_ticker.get(ticker, [])[:3],
-                "catalysts": catalysts_by_ticker.get(ticker, [])[:5],
+                "type": "analysis",
+                "chain": chain,
+                "signals": signals_by_ticker.get(ticker, [])[:2],
+                "catalysts": catalysts_by_ticker.get(ticker, [])[:3],
             }
             results.append(entry)
 
-        # Also include inference chains that didn't result in trades (watch/skip/veto)
-        for chain in chains:
-            if chain.get("final_decision") in ("watch", "skip", "veto"):
-                ticker = chain.get("ticker", "")
-                entry = {
-                    "type": "analysis",
-                    "chain": chain,
-                    "signals": signals_by_ticker.get(ticker, [])[:2],
-                    "catalysts": catalysts_by_ticker.get(ticker, [])[:3],
-                }
-                results.append(entry)
+    return results[:60]
 
-        return results[:60]
+
+# ============================================================================
+# Strategy Profiles
+# ============================================================================
+
+@app.get("/api/strategy/profiles")
+async def get_strategy_profiles(request: Request, oc_session: str | None = Cookie(None)):
+    """All strategy profiles."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers=sb_headers(),
+        params={
+            "select": "id,profile_name,description,active,annual_target_pct,daily_target_pct,weekly_target_pct,min_signal_score,min_tumbler_depth,min_confidence,max_risk_per_trade_pct,max_concurrent_positions,max_portfolio_risk_pct,position_size_method,trade_style,max_hold_days,circuit_breakers_enabled,self_modify_enabled,self_modify_requires_approval,prefer_high_beta,created_at",
+            "order": "created_at.asc",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/strategy/active")
+async def get_active_strategy(request: Request, oc_session: str | None = Cookie(None)):
+    """Currently active strategy profile."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers=sb_headers(),
+        params={
+            "select": "id,profile_name,active,annual_target_pct,daily_target_pct",
+            "active": "eq.true",
+            "limit": "1",
+        },
+    )
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    return {}
+
+
+@app.post("/api/strategy/activate")
+async def activate_strategy(request: Request, oc_session: str | None = Cookie(None)):
+    """Switch active strategy profile."""
+    _require_auth(request, oc_session)
+    body = await request.json()
+    profile_id = body.get("id", "")
+    profile_id = _validate_uuid(profile_id)
+
+    client = get_http()
+    # Deactivate all
+    await client.patch(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers={**sb_headers(), "Content-Type": "application/json"},
+        params={"active": "eq.true"},
+        json={"active": False, "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    # Activate selected
+    resp = await client.patch(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
+        params={"id": f"eq.{profile_id}"},
+        json={"active": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    raise HTTPException(status_code=500, detail="Failed to activate profile")
 
 
 # ============================================================================
@@ -1733,24 +1830,22 @@ async def get_sitrep(
 async def get_latency(request: Request, oc_session: str | None = Cookie(None)):
     """Measure round-trip latency to Alpaca (NYSE data feed)."""
     _require_auth(request, oc_session)
-    import time as _time
-
     result = {"nyse_ms": None, "timestamp": datetime.now(timezone.utc).isoformat()}
 
     # Ping Alpaca's market data endpoint — this is the actual path to NYSE quotes
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            start = _time.monotonic()
-            r = await client.get(
-                "https://data.alpaca.markets/v2/stocks/SPY/quotes/latest",
-                headers={
-                    "APCA-API-KEY-ID": ALPACA_KEY,
-                    "APCA-API-SECRET-KEY": ALPACA_SECRET,
-                },
-            )
-            elapsed = (_time.monotonic() - start) * 1000
-            if r.status_code == 200:
-                result["nyse_ms"] = round(elapsed)
+        client = get_http()
+        start = time.monotonic()
+        r = await client.get(
+            "https://data.alpaca.markets/v2/stocks/SPY/quotes/latest",
+            headers={
+                "APCA-API-KEY-ID": ALPACA_KEY,
+                "APCA-API-SECRET-KEY": ALPACA_SECRET,
+            },
+        )
+        elapsed = (time.monotonic() - start) * 1000
+        if r.status_code == 200:
+            result["nyse_ms"] = round(elapsed)
     except Exception:
         pass
 
@@ -1766,31 +1861,30 @@ async def get_stack_health(request: Request, oc_session: str | None = Cookie(Non
     """Real health checks against every service in the tech stack."""
     _require_auth(request, oc_session)
 
-    results = {}
+    client = get_http()
 
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        # 1. SUPABASE — query a table
+    async def _check_supabase():
         try:
             r = await client.get(
                 f"{SUPABASE_URL}/rest/v1/budget_config",
                 headers=sb_headers(),
                 params={"select": "id", "limit": "1"},
             )
-            results["supabase"] = r.status_code == 200
+            return r.status_code == 200
         except Exception:
-            results["supabase"] = False
+            return False
 
-        # 2. ALPACA — hit account endpoint
+    async def _check_alpaca():
         try:
             r = await client.get(
                 f"{ALPACA_BASE}/v2/account",
                 headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
             )
-            results["alpaca"] = r.status_code == 200
+            return r.status_code == 200
         except Exception:
-            results["alpaca"] = False
+            return False
 
-        # 3. OLLAMA — check heartbeat from Supabase (written by ridley)
+    async def _check_ollama():
         try:
             r = await client.get(
                 f"{SUPABASE_URL}/rest/v1/stack_heartbeats",
@@ -1799,53 +1893,48 @@ async def get_stack_health(request: Request, oc_session: str | None = Cookie(Non
             )
             if r.status_code == 200 and r.json():
                 last_seen = r.json()[0].get("last_seen", "")
-                # Consider alive if heartbeat within last 10 minutes
                 cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-                results["ollama"] = last_seen > cutoff
-            else:
-                results["ollama"] = False
+                return last_seen > cutoff
+            return False
         except Exception:
-            results["ollama"] = False
+            return False
 
-        # 4. FINNHUB — hit the quote endpoint (free, no rate limit concern for 1 call)
+    async def _check_finnhub():
         try:
             if FINNHUB_KEY:
                 r = await client.get(
                     "https://finnhub.io/api/v1/quote",
                     params={"symbol": "AAPL", "token": FINNHUB_KEY},
                 )
-                results["finnhub"] = r.status_code == 200 and r.json().get("c", 0) > 0
-            else:
-                results["finnhub"] = False
+                return r.status_code == 200 and r.json().get("c", 0) > 0
+            return False
         except Exception:
-            results["finnhub"] = False
+            return False
 
-        # 5. SENTRY — hit the projects API
+    async def _check_sentry():
         try:
             if SENTRY_AUTH_TOKEN:
                 r = await client.get(
                     f"https://sentry.io/api/0/projects/{SENTRY_ORG}/{SENTRY_PROJECT}/",
                     headers={"Authorization": f"Bearer {SENTRY_AUTH_TOKEN}"},
                 )
-                results["sentry"] = r.status_code == 200
-            else:
-                results["sentry"] = False
+                return r.status_code == 200
+            return False
         except Exception:
-            results["sentry"] = False
+            return False
 
-        # 6. PGVECTOR — run the match function with a dummy vector to confirm extension works
+    async def _check_pgvector():
         try:
             r = await client.get(
                 f"{SUPABASE_URL}/rest/v1/signal_evaluations",
                 headers={**sb_headers(), "Prefer": "count=exact"},
                 params={"select": "id", "embedding": "not.is.null", "limit": "0"},
             )
-            # If we can query the embedding column without error, pgvector is alive
-            results["pgvector"] = r.status_code == 200
+            return r.status_code == 200
         except Exception:
-            results["pgvector"] = False
+            return False
 
-        # 7. TUMBLER ENGINE — check heartbeat from Supabase (written by ridley)
+    async def _check_tumbler():
         try:
             r = await client.get(
                 f"{SUPABASE_URL}/rest/v1/stack_heartbeats",
@@ -1855,14 +1944,12 @@ async def get_stack_health(request: Request, oc_session: str | None = Cookie(Non
             if r.status_code == 200 and r.json():
                 last_seen = r.json()[0].get("last_seen", "")
                 cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-                results["tumbler"] = last_seen > cutoff
-            else:
-                results["tumbler"] = False
+                return last_seen > cutoff
+            return False
         except Exception:
-            results["tumbler"] = False
+            return False
 
-        # 8. CLAUDE — validate API key without consuming tokens
-        # Send intentionally invalid request (empty messages) — 400 = key valid, 401 = key invalid
+    async def _check_claude():
         try:
             if ANTHROPIC_API_KEY:
                 r = await client.post(
@@ -1874,14 +1961,35 @@ async def get_stack_health(request: Request, oc_session: str | None = Cookie(Non
                     },
                     json={"model": "claude-sonnet-4-6-20250514", "max_tokens": 1, "messages": []},
                 )
-                # 400 = key valid but bad request (expected), 401/403 = key invalid
-                results["claude"] = r.status_code in (200, 400, 429, 529)
-            else:
-                results["claude"] = False
+                return r.status_code in (200, 400, 429, 529)
+            return False
         except Exception:
-            results["claude"] = False
+            return False
 
-    return results
+    (
+        supabase_ok, alpaca_ok, ollama_ok, finnhub_ok,
+        sentry_ok, pgvector_ok, tumbler_ok, claude_ok,
+    ) = await asyncio.gather(
+        _check_supabase(),
+        _check_alpaca(),
+        _check_ollama(),
+        _check_finnhub(),
+        _check_sentry(),
+        _check_pgvector(),
+        _check_tumbler(),
+        _check_claude(),
+    )
+
+    return {
+        "supabase": supabase_ok,
+        "alpaca": alpaca_ok,
+        "ollama": ollama_ok,
+        "finnhub": finnhub_ok,
+        "sentry": sentry_ok,
+        "pgvector": pgvector_ok,
+        "tumbler": tumbler_ok,
+        "claude": claude_ok,
+    }
 
 
 # ============================================================================
@@ -1894,13 +2002,13 @@ async def get_tuning_profiles(request: Request, oc_session: str | None = Cookie(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/tuning_profile_performance",
-            headers=sb_headers(),
-            params={"order": "version.desc"},
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/tuning_profile_performance",
+        headers=sb_headers(),
+        params={"order": "version.desc"},
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.get("/api/tuning/active")
@@ -1909,19 +2017,19 @@ async def get_active_tuning_profile(request: Request, oc_session: str | None = C
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return {}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/tuning_profiles",
-            headers=sb_headers(),
-            params={
-                "or": "(status.eq.active,status.eq.testing)",
-                "order": "status.asc",
-                "limit": "1",
-            },
-        )
-        if resp.status_code == 200 and resp.json():
-            return resp.json()[0]
-        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/tuning_profiles",
+        headers=sb_headers(),
+        params={
+            "or": "(status.eq.active,status.eq.testing)",
+            "order": "status.asc",
+            "limit": "1",
+        },
+    )
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    return {}
 
 
 @app.get("/api/tuning/telemetry")
@@ -1946,13 +2054,13 @@ async def get_tuning_telemetry(
         profile_id = _validate_uuid(profile_id)
         params["tuning_profile_id"] = f"eq.{profile_id}"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/tuning_telemetry",
-            headers=sb_headers(),
-            params=params,
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/tuning_telemetry",
+        headers=sb_headers(),
+        params=params,
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 @app.get("/api/tuning/compare")
@@ -1964,13 +2072,13 @@ async def compare_tuning_profiles(
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{SUPABASE_URL}/rest/v1/tuning_profile_performance",
-            headers=sb_headers(),
-            params={"total_runs": "gt.0", "order": "version.desc"},
-        )
-        return resp.json() if resp.status_code == 200 else []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/tuning_profile_performance",
+        headers=sb_headers(),
+        params={"total_runs": "gt.0", "order": "version.desc"},
+    )
+    return resp.json() if resp.status_code == 200 else []
 
 
 if __name__ == "__main__":
