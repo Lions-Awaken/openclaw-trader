@@ -46,14 +46,10 @@ openclaw-trader/
 | `tu-streamsaber` | Stream monitor + API | `twilight-underground/streamsaber/` | ~$7/mo |
 | `tu-log-shipper` | Log shipping to Grafana | `openclaw-trader/log-shipper/` | ~$2/mo |
 
-## Supabase Tables (production: `uupmzaglafeiakamefit`)
+## Supabase Tables (production: `vpollvsbtushbiapoflr`)
 
 | Table | Purpose |
 |-------|---------|
-| `tiktok_accounts` | Monitored TikTok accounts (5 active) |
-| `tiktok_stream_summaries` | Per-stream summary stats |
-| `tiktok_daily_rollups` | Daily aggregated stats |
-| `tiktok_stream_events` | Raw high-value events (30-day retention, pg_cron purge) |
 | `pipeline_runs` | Execution tree for every automated function (90-day retention) |
 | `order_events` | Order lifecycle: submitted/filled/rejected/cancelled (180-day retention) |
 | `data_quality_checks` | Data freshness/sanity checks (90-day retention) |
