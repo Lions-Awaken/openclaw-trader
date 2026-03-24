@@ -15,6 +15,8 @@ openclaw-trader/
 ├── scripts/
 │   ├── scan-secrets.sh       # Secret scanner for pre-commit
 │   ├── tracer.py             # PipelineTracer — execution observability library
+│   ├── scanner.py            # Trading orchestrator — scan, infer, execute orders (cron 9:35 AM, 12:30 PM ET)
+│   ├── position_manager.py   # Position lifecycle — exits, trailing stops, EOD flatten (cron every 30m)
 │   ├── catalyst_ingest.py    # 4-source catalyst detection + embedding (3x daily)
 │   ├── inference_engine.py   # 5-tumbler Lock & Tumbler analysis engine
 │   ├── calibrator.py         # Weekly calibration + outcome grading + pattern updates
@@ -86,6 +88,8 @@ Stopping rules: veto_signal, confidence_floor, forced_connection (delta < 0.03),
 | Script | Schedule (ET) | LLM | RAM Peak |
 |--------|--------------|-----|----------|
 | catalyst_ingest.py | M-F 8:30 AM, 12:15 PM, 3:50 PM | Ollama embed | ~3.2GB |
+| scanner.py | M-F 9:35 AM, 12:30 PM | qwen + Claude | ~3.5GB |
+| position_manager.py | M-F every 30 min (9:45 AM - 3:45 PM) | None | ~0.5GB |
 | inference_engine.py | Called by scanner | qwen + Claude | ~3.5GB |
 | meta_daily.py | M-F 4:30 PM | Claude + embed | ~3.5GB |
 | meta_weekly.py | Sun 7:00 PM | Claude + embed | ~3.5GB |
