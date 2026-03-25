@@ -48,12 +48,20 @@ TODAY = date.today().isoformat()
 # Reusable HTTP client
 _client = httpx.Client(timeout=15.0)
 
-# Liquid universe — high-beta names with reliable data
+# Liquid universe — broad coverage across sectors
 LIQUID_UNIVERSE = [
-    "NVDA", "AMD", "AVGO", "ARM", "TSM", "SMCI", "INTC", "QCOM",
-    "MSFT", "GOOGL", "META", "AMZN",
-    "PLTR", "MSTR", "DELL", "IONQ", "RGTI",
-    "AAPL", "TSLA", "CRM", "NFLX",
+    # AI / Semiconductor
+    "NVDA", "AMD", "AVGO", "ARM", "TSM", "SMCI", "INTC", "QCOM", "MRVL", "MU",
+    # Cloud / Hyperscalers
+    "MSFT", "GOOGL", "META", "AMZN", "ORCL", "CRM", "SNOW", "NET",
+    # Consumer Tech
+    "AAPL", "TSLA", "NFLX", "UBER", "SHOP", "SQ",
+    # Speculative / High Beta
+    "PLTR", "MSTR", "DELL", "IONQ", "RGTI", "COIN", "HOOD", "SOFI",
+    # Biotech / Pharma
+    "MRNA", "CRSP", "DXCM",
+    # Energy / Industrial
+    "FSLR", "ENPH", "LNG",
 ]
 
 
@@ -109,6 +117,7 @@ def get_bars(ticker: str, days: int = 60) -> list:
                 "end": end.strftime("%Y-%m-%dT23:59:59Z"),
                 "limit": "200",
                 "adjustment": "split",
+                "feed": "iex",
             },
         )
         if resp.status_code == 200:
@@ -124,6 +133,7 @@ def get_latest_quote(ticker: str) -> dict:
         resp = _client.get(
             f"{ALPACA_DATA}/v2/stocks/{ticker}/quotes/latest",
             headers=_alpaca_headers(),
+            params={"feed": "iex"},
         )
         if resp.status_code == 200:
             q = resp.json().get("quote", {})
@@ -573,12 +583,16 @@ def run():
                 "open_tickers": sorted(open_tickers),
             })
 
-            slots_available = max_positions - len(open_positions)
-            if slots_available <= 0:
-                print(f"[scanner] Max positions reached ({len(open_positions)}/{max_positions}) — scan only, no new trades")
-
-            print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
-                  f"positions={len(open_positions)}/{max_positions}")
+            if max_positions >= 999:
+                slots_available = 999  # Unlimited
+                print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
+                      f"positions={len(open_positions)} (unlimited mode)")
+            else:
+                slots_available = max_positions - len(open_positions)
+                if slots_available <= 0:
+                    print(f"[scanner] Max positions reached ({len(open_positions)}/{max_positions}) — scan only, no new trades")
+                print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
+                      f"positions={len(open_positions)}/{max_positions}")
 
         # === Step 4: Build watchlist and fetch SPY bars ===
         with tracer.step("build_watchlist") as result:

@@ -143,6 +143,7 @@ def get_bars(ticker: str, days: int = 20) -> list:
                 "end": end.strftime("%Y-%m-%dT23:59:59Z"),
                 "limit": "60",
                 "adjustment": "split",
+                "feed": "iex",
             },
         )
         if resp.status_code == 200:
