@@ -17,7 +17,11 @@ openclaw-trader/
 │   ├── tracer.py             # PipelineTracer — execution observability library
 │   ├── catalyst_ingest.py    # 4-source catalyst detection + embedding (3x daily)
 │   ├── inference_engine.py   # 5-tumbler Lock & Tumbler analysis engine
+│   ├── scanner.py            # Autonomous trading orchestrator — scan → infer → execute (2x daily)
+│   ├── position_manager.py   # Position lifecycle — trailing stops, time stops, EOD flatten (every 30m)
+│   ├── scanner_unleashed.py  # UNLEASHED signal scoring (9 signals, alpaca-py SDK)
 │   ├── calibrator.py         # Weekly calibration + outcome grading + pattern updates
+│   ├── post_trade_analysis.py # Post-trade RAG ingestion — triggered on every trade close
 │   ├── meta_daily.py         # Daily meta-analysis with RAG + chain analysis (cron 4:30 PM ET)
 │   └── meta_weekly.py        # Weekly strategy review + pattern discovery (cron Sunday 7 PM ET)
 ├── dashboard/
@@ -68,6 +72,7 @@ openclaw-trader/
 | `confidence_calibration` | Weekly stated vs actual confidence tracking (1-year retention) |
 | `tuning_profiles` | Versioned hardware performance tuning configurations |
 | `tuning_telemetry` | Per-pipeline-run hardware telemetry snapshots (1-year retention) |
+| `trade_learnings` | Post-trade RAG post-mortems with embeddings (180-day retention) |
 
 ## Tumbler Engine Architecture
 
@@ -76,9 +81,9 @@ The inference engine (`scripts/inference_engine.py`) implements a 5-tumbler "Loc
 ```
 Tumbler 1: Technical Foundation → min 0.25 confidence
 Tumbler 2: Fundamental + Sentiment → min 0.40 | VETO if sentiment < -0.5
-Tumbler 3: Flow + Cross-Asset (Ollama qwen) → min 0.55 | STOP if delta < 0.03
+Tumbler 3: Flow + Cross-Asset (Ollama qwen + trade_learnings RAG) → min 0.55 | STOP if delta < 0.03
 Tumbler 4: Pattern Template Matching (Claude) → min 0.65
-Tumbler 5: Counterfactual Synthesis (Claude) → calibrated final confidence
+Tumbler 5: Counterfactual Synthesis (Claude + trade_learnings loss RAG) → calibrated final confidence
 
 Decision: strong_enter (>=0.75) | enter (>=0.60) | watch (>=0.45) | skip (>=0.20) | veto (<0.20)
 ```
@@ -90,7 +95,9 @@ Stopping rules: veto_signal, confidence_floor, forced_connection (delta < 0.03),
 | Script | Schedule (ET) | LLM | RAM Peak |
 |--------|--------------|-----|----------|
 | catalyst_ingest.py | M-F 8:30 AM, 12:15 PM, 3:50 PM | Ollama embed | ~3.2GB |
-| inference_engine.py | Called by scanner | qwen + Claude | ~3.5GB |
+| scanner.py | M-F 9:35 AM, 12:30 PM | qwen + Claude (via inference_engine) | ~3.5GB |
+| position_manager.py | M-F every 30m 9:45 AM–3:45 PM | None | ~1.5GB |
+| inference_engine.py | Called by scanner.py | qwen + Claude | ~3.5GB |
 | meta_daily.py | M-F 4:30 PM | Claude + embed | ~3.5GB |
 | meta_weekly.py | Sun 7:00 PM | Claude + embed | ~3.5GB |
 | calibrator.py | Sun 7:30 PM | None | ~2.6GB |

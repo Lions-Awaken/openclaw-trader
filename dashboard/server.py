@@ -1567,7 +1567,7 @@ async def get_rag_status(request: Request, oc_session: str | None = Cookie(None)
     if not SUPABASE_URL:
         return {}
 
-    tables = ["signal_evaluations", "meta_reflections", "catalyst_events", "inference_chains", "pattern_templates"]
+    tables = ["signal_evaluations", "meta_reflections", "catalyst_events", "inference_chains", "pattern_templates", "trade_learnings"]
     result = {}
 
     client = get_http()
@@ -2079,6 +2079,137 @@ async def compare_tuning_profiles(
         params={"total_runs": "gt.0", "order": "version.desc"},
     )
     return resp.json() if resp.status_code == 200 else []
+
+
+# ============================================================================
+# Trade Learnings API Routes
+# ============================================================================
+
+@app.get("/api/trade-learnings")
+async def get_trade_learnings(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 60,
+    ticker: str = "",
+    outcome: str = "",
+):
+    """Recent trade post-mortems from the RAG learning pipeline."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    params = {
+        "select": "id,ticker,trade_date,entry_price,exit_price,pnl,pnl_pct,outcome,hold_days,"
+                  "expected_direction,expected_confidence,actual_direction,actual_move_pct,"
+                  "expectation_accuracy,catalyst_match,key_variance,what_worked,what_failed,"
+                  "key_lesson,tumbler_depth,inference_chain_id,created_at",
+        "trade_date": f"gte.{cutoff}",
+        "order": "trade_date.desc",
+        "limit": "50",
+    }
+    if ticker:
+        ticker = _validate_ticker(ticker)
+        params["ticker"] = f"eq.{ticker}"
+    if outcome:
+        params["outcome"] = f"eq.{outcome}"
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/trade_learnings",
+        headers=sb_headers(),
+        params=params,
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/trade-learnings/stats")
+async def get_trade_learnings_stats(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 60,
+):
+    """Aggregated stats from post-mortem analysis."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {}
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/trade_learnings",
+        headers=sb_headers(),
+        params={
+            "select": "outcome,pnl_pct,expectation_accuracy,tumbler_depth,expected_confidence",
+            "trade_date": f"gte.{cutoff}",
+        },
+    )
+    if resp.status_code != 200:
+        return {}
+
+    rows = resp.json()
+    if not rows:
+        return {"total": 0}
+
+    outcomes: dict = {}
+    accuracy_counts: dict = {}
+    total_pnl = 0.0
+    depth_by_outcome: dict = {}
+
+    for r in rows:
+        o = r.get("outcome", "SCRATCH")
+        outcomes[o] = outcomes.get(o, 0) + 1
+        a = r.get("expectation_accuracy", "missed")
+        accuracy_counts[a] = accuracy_counts.get(a, 0) + 1
+        total_pnl += float(r.get("pnl_pct", 0) or 0)
+
+        depth = str(r.get("tumbler_depth", 0) or 0)
+        if depth not in depth_by_outcome:
+            depth_by_outcome[depth] = {"wins": 0, "losses": 0, "total": 0}
+        depth_by_outcome[depth]["total"] += 1
+        if o in ("STRONG_WIN", "WIN"):
+            depth_by_outcome[depth]["wins"] += 1
+        elif o in ("LOSS", "STRONG_LOSS"):
+            depth_by_outcome[depth]["losses"] += 1
+
+    total = len(rows)
+    wins = outcomes.get("STRONG_WIN", 0) + outcomes.get("WIN", 0)
+    losses = outcomes.get("LOSS", 0) + outcomes.get("STRONG_LOSS", 0)
+
+    # Expectation calibration: % of trades where direction was met or exceeded
+    well_called = accuracy_counts.get("met", 0) + accuracy_counts.get("exceeded", 0)
+
+    return {
+        "total": total,
+        "wins": wins,
+        "losses": losses,
+        "scratches": outcomes.get("SCRATCH", 0),
+        "win_rate": round(wins / total * 100, 1) if total else 0,
+        "avg_pnl_pct": round(total_pnl / total, 2) if total else 0,
+        "expectation_accuracy_pct": round(well_called / total * 100, 1) if total else 0,
+        "outcomes": outcomes,
+        "accuracy_distribution": accuracy_counts,
+        "depth_performance": depth_by_outcome,
+    }
+
+
+@app.get("/api/trade-learnings/{learning_id}")
+async def get_trade_learning_detail(
+    learning_id: str,
+    request: Request,
+    oc_session: str | None = Cookie(None),
+):
+    """Full trade learning record including market context and catalysts."""
+    _require_auth(request, oc_session)
+    learning_id = _validate_uuid(learning_id)
+    if not SUPABASE_URL:
+        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/trade_learnings",
+        headers=sb_headers(),
+        params={"id": f"eq.{learning_id}"},
+    )
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    return {}
 
 
 if __name__ == "__main__":

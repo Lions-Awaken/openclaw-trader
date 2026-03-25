@@ -21,19 +21,22 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
+# Reusable HTTP client
+_client = httpx.Client(timeout=15.0)
+
 
 def check_ollama() -> dict:
     """Check if Ollama is running and responsive."""
     try:
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.get(f"{OLLAMA_URL}/api/tags")
-            if resp.status_code == 200:
-                models = resp.json().get("models", [])
-                return {
-                    "alive": True,
-                    "models": [m.get("name", "") for m in models],
-                    "model_count": len(models),
-                }
+        client = _client
+        resp = client.get(f"{OLLAMA_URL}/api/tags")
+        if resp.status_code == 200:
+            models = resp.json().get("models", [])
+            return {
+                "alive": True,
+                "models": [m.get("name", "") for m in models],
+                "model_count": len(models),
+            }
     except Exception:
         pass
     return {"alive": False}
@@ -45,22 +48,22 @@ def check_tumbler() -> dict:
 
     # Check Ollama (needed for embeddings + qwen)
     try:
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.get(f"{OLLAMA_URL}/api/tags")
-            result["checks"]["ollama"] = resp.status_code == 200
+        client = _client
+        resp = client.get(f"{OLLAMA_URL}/api/tags")
+        result["checks"]["ollama"] = resp.status_code == 200
     except Exception:
         result["checks"]["ollama"] = False
         result["alive"] = False
 
     # Check Supabase (needed for RAG queries)
     try:
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.get(
-                f"{SUPABASE_URL}/rest/v1/budget_config",
-                headers=_sb_headers(),
-                params={"select": "id", "limit": "1"},
-            )
-            result["checks"]["supabase"] = resp.status_code == 200
+        client = _client
+        resp = client.get(
+            f"{SUPABASE_URL}/rest/v1/budget_config",
+            headers=_sb_headers(),
+            params={"select": "id", "limit": "1"},
+        )
+        result["checks"]["supabase"] = resp.status_code == 200
     except Exception:
         result["checks"]["supabase"] = False
         result["alive"] = False
@@ -76,18 +79,18 @@ def update_heartbeat(service: str, metadata: dict):
 
     now = datetime.now(timezone.utc).isoformat()
     try:
-        with httpx.Client(timeout=10.0) as client:
-            # Upsert via PATCH
-            resp = client.patch(
-                f"{SUPABASE_URL}/rest/v1/stack_heartbeats?service=eq.{service}",
-                headers={**_sb_headers(), "Prefer": "return=representation"},
-                json={"last_seen": now, "metadata": metadata},
-            )
-            if resp.status_code in (200, 204):
-                status = "UP" if metadata.get("alive") else "DOWN"
-                print(f"[heartbeat] {service}: {status}")
-            else:
-                print(f"[heartbeat] {service}: failed to write ({resp.status_code})")
+        client = _client
+        # Upsert via PATCH
+        resp = client.patch(
+            f"{SUPABASE_URL}/rest/v1/stack_heartbeats?service=eq.{service}",
+            headers={**_sb_headers(), "Prefer": "return=representation"},
+            json={"last_seen": now, "metadata": metadata},
+        )
+        if resp.status_code in (200, 204):
+            status = "UP" if metadata.get("alive") else "DOWN"
+            print(f"[heartbeat] {service}: {status}")
+        else:
+            print(f"[heartbeat] {service}: failed to write ({resp.status_code})")
     except Exception as e:
         print(f"[heartbeat] {service}: error — {e}")
 

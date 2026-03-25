@@ -374,7 +374,7 @@ def tumbler_2_fundamental(ticker: str, confidence: float) -> dict:
 def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> dict:
     """Tumbler 3: Flow + Cross-Asset Analysis.
 
-    RAG: retrieve similar inference chains.
+    RAG: retrieve similar inference chains + past trade learnings.
     LLM: Ollama qwen2.5:3b (local, free) for cross-asset analysis.
     """
     # RAG: find similar past inference chains
@@ -392,7 +392,16 @@ def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> 
         if rag_results:
             rag_similarity_avg = sum(r.get("similarity", 0) for r in rag_results) / len(rag_results)
 
-    # Ask qwen for cross-asset analysis
+    # RAG: also search past trade learnings for this setup type
+    learnings = []
+    if embedding:
+        learnings = sb_rpc("match_trade_learnings", {
+            "query_embedding": embedding,
+            "match_threshold": 0.5,
+            "match_count": 5,
+        })
+
+    # Ask qwen for cross-asset analysis, incorporating trade learnings
     past_context = ""
     for chain in rag_results[:3]:
         outcome = chain.get("actual_outcome", "unknown")
@@ -403,14 +412,26 @@ def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> 
             f"outcome={outcome}\n"
         )
 
+    learning_context = ""
+    for lr in learnings[:3]:
+        learning_context += (
+            f"- {lr.get('ticker', '?')} ({lr.get('trade_date', '?')}): "
+            f"{lr.get('outcome', '?')} ({lr.get('pnl_pct', 0):+.1f}%), "
+            f"accuracy={lr.get('expectation_accuracy', '?')}, "
+            f"lesson={lr.get('key_lesson', '')[:80]}\n"
+        )
+
     qwen_prompt = f"""Analyze this trade setup for {ticker}:
 Current confidence: {confidence:.2f}
 Context: {context.get('key_finding', 'No prior context.')}
 
-Similar past trades:
-{past_context if past_context else 'No similar past trades found.'}
+Similar past inference chains:
+{past_context if past_context else 'No similar past chains found.'}
 
-In 2-3 sentences: Does the cross-asset context support or weaken this trade?
+Past trade learnings (actual outcomes from closed trades):
+{learning_context if learning_context else 'No past trade learnings found.'}
+
+In 2-3 sentences: Does the cross-asset context and trade history support or weaken this trade?
 Respond with a JSON object: {{"adjustment": float between -0.1 and +0.1, "reasoning": "string"}}"""
 
     qwen_response = call_ollama_qwen(qwen_prompt)
@@ -434,23 +455,32 @@ Respond with a JSON object: {{"adjustment": float between -0.1 and +0.1, "reason
 
     new_confidence = max(0, min(1.0, confidence + adjustment))
 
-    # Check outcomes of similar past chains
+    # Check outcomes of similar past chains and learnings
     past_outcomes = [r.get("actual_outcome") for r in rag_results if r.get("actual_outcome")]
     win_count = sum(1 for o in past_outcomes if o in ("STRONG_WIN", "WIN"))
     loss_count = sum(1 for o in past_outcomes if o in ("LOSS", "STRONG_LOSS"))
 
+    learning_wins = sum(1 for lr in learnings if lr.get("outcome") in ("STRONG_WIN", "WIN"))
+    learning_losses = sum(1 for lr in learnings if lr.get("outcome") in ("LOSS", "STRONG_LOSS"))
+
     key_finding = f"Qwen adjustment: {adjustment:+.3f}. {reasoning}"
     if past_outcomes:
-        key_finding += f" Past similar: {win_count}W/{loss_count}L."
+        key_finding += f" Past chains: {win_count}W/{loss_count}L."
+    if learnings:
+        key_finding += f" Trade learnings: {learning_wins}W/{learning_losses}L ({len(learnings)} trades)."
+        # Surface the most relevant lesson
+        top_lesson = learnings[0].get("key_lesson", "")
+        if top_lesson:
+            key_finding += f" Top lesson: {top_lesson[:80]}"
 
     return {
         "depth": 3,
         "tumbler_name": "flow_crossasset",
         "confidence_after": round(new_confidence, 4),
-        "rag_contexts_retrieved": len(rag_results),
+        "rag_contexts_retrieved": len(rag_results) + len(learnings),
         "rag_similarity_avg": round(rag_similarity_avg, 3),
         "key_finding": key_finding,
-        "data_sources": ["inference_chains_rag", "ollama_qwen"],
+        "data_sources": ["inference_chains_rag", "trade_learnings_rag", "ollama_qwen"],
     }
 
 
@@ -540,7 +570,7 @@ Respond with JSON: {{"adjustment": float between -0.1 and +0.1, "best_pattern": 
 def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list[dict]) -> dict:
     """Tumbler 5: Counterfactual + Final Synthesis.
 
-    RAG: retrieve meta_reflections and past losses.
+    RAG: retrieve meta_reflections + past trade learnings (especially losses).
     LLM: Claude Sonnet as devil's advocate.
     Apply calibration factor for final adjusted confidence.
     """
@@ -557,6 +587,15 @@ def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list
             "match_count": 3,
         })
 
+    # RAG: retrieve relevant past trade learnings — especially losses and misses
+    trade_learnings = []
+    if embedding:
+        trade_learnings = sb_rpc("match_trade_learnings", {
+            "query_embedding": embedding,
+            "match_threshold": 0.45,
+            "match_count": 5,
+        })
+
     # Past reflections context
     reflection_context = ""
     for ref in rag_results:
@@ -564,6 +603,26 @@ def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list
             f"- {ref.get('reflection_date', '?')}: {ref.get('patterns_observed', '')[:100]}. "
             f"Issues: {ref.get('operational_issues', 'none')[:80]}\n"
         )
+
+    # Trade learnings — surface what went wrong in similar past trades
+    learning_context = ""
+    losses = [row for row in trade_learnings if row.get("outcome") in ("LOSS", "STRONG_LOSS")]
+    misses = [row for row in trade_learnings if row.get("expectation_accuracy") in ("missed", "opposite")]
+    relevant = sorted(losses + misses, key=lambda x: x.get("similarity", 0), reverse=True)[:4]
+    # Deduplicate by id
+    seen_ids: set = set()
+    for row in relevant:
+        lid = row.get("id")
+        if lid not in seen_ids:
+            seen_ids.add(lid)
+            outcome = row.get("outcome", "?")
+            learning_context += (
+                f"- {row.get('ticker', '?')} ({row.get('trade_date', '?')}): {outcome} "
+                f"({row.get('pnl_pct', 0):+.1f}%), "
+                f"accuracy={row.get('expectation_accuracy', '?')}, "
+                f"what_failed={row.get('what_failed', '')[:80]}, "
+                f"lesson={row.get('key_lesson', '')[:60]}\n"
+            )
 
     # Claude as devil's advocate
     claude_prompt = f"""You are a risk analyst playing devil's advocate. Your job is to find reasons NOT to take this trade.
@@ -577,7 +636,10 @@ Tumbler chain analysis:
 Past meta-reflections:
 {reflection_context if reflection_context else 'No similar past reflections found.'}
 
-Be critical. What could go wrong? What are we missing? What did similar setups get wrong in the past?
+Past trade learnings (losses and missed expectations from similar setups):
+{learning_context if learning_context else 'No past losses found for similar setups.'}
+
+Be critical. What could go wrong? What are we missing? What patterns have failed us in similar setups before?
 
 Respond with JSON:
 {{"adjustment": float between -0.15 and +0.05, "risk_factors": ["string", ...], "reasoning": "2-3 sentences"}}"""
@@ -620,7 +682,7 @@ Respond with JSON:
         "rag_contexts_retrieved": len(rag_results),
         "rag_similarity_avg": 0,
         "key_finding": key_finding,
-        "data_sources": ["meta_reflections_rag", "claude_sonnet", "calibration"],
+        "data_sources": ["meta_reflections_rag", "trade_learnings_rag", "claude_sonnet", "calibration"],
         "claude_cost": claude_cost,
         "calibration_factor": calibration_factor,
     }
