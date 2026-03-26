@@ -92,15 +92,17 @@ Stopping rules: veto_signal, confidence_floor, forced_connection (delta < 0.03),
 
 ## Cron Schedule
 
-| Script | Schedule (ET) | LLM | RAM Peak |
-|--------|--------------|-----|----------|
-| catalyst_ingest.py | M-F 8:30 AM, 12:15 PM, 3:50 PM | Ollama embed | ~3.2GB |
-| scanner.py | M-F 9:35 AM, 12:30 PM | qwen + Claude (via inference_engine) | ~3.5GB |
-| position_manager.py | M-F every 30m 9:45 AM–3:45 PM | None | ~1.5GB |
-| inference_engine.py | Called by scanner.py | qwen + Claude | ~3.5GB |
-| meta_daily.py | M-F 4:30 PM | Claude + embed | ~3.5GB |
-| meta_weekly.py | Sun 7:00 PM | Claude + embed | ~3.5GB |
-| calibrator.py | Sun 7:30 PM | None | ~2.6GB |
+Ridley is in **PDT (America/Los_Angeles)**. Crontab uses `SHELL=/bin/bash` (dash doesn't support `source`).
+
+| Script | Schedule (ET) | PDT on ridley | LLM | RAM Peak |
+|--------|--------------|---------------|-----|----------|
+| catalyst_ingest.py | M-F 8:30 AM, 12:15 PM, 3:50 PM | 5:30, 9:15, 12:50 | Ollama embed | ~3.2GB |
+| scanner.py | M-F 9:35 AM, 12:30 PM | 6:35, 9:30 | qwen + Claude (via inference_engine) | ~3.5GB |
+| position_manager.py | M-F every 30m 9:00 AM–3:45 PM | 6:00–12:45 | None | ~1.5GB |
+| inference_engine.py | Called by scanner.py | — | qwen + Claude | ~3.5GB |
+| meta_daily.py | M-F 4:30 PM | 13:30 | Claude + embed | ~3.5GB |
+| meta_weekly.py | Sun 7:00 PM | 16:00 | Claude + embed | ~3.5GB |
+| calibrator.py | Sun 7:30 PM | 16:30 | None | ~2.6GB |
 
 ## Dashboard Tabs
 
