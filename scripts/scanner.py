@@ -393,10 +393,8 @@ def calculate_position_size(
         allocation = equity * 0.05
         qty = int(allocation / price)
 
-    # Floor: at least 1 share, cap at 5% of equity
-    max_qty = int(equity * 0.05 / price) if price > 0 else 0
-    qty = max(1, min(qty, max(1, max_qty)))
-    return qty
+    # Floor: at least 1 share
+    return max(1, qty)
 
 
 # ---------------------------------------------------------------------------
