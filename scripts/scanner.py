@@ -75,6 +75,24 @@ def _alpaca_headers() -> dict:
     }
 
 
+def check_market_open() -> tuple[bool, str]:
+    """Check Alpaca /v2/clock to see if market is currently open."""
+    try:
+        resp = _client.get(
+            f"{ALPACA_PAPER}/v2/clock",
+            headers=_alpaca_headers(),
+            timeout=5.0,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("is_open"):
+                return True, "market_open"
+            return False, f"market_closed_until_{data.get('next_open', 'unknown')}"
+    except Exception as e:
+        return False, f"clock_check_failed_{e}"
+    return False, "clock_check_failed"
+
+
 def get_account() -> dict | None:
     """GET /v2/account from Alpaca paper."""
     try:
@@ -434,6 +452,28 @@ def build_watchlist() -> list[str]:
 
 # ---------------------------------------------------------------------------
 # Core execution
+def poll_for_fill(order_id: str, timeout_seconds: int = 120) -> dict | None:
+    """Poll Alpaca for order fill status. Returns final order state or None on timeout."""
+    TERMINAL = {"filled", "partially_filled", "cancelled", "rejected", "expired", "done_for_day"}
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            resp = _client.get(
+                f"{ALPACA_PAPER}/v2/orders/{order_id}",
+                headers=_alpaca_headers(),
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                order = resp.json()
+                if order.get("status") in TERMINAL:
+                    return order
+        except Exception as e:
+            print(f"[scanner] fill poll error: {e}")
+        time.sleep(4)
+    print(f"[scanner] fill poll timeout for order {order_id}")
+    return None
+
+
 # ---------------------------------------------------------------------------
 def execute_trade(
     ticker: str,
@@ -475,6 +515,33 @@ def execute_trade(
         price=price,
         raw_event=entry_order,
     )
+
+    # Poll for fill — market orders typically fill in seconds
+    fill = poll_for_fill(order_id, timeout_seconds=60)
+    if fill:
+        fill_status = fill.get("status", "unknown")
+        filled_qty = float(fill.get("filled_qty", 0) or 0)
+        avg_price = float(fill.get("filled_avg_price", 0) or 0)
+        tracer.log_order_event(
+            order_id=order_id,
+            ticker=ticker,
+            event_type="filled" if fill_status == "filled" else fill_status,
+            side="buy",
+            qty_ordered=qty,
+            qty_filled=filled_qty,
+            avg_fill_price=avg_price if avg_price > 0 else None,
+            raw_event=fill,
+        )
+        if avg_price > 0:
+            price = avg_price  # Use actual fill price for stop calc + trade record
+        if filled_qty > 0:
+            qty = int(filled_qty)
+        print(f"[scanner] {ticker} fill: {filled_qty} @ ${avg_price:.2f} ({fill_status})")
+    else:
+        print(f"[scanner] {ticker}: fill poll timed out, using quote price")
+
+    # Recalculate stop with actual fill price
+    stop_price = round(price - (atr * 2.0), 2)
 
     # Place stop-loss GTC order
     stop_order = submit_order(ticker, qty, "sell", "stop", "gtc", stop_price=stop_price)
@@ -549,6 +616,15 @@ def run():
         auto_execute = profile.get("auto_execute_all", False)
         circuit_breakers_on = profile.get("circuit_breakers_enabled", True)
 
+        # === Step 1b: Market hours gate ===
+        with tracer.step("market_hours_check") as result:
+            is_open, reason = check_market_open()
+            result.set({"is_open": is_open, "reason": reason})
+            if not is_open:
+                print(f"[scanner] Market not open: {reason}. Exiting.")
+                tracer.complete({"stopped": reason, "trades_placed": 0})
+                return
+
         # === Step 2: Circuit breaker check ===
         with tracer.step("circuit_breaker_check") as result:
             if circuit_breakers_on:
@@ -596,8 +672,18 @@ def run():
         with tracer.step("build_watchlist") as result:
             watchlist = build_watchlist()
             spy_bars = get_bars("SPY", days=30)
+
+            if len(spy_bars) < 15:
+                print(f"[scanner] Only {len(spy_bars)} SPY bars available. Waiting 90s for data...")
+                time.sleep(90)
+                spy_bars = get_bars("SPY", days=30)
+                if len(spy_bars) < 15:
+                    print(f"[scanner] Still only {len(spy_bars)} SPY bars after retry. Aborting.")
+                    tracer.complete({"stopped": "insufficient_spy_data", "spy_bars": len(spy_bars)})
+                    return
+
             result.set({"watchlist_size": len(watchlist), "spy_bars": len(spy_bars)})
-            print(f"[scanner] Watchlist: {len(watchlist)} tickers")
+            print(f"[scanner] Watchlist: {len(watchlist)} tickers, SPY bars: {len(spy_bars)}")
 
         # === Step 5: Compute signals for all tickers ===
         candidates = []

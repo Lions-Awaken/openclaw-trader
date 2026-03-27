@@ -72,25 +72,24 @@ def check_tumbler() -> dict:
 
 
 def update_heartbeat(service: str, metadata: dict):
-    """Write heartbeat to Supabase."""
+    """Write heartbeat to Supabase via upsert (POST + merge-duplicates)."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         print(f"[heartbeat] No Supabase credentials, skipping {service}")
         return
 
     now = datetime.now(timezone.utc).isoformat()
     try:
-        client = _client
-        # Upsert via PATCH
-        resp = client.patch(
-            f"{SUPABASE_URL}/rest/v1/stack_heartbeats?service=eq.{service}",
-            headers={**_sb_headers(), "Prefer": "return=representation"},
-            json={"last_seen": now, "metadata": metadata},
+        resp = _client.post(
+            f"{SUPABASE_URL}/rest/v1/stack_heartbeats",
+            headers={
+                **_sb_headers(),
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates",
+            },
+            json={"service": service, "last_seen": now, "metadata": metadata},
         )
-        if resp.status_code in (200, 204):
-            status = "UP" if metadata.get("alive") else "DOWN"
-            print(f"[heartbeat] {service}: {status}")
-        else:
-            print(f"[heartbeat] {service}: failed to write ({resp.status_code})")
+        status = "UP" if metadata.get("alive") else "DOWN"
+        print(f"[heartbeat] {service}: {status} ({resp.status_code})")
     except Exception as e:
         print(f"[heartbeat] {service}: error — {e}")
 
