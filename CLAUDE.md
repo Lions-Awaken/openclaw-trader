@@ -2,7 +2,7 @@
 
 ## Overview
 
-Infrastructure, migrations, and ops tooling for the autonomous swing trading agent. The StreamSaber backend app itself lives in the Twilight Underground repo (`streamsaber/`). This repo holds supporting infrastructure, the Tumbler inference engine, and the dashboard.
+Autonomous swing trading agent — scanner, inference engine, position management, and dashboard. Runs on ridley (Jetson) via cron during market hours.
 
 ## Project Structure
 
@@ -36,21 +36,13 @@ openclaw-trader/
 └── CLAUDE.md
 ```
 
-## Related Repos
-
-| Repo | What lives there |
-|------|-----------------|
-| **twilight-underground** | `streamsaber/` backend app, `relay/` stream relay, frontend admin pages |
-| **openclaw-trader** (this) | Supabase migrations, log-shipper, infra tooling, tumbler engine, dashboard |
-
 ## Fly.io Apps
 
 | App | Purpose | Deployed from | Cost |
 |-----|---------|--------------|------|
-| `tu-streamsaber` | Stream monitor + API | `twilight-underground/streamsaber/` | ~$7/mo |
 | `tu-log-shipper` | Log shipping to Grafana | `openclaw-trader/log-shipper/` | ~$2/mo |
 
-## Supabase Tables (production: `vpollvsbtushbiapoflr`)
+## Supabase Tables (project: `vpollvsbtushbiapoflr`)
 
 | Table | Purpose |
 |-------|---------|
@@ -69,6 +61,11 @@ openclaw-trader/
 | `tuning_profiles` | Versioned hardware performance tuning configurations |
 | `tuning_telemetry` | Per-pipeline-run hardware telemetry snapshots (1-year retention) |
 | `trade_learnings` | Post-trade RAG post-mortems with embeddings (180-day retention) |
+| `trade_decisions` | Entry/exit records linking orders to inference chains |
+| `strategy_profiles` | Trading profiles (CONSERVATIVE, UNLEASHED) with all parameters |
+| `stack_heartbeats` | Service liveness (ollama, tumbler) for dashboard health display |
+| `regime_log` | Market regime snapshots (bull/bear/sideways) |
+| `system_stats` | System telemetry (CPU, RAM, GPU temps) from ridley |
 
 ## Tumbler Engine Architecture
 
@@ -106,9 +103,9 @@ Dashboard | Pipeline | Trade Log | Positions | Predictions | Meta-Learning | Cat
 
 ## Observability
 
-- **Sentry**: Error tracking on StreamSaber backend (auto-captures ERROR+ logs)
+- **Sentry**: Error tracking (auto-captures ERROR+ logs)
 - **Grafana Cloud Loki**: All Fly.io app logs shipped via `tu-log-shipper`
-- **Dashboard**: `lionsawaken.grafana.net` — query with `{app="tu-streamsaber"}`
+- **Dashboard**: `lionsawaken.grafana.net`
 
 ## Hard Rules — Violations Are Bugs
 
@@ -132,14 +129,8 @@ git config core.hooksPath .githooks
 # Deploy log shipper
 cd log-shipper && fly deploy
 
-# Check StreamSaber health
-curl https://tu-streamsaber.fly.dev/health
-
-# Check logs in Fly
-fly logs -a tu-streamsaber
-
 # Check logs in Grafana
-# https://lionsawaken.grafana.net → Explore → Loki → {app="tu-streamsaber"}
+# https://lionsawaken.grafana.net → Explore → Loki
 ```
 
 ---
@@ -233,7 +224,7 @@ The team shares these services across projects. If you need access to any of the
 |---------|-----------|---------|---------------|
 | **Supabase** | PostgreSQL database + Auth + Edge Functions + Realtime | Most projects | Multiple instances — check Resource Registry for URLs and credentials (encrypted) |
 | **Vercel** | Frontend/fullstack deployment | bgp-peering-wizard, youshallnotpass, tachyon-vector | Deployments via `vercel` CLI or git push |
-| **Fly.io** | Backend compute (containers) | openclaw-trader (tu-streamsaber, tu-log-shipper), twilight-underground | Deploy via `fly deploy`, check `fly status` |
+| **Fly.io** | Backend compute (containers) | openclaw-trader (tu-log-shipper), twilight-underground | Deploy via `fly deploy`, check `fly status` |
 | **Hetzner** | Bare metal / VPS | Shared infrastructure | SSH access, Docker host for multiple services |
 | **Grafana Cloud** | Monitoring, Loki log aggregation | openclaw-trader, twilight-underground | Dashboard at lionsawaken.grafana.net |
 | **Sentry** | Error tracking | bgp-peering-wizard, nexthop-sim-api, openclaw-trader, threat-hunter-ai, twilight-underground | DSNs in project .env files |

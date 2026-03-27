@@ -81,7 +81,7 @@ def sb_get(path: str, params: dict | None = None) -> list:
 
 
 def get_watchlist() -> list[str]:
-    """Load active tickers from tiktok_accounts (used as watchlist source)."""
+    """Load active tickers for catalyst monitoring."""
     # First try trade-relevant tables
     tickers = set()
 

@@ -117,7 +117,7 @@ FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 SENTRY_AUTH_TOKEN = os.environ.get("SENTRY_AUTH_TOKEN", "")
 SENTRY_ORG = os.environ.get("SENTRY_ORG", "lions-awaken")
-SENTRY_PROJECT = os.environ.get("SENTRY_PROJECT", "streamsaber")
+SENTRY_PROJECT = os.environ.get("SENTRY_PROJECT", "openclaw-trader")
 
 # Magic link email config
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
