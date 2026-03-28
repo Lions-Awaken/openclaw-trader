@@ -129,6 +129,28 @@ def submit_order(
     return None
 
 
+def poll_for_fill(order_id: str, timeout_seconds: int = 60) -> dict | None:
+    """Poll Alpaca for order fill status. Returns final order state or None on timeout."""
+    TERMINAL = {"filled", "partially_filled", "cancelled", "rejected", "expired", "done_for_day"}
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            resp = _client.get(
+                f"{ALPACA_PAPER}/v2/orders/{order_id}",
+                headers=_alpaca_headers(),
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                order = resp.json()
+                if order.get("status") in TERMINAL:
+                    return order
+        except Exception as e:
+            print(f"[position_mgr] fill poll error: {e}")
+        time.sleep(4)
+    print(f"[position_mgr] fill poll timeout for order {order_id}")
+    return None
+
+
 def get_bars(ticker: str, days: int = 20) -> list:
     """GET /v2/stocks/{ticker}/bars — 1Day bars."""
     end = datetime.now(timezone.utc)
@@ -247,6 +269,28 @@ def close_position(
         price=current_price,
         raw_event=sell_order,
     )
+
+    # Poll for fill — market sells typically fill in seconds
+    fill = poll_for_fill(sell_order_id, timeout_seconds=60)
+    if fill:
+        fill_status = fill.get("status", "unknown")
+        filled_qty = float(fill.get("filled_qty", 0) or 0)
+        avg_price = float(fill.get("filled_avg_price", 0) or 0)
+        tracer.log_order_event(
+            order_id=sell_order_id,
+            ticker=ticker,
+            event_type="filled" if fill_status == "filled" else fill_status,
+            side="sell",
+            qty_ordered=qty,
+            qty_filled=filled_qty,
+            avg_fill_price=avg_price if avg_price > 0 else None,
+            raw_event=fill,
+        )
+        if avg_price > 0:
+            current_price = avg_price  # Use actual fill price for P&L
+        print(f"[position_mgr] {ticker} fill: {filled_qty} @ ${avg_price:.2f} ({fill_status})")
+    else:
+        print(f"[position_mgr] {ticker}: fill poll timed out, using quote price")
 
     # Update trade_decisions
     if trade_decision and trade_decision.get("id"):

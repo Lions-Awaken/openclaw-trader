@@ -61,9 +61,11 @@ def _post_to_supabase(table: str, data: dict) -> dict | None:
                 rows = resp.json()
                 return rows[0] if rows else data
             else:
+                print(f"[tracer] Supabase write FAILED: {table} → {resp.status_code} {resp.text[:300]}")
                 _buffer_locally(table, data)
                 return None
-    except Exception:
+    except Exception as e:
+        print(f"[tracer] Supabase write ERROR: {table} → {e}")
         _buffer_locally(table, data)
         return None
 
