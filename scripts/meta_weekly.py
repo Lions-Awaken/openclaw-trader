@@ -655,4 +655,6 @@ def run():
 
 
 if __name__ == "__main__":
+    from loki_logger import get_logger
+    _logger = get_logger("meta_weekly")
     run()
