@@ -358,7 +358,10 @@ def close_position(
                 cmd.extend(["--entry_date", entry_date])
             cmd.extend(["--pipeline_run_id", tracer.root_id])
 
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log_dir = os.path.expanduser("~/.openclaw/workspace/logs")
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = open(f"{log_dir}/post_trade_{ticker}_{TODAY}.log", "a")
+            subprocess.Popen(cmd, stdout=log_file, stderr=log_file)
             print(f"[position_mgr] Triggered post_trade_analysis for {ticker}")
         except Exception as e:
             print(f"[position_mgr] post_trade_analysis launch failed: {e}")
@@ -471,7 +474,8 @@ def run():
         stop_orders = [o for o in open_orders if o.get("type") == "stop" and o.get("side") == "sell"]
 
         # Check current time for EOD flatten
-        now_et = datetime.now(timezone(timedelta(hours=-4)))  # ET approximation
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
         is_eod = now_et.hour == 15 and now_et.minute >= 45
 
         # === Process each position ===

@@ -153,13 +153,13 @@ def classify_catalyst(headline: str, content: str = "") -> dict:
 def generate_embedding(text: str) -> list[float] | None:
     """Generate embedding via Ollama, then release model memory."""
     try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            )
-            if resp.status_code == 200:
-                return resp.json().get("embedding")
+        resp = _client.post(
+            f"{OLLAMA_URL}/api/embeddings",
+            json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
+            timeout=60.0,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("embedding")
     except Exception:
         pass
     return None

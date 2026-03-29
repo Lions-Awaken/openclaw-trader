@@ -439,7 +439,7 @@ def build_watchlist() -> list[str]:
         try:
             with open(wl_file) as f:
                 extended = json.load(f).get("tickers", [])
-                tickers.update(extended)
+                tickers.update(t for t in extended if isinstance(t, str) and len(t) <= 5 and t.isalpha() and t.isupper())
         except (json.JSONDecodeError, OSError):
             pass
 
@@ -543,20 +543,37 @@ def execute_trade(
     # Recalculate stop with actual fill price
     stop_price = round(price - (atr * 2.0), 2)
 
-    # Place stop-loss GTC order
-    stop_order = submit_order(ticker, qty, "sell", "stop", "gtc", stop_price=stop_price)
-    if stop_order:
-        tracer.log_order_event(
-            order_id=stop_order.get("id", ""),
-            ticker=ticker,
-            event_type="submitted",
-            side="sell",
-            qty_ordered=qty,
-            price=stop_price,
-            raw_event=stop_order,
-        )
-    else:
-        print(f"[scanner] {ticker}: stop-loss order failed (entry still placed)")
+    # Place stop-loss GTC order (retry up to 3 times, close position if all fail)
+    stop_order = None
+    for stop_attempt in range(3):
+        stop_order = submit_order(ticker, qty, "sell", "stop", "gtc", stop_price=stop_price)
+        if stop_order:
+            tracer.log_order_event(
+                order_id=stop_order.get("id", ""),
+                ticker=ticker,
+                event_type="submitted",
+                side="sell",
+                qty_ordered=qty,
+                price=stop_price,
+                raw_event=stop_order,
+            )
+            break
+        print(f"[scanner] {ticker}: stop-loss attempt {stop_attempt + 1}/3 failed")
+        time.sleep(2)
+
+    if not stop_order:
+        print(f"[scanner] {ticker}: ALL stop-loss attempts failed — closing position for safety")
+        close_order = submit_order(ticker, qty, "sell", "market", "day")
+        if close_order:
+            tracer.log_order_event(
+                order_id=close_order.get("id", ""),
+                ticker=ticker,
+                event_type="submitted",
+                side="sell",
+                qty_ordered=qty,
+                raw_event={"reason": "stop_loss_failed_safety_close"},
+            )
+        return None
 
     # Log to trade_decisions
     trade_decision = {

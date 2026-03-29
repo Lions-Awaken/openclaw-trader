@@ -20,10 +20,23 @@ from pathlib import Path
 
 import httpx
 from fastapi import Cookie, FastAPI, Form, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 app = FastAPI(title="OpenClaw Trader Dashboard", docs_url=None, redoc_url=None)
+
+# CORS — restrict to our own origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://openclaw-dashboard.fly.dev",
+        "http://localhost:8090",
+    ],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["*"],
+    allow_credentials=True,
+)
 
 # ============================================================================
 # Persistent HTTP clients — reuse connections across requests
@@ -79,6 +92,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
 # ============================================================================
 # Input validation helpers
 # ============================================================================
@@ -87,6 +105,11 @@ _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 _SAFE_KEY_RE = re.compile(r'^[a-z][a-z0-9_]{1,60}$')
 _SAFE_NAME_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{0,60}$')
 _SAFE_TICKER_RE = re.compile(r'^[A-Z]{1,5}$')
+
+
+def clamp_days(days: int, max_days: int = 365) -> int:
+    """Clamp days parameter to prevent unbounded queries."""
+    return min(max(1, days), max_days)
 
 ALLOWED_BUDGET_KEYS = {"daily_claude_budget", "daily_perplexity_budget"}
 
@@ -302,10 +325,11 @@ async def logout(oc_session: str | None = Cookie(None)):
 
 def _login_error_page(error: str, csrf: str) -> str:
     """Return the login page HTML with an error message injected."""
+    from html import escape
     html_path = Path(__file__).parent / "login.html"
     html = html_path.read_text()
-    # Inject error and CSRF token
-    html = html.replace("<!-- ERROR_PLACEHOLDER -->", f'<div class="error">{error}</div>')
+    # Inject error (escaped) and CSRF token
+    html = html.replace("<!-- ERROR_PLACEHOLDER -->", f'<div class="error">{escape(error)}</div>')
     html = html.replace("CSRF_TOKEN_PLACEHOLDER", csrf)
     return html
 
@@ -1803,23 +1827,24 @@ async def activate_strategy(request: Request, oc_session: str | None = Cookie(No
     profile_id = _validate_uuid(profile_id)
 
     client = get_http()
-    # Deactivate all
-    await client.patch(
-        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
-        headers={**sb_headers(), "Content-Type": "application/json"},
-        params={"active": "eq.true"},
-        json={"active": False, "updated_at": datetime.now(timezone.utc).isoformat()},
-    )
-    # Activate selected
+    now = datetime.now(timezone.utc).isoformat()
+    # Activate selected FIRST (so we never have zero active profiles)
     resp = await client.patch(
         f"{SUPABASE_URL}/rest/v1/strategy_profiles",
         headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
         params={"id": f"eq.{profile_id}"},
-        json={"active": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+        json={"active": True, "updated_at": now},
     )
-    if resp.status_code == 200 and resp.json():
-        return resp.json()[0]
-    raise HTTPException(status_code=500, detail="Failed to activate profile")
+    if resp.status_code != 200 or not resp.json():
+        raise HTTPException(status_code=500, detail="Failed to activate profile")
+    # Then deactivate all others
+    await client.patch(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers={**sb_headers(), "Content-Type": "application/json"},
+        params={"active": "eq.true", "id": f"neq.{profile_id}"},
+        json={"active": False, "updated_at": now},
+    )
+    return resp.json()[0]
 
 
 # ============================================================================

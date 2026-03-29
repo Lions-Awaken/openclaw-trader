@@ -144,13 +144,13 @@ def sb_rpc(fn_name: str, params: dict) -> list:
 def generate_embedding(text: str) -> list[float] | None:
     """Generate embedding via Ollama."""
     try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            )
-            if resp.status_code == 200:
-                return resp.json().get("embedding")
+        resp = _client.post(
+            f"{OLLAMA_URL}/api/embeddings",
+            json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
+            timeout=60.0,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("embedding")
     except Exception:
         pass
     return None
