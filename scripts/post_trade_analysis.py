@@ -33,20 +33,16 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 
-import httpx
-
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import _patch_supabase, _post_to_supabase, _sb_headers
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ALPACA_KEY = os.environ.get("ALPACA_API_KEY", "")
-ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-ALPACA_DATA = "https://data.alpaca.markets"
-
-_client = httpx.Client(timeout=20.0)
+from common import (
+    ALPACA_DATA,
+    ANTHROPIC_API_KEY,
+    _client,
+    alpaca_headers,
+    generate_embedding,
+    sb_get,
+)
+from tracer import _patch_supabase, _post_to_supabase
 
 TODAY = date.today().isoformat()
 
@@ -54,15 +50,6 @@ TODAY = date.today().isoformat()
 # ============================================================================
 # Data fetchers
 # ============================================================================
-
-def sb_get(path: str, params: dict | None = None) -> list:
-    resp = _client.get(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    return resp.json() if resp.status_code == 200 else []
-
 
 def fetch_inference_chain(chain_id: str | None, ticker: str, trade_date: str) -> dict | None:
     """Get the inference chain that led to this trade."""
@@ -90,10 +77,7 @@ def fetch_market_context(ticker: str, entry_date: str, exit_date: str) -> dict:
         try:
             resp = _client.get(
                 f"{ALPACA_DATA}/v2/stocks/{sym}/bars",
-                headers={
-                    "APCA-API-KEY-ID": ALPACA_KEY,
-                    "APCA-API-SECRET-KEY": ALPACA_SECRET,
-                },
+                headers=alpaca_headers(),
                 params={
                     "timeframe": "1Day",
                     "start": entry_date,
@@ -129,21 +113,6 @@ def fetch_active_catalysts(ticker: str, entry_date: str, exit_date: str) -> list
         "limit": "15",
     })
     return rows
-
-
-def generate_embedding(text: str) -> list[float] | None:
-    """Embed via Ollama nomic-embed-text."""
-    try:
-        resp = _client.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            timeout=60.0,
-        )
-        if resp.status_code == 200:
-            return resp.json().get("embedding")
-    except Exception as e:
-        print(f"[post_trade] Embedding error: {e}")
-    return None
 
 
 def call_claude_postmortem(prompt: str) -> tuple[str | None, float]:

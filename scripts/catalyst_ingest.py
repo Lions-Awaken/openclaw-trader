@@ -20,19 +20,15 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-import httpx
-
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import PipelineTracer, _post_to_supabase, _sb_headers
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
-PERPLEXITY_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-
-# Reusable HTTP client
-_client = httpx.Client(timeout=15.0)
+from common import (
+    FINNHUB_KEY,
+    PERPLEXITY_KEY,
+    _client,
+    generate_embedding,
+    sb_get,
+)
+from tracer import PipelineTracer, _post_to_supabase
 
 # Lookback window for news (12 hours)
 LOOKBACK_HOURS = 12
@@ -65,19 +61,6 @@ BEARISH_KEYWORDS = [
     "warning", "investigation", "fine", "recall", "bearish", "plunge", "crash",
     "weak", "disappoint", "insider sale", "penalty", "layoff",
 ]
-
-
-def sb_get(path: str, params: dict | None = None) -> list:
-    """GET from Supabase REST API."""
-    client = _client
-    resp = client.get(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
 
 
 def get_watchlist() -> list[str]:
@@ -148,21 +131,6 @@ def classify_catalyst(headline: str, content: str = "") -> dict:
         "sentiment_score": round(sentiment, 3),
         "magnitude": magnitude,
     }
-
-
-def generate_embedding(text: str) -> list[float] | None:
-    """Generate embedding via Ollama, then release model memory."""
-    try:
-        resp = _client.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            timeout=60.0,
-        )
-        if resp.status_code == 200:
-            return resp.json().get("embedding")
-    except Exception:
-        pass
-    return None
 
 
 def check_duplicate(embedding: list[float], recent_embeddings: list[list[float]], threshold: float = 0.95) -> bool:

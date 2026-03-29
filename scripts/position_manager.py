@@ -20,187 +20,22 @@ import subprocess
 import sys
 import time
 import traceback
-from datetime import date, datetime, timedelta, timezone
-
-import httpx
+from datetime import date, datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import PipelineTracer, _patch_supabase, _post_to_supabase, _sb_headers
-
-# ---------------------------------------------------------------------------
-# Environment
-# ---------------------------------------------------------------------------
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-ALPACA_KEY = os.environ.get("ALPACA_API_KEY", "")
-ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
-
-ALPACA_PAPER = "https://paper-api.alpaca.markets"
-ALPACA_DATA = "https://data.alpaca.markets"
+from common import (
+    cancel_order,
+    get_bars,
+    get_open_orders,
+    get_positions,
+    load_strategy_profile,
+    poll_for_fill,
+    sb_get,
+    submit_order,
+)
+from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
 
 TODAY = date.today().isoformat()
-
-_client = httpx.Client(timeout=15.0)
-
-
-# ---------------------------------------------------------------------------
-# Alpaca helpers
-# ---------------------------------------------------------------------------
-def _alpaca_headers() -> dict:
-    return {
-        "APCA-API-KEY-ID": ALPACA_KEY,
-        "APCA-API-SECRET-KEY": ALPACA_SECRET,
-    }
-
-
-def get_positions() -> list:
-    """GET /v2/positions from Alpaca paper."""
-    try:
-        resp = _client.get(
-            f"{ALPACA_PAPER}/v2/positions",
-            headers=_alpaca_headers(),
-        )
-        if resp.status_code == 200:
-            return resp.json()
-    except Exception as e:
-        print(f"[position_mgr] Positions error: {e}")
-    return []
-
-
-def get_open_orders() -> list:
-    """GET /v2/orders?status=open from Alpaca paper."""
-    try:
-        resp = _client.get(
-            f"{ALPACA_PAPER}/v2/orders",
-            headers=_alpaca_headers(),
-            params={"status": "open"},
-        )
-        if resp.status_code == 200:
-            return resp.json()
-    except Exception as e:
-        print(f"[position_mgr] Orders error: {e}")
-    return []
-
-
-def cancel_order(order_id: str) -> bool:
-    """DELETE /v2/orders/{order_id}."""
-    try:
-        resp = _client.delete(
-            f"{ALPACA_PAPER}/v2/orders/{order_id}",
-            headers=_alpaca_headers(),
-        )
-        return resp.status_code in (200, 204)
-    except Exception as e:
-        print(f"[position_mgr] Cancel order error: {e}")
-    return False
-
-
-def submit_order(
-    ticker: str,
-    qty: int,
-    side: str,
-    order_type: str = "market",
-    time_in_force: str = "day",
-    stop_price: float | None = None,
-) -> dict | None:
-    """POST /v2/orders to Alpaca paper."""
-    body: dict = {
-        "symbol": ticker,
-        "qty": str(qty),
-        "side": side,
-        "type": order_type,
-        "time_in_force": time_in_force,
-    }
-    if stop_price is not None:
-        body["stop_price"] = str(round(stop_price, 2))
-
-    try:
-        resp = _client.post(
-            f"{ALPACA_PAPER}/v2/orders",
-            headers={**_alpaca_headers(), "Content-Type": "application/json"},
-            json=body,
-        )
-        if resp.status_code in (200, 201):
-            return resp.json()
-        else:
-            print(f"[position_mgr] Order rejected: {resp.status_code} {resp.text[:200]}")
-    except Exception as e:
-        print(f"[position_mgr] Order submit error: {e}")
-    return None
-
-
-def poll_for_fill(order_id: str, timeout_seconds: int = 60) -> dict | None:
-    """Poll Alpaca for order fill status. Returns final order state or None on timeout."""
-    TERMINAL = {"filled", "partially_filled", "cancelled", "rejected", "expired", "done_for_day"}
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        try:
-            resp = _client.get(
-                f"{ALPACA_PAPER}/v2/orders/{order_id}",
-                headers=_alpaca_headers(),
-                timeout=5.0,
-            )
-            if resp.status_code == 200:
-                order = resp.json()
-                if order.get("status") in TERMINAL:
-                    return order
-        except Exception as e:
-            print(f"[position_mgr] fill poll error: {e}")
-        time.sleep(4)
-    print(f"[position_mgr] fill poll timeout for order {order_id}")
-    return None
-
-
-def get_bars(ticker: str, days: int = 20) -> list:
-    """GET /v2/stocks/{ticker}/bars — 1Day bars."""
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
-    try:
-        resp = _client.get(
-            f"{ALPACA_DATA}/v2/stocks/{ticker}/bars",
-            headers=_alpaca_headers(),
-            params={
-                "timeframe": "1Day",
-                "start": start.strftime("%Y-%m-%dT00:00:00Z"),
-                "end": end.strftime("%Y-%m-%dT23:59:59Z"),
-                "limit": "60",
-                "adjustment": "split",
-                "feed": "iex",
-            },
-        )
-        if resp.status_code == 200:
-            return resp.json().get("bars", [])
-    except Exception as e:
-        print(f"[position_mgr] Bars error for {ticker}: {e}")
-    return []
-
-
-# ---------------------------------------------------------------------------
-# Supabase helpers
-# ---------------------------------------------------------------------------
-def sb_get(table: str, params: dict | None = None) -> list:
-    resp = _client.get(
-        f"{SUPABASE_URL}/rest/v1/{table}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    return resp.json() if resp.status_code == 200 else []
-
-
-def load_strategy_profile() -> dict:
-    """Load active strategy profile from Supabase."""
-    rows = sb_get("strategy_profiles", {
-        "select": "*",
-        "active": "eq.true",
-        "limit": "1",
-    })
-    if rows:
-        return rows[0]
-    return {
-        "profile_name": "DEFAULT",
-        "max_hold_days": 3,
-        "trade_style": "swing",
-    }
 
 
 def find_trade_decision(ticker: str) -> dict | None:

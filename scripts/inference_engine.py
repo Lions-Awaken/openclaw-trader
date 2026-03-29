@@ -31,18 +31,21 @@ from datetime import date
 import httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import _post_to_supabase, _sb_headers
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_API_KEY_2 = os.environ.get("ANTHROPIC_API_KEY_2", "")
-PERPLEXITY_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-
-# Reusable HTTP clients
-_client = httpx.Client(timeout=15.0)
-_claude_client = httpx.Client(timeout=45.0)
+from common import (
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_API_KEY_2,
+    OLLAMA_URL,
+    PERPLEXITY_KEY,  # noqa: F401
+    SUPABASE_KEY,  # noqa: F401
+    SUPABASE_URL,  # noqa: F401
+    _claude_client,
+    _client,  # noqa: F401
+    generate_embedding,
+    sb_get,
+    sb_headers,  # noqa: F401
+    sb_rpc,
+)
+from tracer import _post_to_supabase
 
 # Default confidence thresholds (overridden by active strategy profile)
 CONFIDENCE_THRESHOLDS = {
@@ -114,46 +117,6 @@ def get_min_signal_score() -> int:
     if _active_profile:
         return int(_active_profile.get("min_signal_score", 4))
     return 4
-
-
-def sb_get(path: str, params: dict | None = None) -> list:
-    client = _client
-    resp = client.get(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
-
-
-def sb_rpc(fn_name: str, params: dict) -> list:
-    """Call a Supabase RPC function (for RAG queries)."""
-    client = _client
-    resp = client.post(
-        f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
-        headers=_sb_headers(),
-        json=params,
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
-
-
-def generate_embedding(text: str) -> list[float] | None:
-    """Generate embedding via Ollama."""
-    try:
-        resp = _client.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            timeout=60.0,
-        )
-        if resp.status_code == 200:
-            return resp.json().get("embedding")
-    except Exception:
-        pass
-    return None
 
 
 def get_todays_claude_spend() -> float:
