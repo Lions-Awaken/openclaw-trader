@@ -29,15 +29,19 @@ try:
     import finnhub
     import pandas as pd
     from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
+    from alpaca.data.requests import StockBarsRequest
     from alpaca.data.timeframe import TimeFrame
 except ImportError:
     print(json.dumps({"error": "Run: pip install alpaca-py pandas numpy finnhub-python"}))
     sys.exit(1)
 
-API_KEY    = os.environ["ALPACA_API_KEY"]
-SECRET_KEY = os.environ["ALPACA_SECRET_KEY"]
+API_KEY    = os.environ.get("ALPACA_API_KEY", "")
+SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
 FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
+
+if not API_KEY or not SECRET_KEY:
+    print(json.dumps({"error": "ALPACA_API_KEY and ALPACA_SECRET_KEY env vars must be set"}))
+    sys.exit(1)
 
 data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 fh_client   = finnhub.Client(api_key=FINNHUB_KEY) if FINNHUB_KEY else None
@@ -88,21 +92,6 @@ def get_bars(ticker: str, days: int = 60) -> pd.DataFrame | None:
     except Exception:
         return None
 
-
-def get_latest_quote(ticker: str) -> dict:
-    try:
-        req  = StockLatestQuoteRequest(symbol_or_symbols=ticker)
-        data = data_client.get_stock_latest_quote(req)
-        q    = data[ticker]
-        bid  = float(q.bid_price or 0)
-        ask  = float(q.ask_price or 0)
-        return {
-            "price": round((bid + ask) / 2, 2) if bid and ask else 0,
-            "bid": bid,
-            "ask": ask,
-        }
-    except Exception:
-        return {"price": 0, "bid": 0, "ask": 0}
 
 
 def compute_indicators(df: pd.DataFrame) -> dict:

@@ -35,14 +35,9 @@ from common import (
     ANTHROPIC_API_KEY,
     ANTHROPIC_API_KEY_2,
     OLLAMA_URL,
-    PERPLEXITY_KEY,  # noqa: F401
-    SUPABASE_KEY,  # noqa: F401
-    SUPABASE_URL,  # noqa: F401
     _claude_client,
-    _client,  # noqa: F401
     generate_embedding,
     sb_get,
-    sb_headers,  # noqa: F401
     sb_rpc,
 )
 from tracer import _post_to_supabase
