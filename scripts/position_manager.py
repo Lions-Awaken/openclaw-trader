@@ -106,7 +106,7 @@ def close_position(
     )
 
     # Poll for fill — market sells typically fill in seconds
-    fill = poll_for_fill(sell_order_id, timeout_seconds=60)
+    fill = poll_for_fill(sell_order_id, timeout_seconds=120)
     if fill:
         fill_status = fill.get("status", "unknown")
         filled_qty = float(fill.get("filled_qty", 0) or 0)
@@ -126,6 +126,14 @@ def close_position(
         print(f"[position_mgr] {ticker} fill: {filled_qty} @ ${avg_price:.2f} ({fill_status})")
     else:
         print(f"[position_mgr] {ticker}: fill poll timed out, using quote price")
+        tracer.log_order_event(
+            order_id=sell_order_id,
+            ticker=ticker,
+            event_type="poll_timeout",
+            side="sell",
+            qty_ordered=qty,
+            raw_event={"reason": "poll_for_fill timed out after 120s"},
+        )
 
     # Update trade_decisions
     if trade_decision and trade_decision.get("id"):

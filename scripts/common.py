@@ -244,7 +244,7 @@ def cancel_order(order_id: str) -> bool:
     return False
 
 
-def poll_for_fill(order_id: str, timeout_seconds: int = 60) -> dict | None:
+def poll_for_fill(order_id: str, timeout_seconds: int = 120) -> dict | None:
     """Poll Alpaca for order fill status. Returns final order state or None on timeout."""
     TERMINAL = {"filled", "partially_filled", "cancelled", "rejected", "expired", "done_for_day"}
     deadline = time.time() + timeout_seconds

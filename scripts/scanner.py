@@ -318,7 +318,7 @@ def execute_trade(
     )
 
     # Poll for fill — market orders typically fill in seconds
-    fill = poll_for_fill(order_id, timeout_seconds=60)
+    fill = poll_for_fill(order_id, timeout_seconds=120)
     if fill:
         fill_status = fill.get("status", "unknown")
         filled_qty = float(fill.get("filled_qty", 0) or 0)
@@ -340,6 +340,14 @@ def execute_trade(
         print(f"[scanner] {ticker} fill: {filled_qty} @ ${avg_price:.2f} ({fill_status})")
     else:
         print(f"[scanner] {ticker}: fill poll timed out, using quote price")
+        tracer.log_order_event(
+            order_id=order_id,
+            ticker=ticker,
+            event_type="poll_timeout",
+            side="buy",
+            qty_ordered=qty,
+            raw_event={"reason": "poll_for_fill timed out after 120s"},
+        )
 
     # Recalculate stop with actual fill price
     stop_price = round(price - (atr * 2.0), 2)

@@ -344,7 +344,15 @@ class PipelineTracer:
         if self._tuning_profile_id:
             root_data["tuning_profile_id"] = self._tuning_profile_id
 
-        _post_to_supabase("pipeline_runs", root_data)
+        root_stored = None
+        for attempt in range(3):
+            root_stored = _post_to_supabase("pipeline_runs", root_data)
+            if root_stored:
+                break
+            print(f"[tracer] Root row write failed (attempt {attempt + 1}/3), retrying...")
+            time.sleep(2)
+        if not root_stored:
+            print("[tracer] WARNING: root pipeline_run not persisted — all child writes will fail FK constraints")
         self._current_parent_id = self.root_id
 
     @contextmanager
