@@ -163,7 +163,7 @@ def classify_outcome(pnl: float, entry_price: float) -> tuple[str, float]:
     """Map P&L to STRONG_WIN/WIN/SCRATCH/LOSS/STRONG_LOSS and pnl_pct."""
     if entry_price <= 0:
         return "SCRATCH", 0.0
-    pnl_pct = (pnl / (entry_price * 100)) * 100  # rough: assume 100 shares
+    pnl_pct = (pnl / entry_price) * 100  # per-share pnl as percent of entry price
     if pnl_pct >= 5:
         return "STRONG_WIN", round(pnl_pct, 3)
     if pnl_pct >= 1:
