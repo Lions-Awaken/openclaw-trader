@@ -159,7 +159,7 @@ PASSWORD_HASH = hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
 
 # Session store: {token_hash: expiry_timestamp}
 _sessions: dict[str, float] = {}
-SESSION_MAX_AGE = 86400 * 7  # 7 days
+SESSION_MAX_AGE = 86400 * 90  # 90 days
 
 # Rate limiting: {ip: [timestamps]}
 _login_attempts: dict[str, list[float]] = {}
