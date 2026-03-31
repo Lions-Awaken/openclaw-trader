@@ -28,6 +28,9 @@ PERPLEXITY_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
 FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
+SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "C0ANK2A0M7G")  # #all-lions-awaken
+
 ALPACA_PAPER = "https://paper-api.alpaca.markets"
 ALPACA_DATA = "https://data.alpaca.markets"
 
@@ -311,3 +314,29 @@ def load_strategy_profile() -> dict:
         "bypass_regime_gate": False,
         "auto_execute_all": False,
     }
+
+
+# ==========================================================================
+# Slack notifications
+# ==========================================================================
+def slack_notify(text: str, thread_ts: str | None = None) -> bool:
+    """Post a message to the configured Slack channel. Returns True on success."""
+    if not SLACK_BOT_TOKEN:
+        return False
+    try:
+        payload = {
+            "channel": SLACK_CHANNEL,
+            "text": text,
+            "unfurl_links": False,
+        }
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        resp = _client.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
+            json=payload,
+            timeout=5.0,
+        )
+        return resp.status_code == 200 and resp.json().get("ok", False)
+    except Exception:
+        return False

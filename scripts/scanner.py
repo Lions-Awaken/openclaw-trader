@@ -36,6 +36,7 @@ from common import (
     load_strategy_profile,
     poll_for_fill,
     sb_get,
+    slack_notify,
     submit_order,
 )
 from inference_engine import load_active_profile, run_inference
@@ -645,10 +646,23 @@ def run():
             print(f"  {t['ticker']}: {t['qty']} shares @ ${t['entry_price']:.2f}, stop ${t['stop_price']:.2f}")
         print(f"{'='*60}\n")
 
+        # Slack summary
+        lines = [f"*Scanner complete* — {profile.get('profile_name', '?')} profile"]
+        lines.append(f"Watchlist: {len(watchlist)} | Candidates: {len(candidates)} | Inferred: {len(inference_results)}")
+        if trades_placed:
+            lines.append(f"*Trades placed: {len(trades_placed)}*")
+            for t in trades_placed:
+                lines.append(f"  `{t['ticker']}` {t['qty']} shares @ ${t['entry_price']:.2f}, stop ${t['stop_price']:.2f}")
+        else:
+            actionable_count = len([r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")])
+            lines.append(f"No trades placed ({actionable_count} actionable, {len(inference_results)} inferred)")
+        slack_notify("\n".join(lines))
+
     except Exception as e:
         tracer.fail(str(e), traceback.format_exc())
         print(f"[scanner] FATAL: {e}")
         traceback.print_exc()
+        slack_notify(f"*Scanner FATAL*: {e}")
         raise
 
 

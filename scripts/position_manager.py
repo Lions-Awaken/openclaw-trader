@@ -31,6 +31,7 @@ from common import (
     load_strategy_profile,
     poll_for_fill,
     sb_get,
+    slack_notify,
     submit_order,
 )
 from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
@@ -181,6 +182,7 @@ def close_position(
         })
 
         print(f"[position_mgr] {ticker}: {outcome} ({pnl_pct:+.1f}%, ${pnl:+.2f})")
+        slack_notify(f"*Position closed* `{ticker}` — {outcome} ({pnl_pct:+.1f}%, ${pnl:+.2f}) | Reason: {reason}")
 
         # Trigger post-trade analysis (async subprocess)
         entry_date = trade_decision.get("created_at", "")[:10] or TODAY
