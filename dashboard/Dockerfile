@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir \
     httpx==0.28.1 \
     python-multipart==0.0.20
 
-COPY server.py index.html login.html theme.css ./
+COPY server.py index.html login.html theme.css systems-console.html ./
 
 # Non-root user
 RUN adduser --disabled-password --no-create-home appuser

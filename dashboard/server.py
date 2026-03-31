@@ -555,6 +555,13 @@ async def index(request: Request, oc_session: str | None = Cookie(None)):
     return FileResponse(Path(__file__).parent / "index.html")
 
 
+@app.get("/systems", response_class=HTMLResponse)
+async def systems_console(request: Request, oc_session: str | None = Cookie(None)):
+    if not _is_authed(request, oc_session):
+        return RedirectResponse("/login", status_code=302)
+    return FileResponse(Path(__file__).parent / "systems-console.html")
+
+
 # ============================================================================
 # API Routes (all require auth)
 # ============================================================================
@@ -747,6 +754,197 @@ async def get_system_history(request: Request, oc_session: str | None = Cookie(N
     if resp.status_code == 200:
         return resp.json()
     return []
+
+
+# ============================================================================
+# Systems Console API — transforms system_stats for the 3D console
+# ============================================================================
+
+@app.get("/api/system/info")
+async def system_info(request: Request, oc_session: str | None = Cookie(None)):
+    """Static hardware info for the systems console header."""
+    _require_auth(request, oc_session)
+    return {
+        "hostname": "ridley",
+        "hardware": {
+            "device": "Jetson Orin Nano Super",
+            "cpu": "6x ARM Cortex-A78AE",
+            "gpu": "Orin (Ampere)",
+            "ram_mb": 7620,
+            "power_mode": "MAXN_SUPER",
+        },
+    }
+
+
+@app.get("/api/system/metrics")
+async def system_metrics(request: Request, oc_session: str | None = Cookie(None)):
+    """Current system metrics snapshot for the systems console."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {"timestamp": None, "metrics": {}}
+    client = get_http()
+
+    # Latest system_stats row
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_stats",
+        headers=sb_headers(),
+        params={"order": "collected_at.desc", "limit": "1"},
+    )
+    row = (resp.json()[0] if resp.status_code == 200 and resp.json() else {})
+
+    # Pipeline health (last 24h)
+    cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    resp2 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "status",
+            "step_name": "eq.root",
+            "started_at": f"gte.{cutoff_24h}",
+        },
+    )
+    runs = resp2.json() if resp2.status_code == 200 else []
+    total_runs = len(runs)
+    success_runs = sum(1 for r in runs if r.get("status") == "success")
+
+    # Stack health
+    resp3 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/stack_heartbeats",
+        headers=sb_headers(),
+    )
+    heartbeats = resp3.json() if resp3.status_code == 200 else []
+    services = {}
+    for hb in heartbeats:
+        svc = hb.get("service", "")
+        meta = hb.get("metadata", {})
+        services[svc] = meta.get("alive", False)
+
+    # Cron freshness
+    resp4 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "pipeline_name,status,started_at",
+            "step_name": "eq.root",
+            "order": "started_at.desc",
+            "limit": "50",
+        },
+    )
+    cron_rows = resp4.json() if resp4.status_code == 200 else []
+    pipelines = {}
+    for cr in cron_rows:
+        name = cr.get("pipeline_name", "")
+        if name not in pipelines:
+            pipelines[name] = {"name": name, "last_run": cr.get("started_at"), "status": cr.get("status")}
+    cron_list = sorted(pipelines.values(), key=lambda x: x.get("last_run") or "", reverse=True)
+
+    cpu_pct = float(row.get("cpu_percent", 0) or 0)
+    mem_pct = float(row.get("mem_percent", 0) or 0)
+    gpu_pct = float(row.get("gpu_load_pct", 0) or 0)
+    tj = float(row.get("gpu_temp_c", 0) or row.get("cpu_temp_c", 0) or 0)
+
+    return {
+        "timestamp": row.get("collected_at"),
+        "metrics": {
+            "cpu_usage": {
+                "value": cpu_pct,
+                "unit": "%",
+                "status": "critical" if cpu_pct > 90 else "warning" if cpu_pct > 75 else "normal",
+                "freq_mhz": row.get("cpu_freq_mhz", 0),
+            },
+            "mem_usage": {
+                "value": mem_pct,
+                "unit": "%",
+                "status": "critical" if mem_pct > 90 else "warning" if mem_pct > 80 else "normal",
+                "total_mb": row.get("mem_total_mb", 0),
+                "used_mb": row.get("mem_used_mb", 0),
+                "available_mb": row.get("mem_available_mb", 0),
+                "breakdown": {
+                    "ollama_mb": row.get("ollama_mem_mb", 0),
+                    "gateway_mb": 0,
+                    "openclaw_mb": row.get("openclaw_mem_mb", 0),
+                },
+            },
+            "gpu_load": {
+                "value": gpu_pct,
+                "unit": "%",
+                "status": "critical" if gpu_pct > 90 else "warning" if gpu_pct > 75 else "normal",
+                "freq_mhz": 1020,
+            },
+            "tj_temp": {
+                "value": tj,
+                "unit": "C",
+                "status": "critical" if tj > 85 else "warning" if tj > 75 else "normal",
+                "zones": {
+                    "cpu": float(row.get("cpu_temp_c", 0) or 0),
+                    "gpu": float(row.get("gpu_temp_c", 0) or 0),
+                },
+            },
+            "pipeline_health": {
+                "value": round(success_runs / total_runs * 100, 1) if total_runs else 0,
+                "unit": "%",
+                "total": total_runs,
+                "successes": success_runs,
+            },
+            "ollama_status": {
+                "state": "loaded" if row.get("ollama_running") else "down",
+                "loaded_model": (row.get("ollama_models") or [None])[0] if isinstance(row.get("ollama_models"), list) else None,
+                "mem_mb": row.get("ollama_vram_mb", 0),
+            },
+            "cron_freshness": {"pipelines": cron_list},
+            "stack_health": {
+                "healthy": sum(1 for v in services.values() if v),
+                "total": max(len(services), 2),
+                "services": services,
+            },
+            "power_draw": {"value": 0, "unit": "mW"},
+            "disk_usage": {
+                "root": {"value": float(row.get("disk_root_pct", 0) or 0), "unit": "%"},
+                "nvme": {"value": float(row.get("disk_nvme_pct", 0) or 0), "unit": "%", "used_gb": float(row.get("disk_nvme_used_gb", 0) or 0)},
+            },
+            "network_latency": {"value": 0, "unit": "ms"},
+        },
+    }
+
+
+@app.get("/api/system/metrics/{metric_name}/history")
+async def system_metric_history(
+    metric_name: str, request: Request, oc_session: str | None = Cookie(None), window: int = 300,
+):
+    """Historical data for a single metric (for sparklines). Window in seconds."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {"datapoints": []}
+
+    col_map = {
+        "cpu_usage": "cpu_percent",
+        "mem_usage": "mem_percent",
+        "gpu_load": "gpu_load_pct",
+        "tj_temp": "gpu_temp_c",
+        "power_draw": None,
+        "network_latency": None,
+        "inference_latency": None,
+        "ollama_tokens_per_sec": None,
+    }
+    col = col_map.get(metric_name)
+    if not col:
+        return {"datapoints": []}
+
+    window = min(max(60, window), 3600)
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=window)).isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_stats",
+        headers=sb_headers(),
+        params={
+            "select": f"{col},collected_at",
+            "collected_at": f"gte.{cutoff}",
+            "order": "collected_at.asc",
+            "limit": "150",
+        },
+    )
+    rows = resp.json() if resp.status_code == 200 else []
+    return {"datapoints": [{"value": float(r.get(col, 0) or 0), "ts": r.get("collected_at")} for r in rows]}
 
 
 @app.get("/api/llm/stats")
