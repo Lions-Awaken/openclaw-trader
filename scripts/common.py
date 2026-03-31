@@ -16,6 +16,22 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 # ==========================================================================
+# Sentry — initialize before anything else so all errors are captured
+# ==========================================================================
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            traces_sample_rate=0,
+            send_default_pii=False,
+            environment="paper",
+        )
+    except ImportError:
+        pass
+
+# ==========================================================================
 # Config — env vars loaded once, shared by all importers
 # ==========================================================================
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
