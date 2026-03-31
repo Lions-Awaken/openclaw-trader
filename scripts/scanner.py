@@ -2,671 +2,595 @@
 """
 Scanner — autonomous trading orchestrator.
 
-Connects the analysis pipeline to order execution. Runs on cron 2x/day
-(9:35 AM, 12:30 PM ET) during market hours.
+Scans for candidates with recent catalysts, runs them through the
+5-tumbler inference engine, and executes trades on Alpaca for
+enter/strong_enter decisions.
 
 Flow:
-  1. Load active strategy profile from Supabase
-  2. Check circuit breakers (consecutive losses, drawdown)
-  3. Check Alpaca account (equity, buying power, open positions)
-  4. Build watchlist: catalyst tickers (24h) + liquid universe
-  5. Fetch 60-day daily bars per ticker via Alpaca data API (httpx)
-  6. Compute 6 signals, filter by min_signal_score
-  7. Run inference_engine.run_inference() on each candidate
-  8. If decision ∈ {enter, strong_enter} and auto_execute → place orders
-  9. Log everything to pipeline_runs, order_events, trade_decisions
+  1. Load active strategy profile
+  2. Check circuit breakers (consecutive losses, drawdown, etc.)
+  3. Get watchlist tickers with recent catalysts (last 24h)
+  4. For each candidate: build signal snapshot, run inference engine
+  5. For enter/strong_enter: calculate position size, submit Alpaca order
+  6. Log everything to trade_decisions + order_events
 
-Uses httpx for ALL Alpaca calls (not alpaca-py SDK).
+Cron schedule: M-F 9:35 AM, 12:30 PM ET (after catalyst ingest + market open)
 """
 
 import json
 import os
 import sys
-import time
-import traceback
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
+
+import httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
-from common import (
-    check_market_open,
-    get_account,
-    get_bars,
-    get_latest_quote,
-    get_positions,
-    load_strategy_profile,
-    poll_for_fill,
-    sb_get,
-    slack_notify,
-    submit_order,
-)
-from inference_engine import load_active_profile, run_inference
+from inference_engine import load_active_profile, run_inference, sb_get
 from tracer import PipelineTracer, _post_to_supabase
 
-TODAY = date.today().isoformat()
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY", "")
+ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
+ALPACA_BASE = os.environ.get(
+    "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
+)
+ALPACA_DATA_BASE = "https://data.alpaca.markets"
 
-# Liquid universe — broad coverage across sectors
-LIQUID_UNIVERSE = [
-    # AI / Semiconductor
-    "NVDA", "AMD", "AVGO", "ARM", "TSM", "SMCI", "INTC", "QCOM", "MRVL", "MU",
-    # Cloud / Hyperscalers
-    "MSFT", "GOOGL", "META", "AMZN", "ORCL", "CRM", "SNOW", "NET",
-    # Consumer Tech
-    "AAPL", "TSLA", "NFLX", "UBER", "SHOP", "SQ",
-    # Speculative / High Beta
-    "PLTR", "MSTR", "DELL", "IONQ", "RGTI", "COIN", "HOOD", "SOFI",
-    # Biotech / Pharma
-    "MRNA", "CRSP", "DXCM",
-    # Energy / Industrial
-    "FSLR", "ENPH", "LNG",
-]
+_client = httpx.Client(timeout=15.0)
 
 
 # ---------------------------------------------------------------------------
-# Circuit breaker check
+# Alpaca helpers
 # ---------------------------------------------------------------------------
-def check_circuit_breakers() -> tuple[bool, str]:
-    """Check for consecutive losses and drawdown. Returns (ok, reason)."""
-    # Check last 5 trades for consecutive losses
-    rows = sb_get("trade_decisions", {
-        "select": "outcome",
-        "exit_price": "not.is.null",
-        "order": "created_at.desc",
-        "limit": "5",
-    })
-    if rows:
-        consecutive_losses = 0
-        for r in rows:
-            if r.get("outcome") in ("LOSS", "STRONG_LOSS"):
-                consecutive_losses += 1
-            else:
-                break
-        if consecutive_losses >= 3:
-            return False, f"circuit_breaker: {consecutive_losses} consecutive losses"
 
-    # Check daily drawdown from account
-    account = get_account()
-    if account:
-        equity = float(account.get("equity", 0))
-        last_equity = float(account.get("last_equity", 0))
-        if last_equity > 0:
-            daily_pnl_pct = (equity - last_equity) / last_equity * 100
-            if daily_pnl_pct < -2.0:
-                return False, f"circuit_breaker: daily drawdown {daily_pnl_pct:.1f}%"
+def _alpaca_headers() -> dict:
+    return {
+        "APCA-API-KEY-ID": ALPACA_API_KEY,
+        "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
+        "Content-Type": "application/json",
+    }
 
-    return True, ""
+
+def get_account() -> dict:
+    """Fetch Alpaca account info (equity, buying_power, etc.)."""
+    resp = _client.get(
+        f"{ALPACA_BASE}/v2/account", headers=_alpaca_headers()
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_positions() -> list:
+    """Fetch current open positions from Alpaca."""
+    resp = _client.get(
+        f"{ALPACA_BASE}/v2/positions", headers=_alpaca_headers()
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_latest_quote(ticker: str) -> dict:
+    """Fetch latest quote for a ticker from Alpaca data API."""
+    resp = _client.get(
+        f"{ALPACA_DATA_BASE}/v2/stocks/{ticker}/quotes/latest",
+        headers=_alpaca_headers(),
+    )
+    if resp.status_code == 200:
+        return resp.json().get("quote", {})
+    return {}
+
+
+def get_bars(ticker: str, timeframe: str = "1Day", limit: int = 20) -> list:
+    """Fetch historical bars for ATR calculation."""
+    resp = _client.get(
+        f"{ALPACA_DATA_BASE}/v2/stocks/{ticker}/bars",
+        headers=_alpaca_headers(),
+        params={"timeframe": timeframe, "limit": limit},
+    )
+    if resp.status_code == 200:
+        return resp.json().get("bars", [])
+    return []
+
+
+def submit_order(
+    ticker: str,
+    qty: int,
+    side: str = "buy",
+    order_type: str = "market",
+    time_in_force: str = "day",
+    stop_price: float | None = None,
+) -> dict | None:
+    """Submit an order to Alpaca. Returns order dict or None."""
+    payload = {
+        "symbol": ticker,
+        "qty": str(qty),
+        "side": side,
+        "type": order_type,
+        "time_in_force": time_in_force,
+    }
+    if stop_price and order_type == "stop":
+        payload["stop_price"] = str(round(stop_price, 2))
+
+    resp = _client.post(
+        f"{ALPACA_BASE}/v2/orders",
+        headers=_alpaca_headers(),
+        json=payload,
+    )
+    if resp.status_code in (200, 201):
+        return resp.json()
+    print(f"[scanner] Order submission failed: {resp.status_code} {resp.text}")
+    return None
 
 
 # ---------------------------------------------------------------------------
-# Signal computation
+# Signal building
 # ---------------------------------------------------------------------------
-def compute_signals(ticker: str, bars: list, spy_bars: list | None = None) -> dict | None:
-    """Compute 6 signals from daily bar data. Returns signal dict or None."""
-    if len(bars) < 20:
-        return None
+
+def build_signals(ticker: str) -> dict:
+    """Build signal snapshot for a ticker using recent data.
+
+    Uses Alpaca bars for technical indicators and catalyst_events for
+    fundamental/sentiment.  This is a simplified signal builder — the
+    full version would use a dedicated technical analysis library.
+    """
+    bars = get_bars(ticker, "1Day", 30)
+    if len(bars) < 10:
+        return {"total_score": 0, "signals": {}}
 
     closes = [float(b["c"]) for b in bars]
     volumes = [float(b["v"]) for b in bars]
 
-    price = closes[-1]
-    if price <= 0:
-        return None
+    current = closes[-1]
 
-    # SMA(10), SMA(20)
+    # Signal 1: Trend — price above 10-day and 20-day SMA
     sma10 = sum(closes[-10:]) / 10
-    sma20 = sum(closes[-20:]) / 20
+    sma20 = sum(closes[-20:]) / 20 if len(closes) >= 20 else sma10
+    trend_passed = current > sma10 and current > sma20
 
-    # RSI(14)
+    # Signal 2: Momentum — RSI between 40 and 70 (healthy, not overbought)
     deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
-    gains = [max(0, d) for d in deltas[-14:]]
-    losses = [max(0, -d) for d in deltas[-14:]]
-    avg_gain = sum(gains) / 14
-    avg_loss = sum(losses) / 14 if sum(losses) > 0 else 1e-9
+    gains = [d for d in deltas[-14:] if d > 0]
+    losses = [-d for d in deltas[-14:] if d < 0]
+    avg_gain = sum(gains) / 14 if gains else 0.001
+    avg_loss = sum(losses) / 14 if losses else 0.001
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
+    momentum_passed = 40 <= rsi <= 70
 
-    # 20-day average volume
-    avg_vol_20 = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else sum(volumes) / len(volumes)
-    today_volume = volumes[-1]
+    # Signal 3: Volume — today's volume > 1.5x 20-day average
+    avg_vol = sum(volumes[-20:]) / min(len(volumes), 20)
+    vol_ratio = volumes[-1] / avg_vol if avg_vol > 0 else 0
+    volume_passed = vol_ratio > 1.5
 
-    # ATR(14)
-    trs = []
-    for i in range(max(1, len(bars) - 14), len(bars)):
-        h = float(bars[i]["h"])
-        lo = float(bars[i]["l"])
-        pc = float(bars[i - 1]["c"]) if i > 0 else lo
-        tr = max(h - lo, abs(h - pc), abs(lo - pc))
-        trs.append(tr)
-    atr = sum(trs) / len(trs) if trs else 0
-
-    signals = {}
-    total_score = 0
-
-    # Signal 1: Trend — price > SMA10 and price > SMA20
-    trend = price > sma10 and price > sma20
-    signals["trend"] = {"passed": trend, "price": round(price, 2), "sma10": round(sma10, 2), "sma20": round(sma20, 2)}
-    if trend:
-        total_score += 1
-
-    # Signal 2: Momentum — 40 < RSI < 70
-    momentum = 40 < rsi < 70
-    signals["momentum"] = {"passed": momentum, "rsi": round(rsi, 1)}
-    if momentum:
-        total_score += 1
-
-    # Signal 3: Volume — today_volume > 1.5 × avg_vol_20
-    vol_surge = today_volume > 1.5 * avg_vol_20 if avg_vol_20 > 0 else False
-    signals["volume"] = {"passed": vol_surge, "today_vol": today_volume, "avg_vol_20": round(avg_vol_20, 0), "ratio": round(today_volume / avg_vol_20, 2) if avg_vol_20 > 0 else 0}
-    if vol_surge:
-        total_score += 1
-
-    # Signal 4: Catalyst — bullish catalyst_events in last 24h
-    catalyst_found = False
-    catalyst_rows = sb_get("catalyst_events", {
-        "select": "direction,sentiment_score,headline",
+    # Signal 4: Fundamental — check for recent catalysts
+    catalysts = sb_get("catalyst_events", {
+        "select": "id,catalyst_type,direction,sentiment_score,magnitude",
         "ticker": f"eq.{ticker}",
-        "event_time": f"gte.{(datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()}",
+        "event_time": f"gte.{(datetime.now(timezone.utc) - __import__('datetime').timedelta(hours=24)).isoformat()}",
         "order": "event_time.desc",
         "limit": "5",
     })
-    bullish_catalysts = [c for c in catalyst_rows if c.get("direction") == "bullish"]
-    catalyst_found = len(bullish_catalysts) > 0
-    signals["fundamental"] = {"passed": catalyst_found, "catalyst_count": len(catalyst_rows), "bullish_count": len(bullish_catalysts)}
-    if catalyst_found:
-        total_score += 1
+    bullish_catalysts = [c for c in catalysts if c.get("direction") == "bullish"]
+    fundamental_passed = len(bullish_catalysts) > 0
 
-    # Signal 5: Sentiment — avg sentiment_score > 0.1 from recent catalysts
-    sentiment_scores = [float(c.get("sentiment_score", 0)) for c in catalyst_rows if c.get("sentiment_score") is not None]
-    avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.0
-    sentiment_ok = avg_sentiment > 0.1
-    signals["sentiment"] = {"passed": sentiment_ok, "avg_sentiment": round(avg_sentiment, 3), "sample_count": len(sentiment_scores)}
-    if sentiment_ok:
-        total_score += 1
+    # Signal 5: Sentiment — average sentiment from recent catalysts
+    sentiments = [
+        float(c["sentiment_score"])
+        for c in catalysts
+        if c.get("sentiment_score") is not None
+    ]
+    avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0.0
+    sentiment_passed = avg_sentiment > 0.1
 
-    # Signal 6: Flow — 5-day relative strength vs SPY > 0
-    flow_ok = False
-    if spy_bars and len(spy_bars) >= 5 and len(closes) >= 5:
+    # Signal 6: Flow — relative strength vs SPY (price outperforming)
+    spy_bars = get_bars("SPY", "1Day", 10)
+    flow_passed = False
+    if spy_bars and len(spy_bars) >= 5:
         spy_closes = [float(b["c"]) for b in spy_bars]
-        ticker_5d_ret = (closes[-1] - closes[-5]) / closes[-5] if closes[-5] > 0 else 0
-        spy_5d_ret = (spy_closes[-1] - spy_closes[-5]) / spy_closes[-5] if spy_closes[-5] > 0 else 0
-        flow_ok = ticker_5d_ret > spy_5d_ret
-        signals["flow"] = {"passed": flow_ok, "ticker_5d_pct": round(ticker_5d_ret * 100, 2), "spy_5d_pct": round(spy_5d_ret * 100, 2)}
-    else:
-        signals["flow"] = {"passed": False, "reason": "insufficient_data"}
-    if flow_ok:
-        total_score += 1
+        spy_ret = (spy_closes[-1] - spy_closes[-5]) / spy_closes[-5]
+        stock_ret = (closes[-1] - closes[-5]) / closes[-5] if len(closes) >= 5 else 0
+        flow_passed = stock_ret > spy_ret
 
-    return {
-        "ticker": ticker,
-        "price": round(price, 2),
-        "atr": round(atr, 2),
-        "rsi": round(rsi, 1),
-        "signals": signals,
-        "total_score": total_score,
+    signals = {
+        "trend": {"passed": trend_passed, "sma10": round(sma10, 2), "sma20": round(sma20, 2), "price": current},
+        "momentum": {"passed": momentum_passed, "rsi": round(rsi, 1)},
+        "volume": {"passed": volume_passed, "ratio": round(vol_ratio, 2)},
+        "fundamental": {"passed": fundamental_passed, "catalyst_count": len(catalysts), "bullish_count": len(bullish_catalysts)},
+        "sentiment": {"passed": sentiment_passed, "score": round(avg_sentiment, 3)},
+        "flow": {"passed": flow_passed},
     }
+
+    total = sum(1 for s in signals.values() if s.get("passed"))
+    return {"total_score": total, "signals": signals}
 
 
 # ---------------------------------------------------------------------------
 # Position sizing
 # ---------------------------------------------------------------------------
+
+def calculate_atr(ticker: str, period: int = 14) -> float:
+    """Calculate Average True Range for position sizing."""
+    bars = get_bars(ticker, "1Day", period + 1)
+    if len(bars) < 2:
+        return 0.0
+
+    trs = []
+    for i in range(1, len(bars)):
+        h = float(bars[i]["h"])
+        lo = float(bars[i]["l"])
+        prev_c = float(bars[i - 1]["c"])
+        tr = max(h - lo, abs(h - prev_c), abs(lo - prev_c))
+        trs.append(tr)
+
+    return sum(trs) / len(trs) if trs else 0.0
+
+
 def calculate_position_size(
-    method: str,
-    equity: float,
-    price: float,
-    atr: float,
-    max_risk_pct: float = 5.0,
+    ticker: str,
+    profile: dict,
+    account: dict,
+    current_price: float,
 ) -> int:
-    """Calculate number of shares to buy."""
-    if price <= 0:
-        return 0
+    """Calculate position size based on strategy profile and risk limits."""
+    equity = float(account.get("equity", 0))
+    buying_power = float(account.get("buying_power", 0))
+
+    max_risk_pct = float(profile.get("max_risk_per_trade_pct", 5.0))
+    max_portfolio_risk = float(profile.get("max_portfolio_risk_pct", 15.0))
+    method = profile.get("position_size_method", "atr")
+    stop_atr_mult = float(profile.get("stop_loss_atr_multiple", 1.5))
+
+    # Risk per trade in dollars
+    risk_dollars = equity * (max_risk_pct / 100)
 
     if method == "aggressive_kelly":
-        # 8% of equity per position
-        allocation = equity * 0.08
-        qty = int(allocation / price)
+        # More aggressive — use 8% of equity per position
+        position_value = equity * 0.08
     elif method == "atr":
-        # Risk $25 per ATR unit (or max_risk_pct of equity)
-        risk_dollars = min(25.0, equity * max_risk_pct / 100)
-        stop_distance = atr * 2.0
-        if stop_distance <= 0:
+        atr = calculate_atr(ticker)
+        if atr <= 0:
             return 0
-        qty = int(risk_dollars / stop_distance)
+        stop_distance = atr * stop_atr_mult
+        # Position size = risk_dollars / stop_distance
+        position_value = (risk_dollars / stop_distance) * current_price
     else:
-        # Conservative: 5% of equity
-        allocation = equity * 0.05
-        qty = int(allocation / price)
+        # Fixed fractional — 5% of equity
+        position_value = equity * (max_risk_pct / 100)
 
-    # Floor: at least 1 share
-    return max(1, qty)
+    # Cap at buying power
+    position_value = min(position_value, buying_power * 0.95)
+
+    # Cap at portfolio risk limit
+    max_position = equity * (max_portfolio_risk / 100)
+    position_value = min(position_value, max_position)
+
+    qty = int(position_value / current_price) if current_price > 0 else 0
+    return max(qty, 0)
 
 
 # ---------------------------------------------------------------------------
-# Build watchlist
+# Circuit breakers
 # ---------------------------------------------------------------------------
-def build_watchlist() -> list[str]:
-    """Combine catalyst tickers (24h) with liquid universe, deduplicated."""
-    tickers = set(LIQUID_UNIVERSE)
 
-    # Add tickers with recent catalysts
-    catalyst_rows = sb_get("catalyst_events", {
-        "select": "ticker",
-        "event_time": f"gte.{(datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()}",
-        "direction": "eq.bullish",
+def check_circuit_breakers(profile: dict) -> tuple[bool, str]:
+    """Check circuit breakers. Returns (ok_to_trade, reason)."""
+    if not profile.get("circuit_breakers_enabled", True):
+        return True, "circuit_breakers_disabled"
+
+    max_consec = int(profile.get("circuit_breaker_consecutive_losses", 3))
+    max_weekly_loss = float(profile.get("circuit_breaker_weekly_loss_pct", 8.0))
+
+    # Check consecutive losses
+    recent_trades = sb_get("trade_decisions", {
+        "select": "outcome",
+        "order": "created_at.desc",
+        "limit": str(max_consec),
     })
-    for row in catalyst_rows:
-        t = row.get("ticker")
-        if t and len(t) <= 5 and t.isalpha():
-            tickers.add(t)
-
-    # Add tickers from extended watchlist file
-    wl_file = os.path.expanduser("~/.openclaw/workspace/memory/watchlist-extended.json")
-    if os.path.exists(wl_file):
-        try:
-            with open(wl_file) as f:
-                extended = json.load(f).get("tickers", [])
-                tickers.update(t for t in extended if isinstance(t, str) and len(t) <= 5 and t.isalpha() and t.isupper())
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    # Remove SPY/QQQ — they're regime tickers, not trade targets
-    tickers.discard("SPY")
-    tickers.discard("QQQ")
-
-    return sorted(tickers)
-
-
-# ---------------------------------------------------------------------------
-# Core execution
-# ---------------------------------------------------------------------------
-def execute_trade(
-    ticker: str,
-    inference_result: dict,
-    price: float,
-    atr: float,
-    equity: float,
-    profile: dict,
-    tracer: PipelineTracer,
-) -> dict | None:
-    """Place entry order + stop-loss, log to order_events and trade_decisions."""
-    method = profile.get("position_size_method", "atr")
-    max_risk = float(profile.get("max_risk_per_trade_pct", 5.0))
-    qty = calculate_position_size(method, equity, price, atr, max_risk)
-    if qty <= 0:
-        print(f"[scanner] {ticker}: position size = 0, skipping")
-        return None
-
-    stop_price = round(price - (atr * 2.0), 2)
-    if stop_price <= 0:
-        print(f"[scanner] {ticker}: stop price <= 0, skipping")
-        return None
-
-    print(f"[scanner] {ticker}: placing market buy {qty} shares @ ~${price:.2f}, stop ${stop_price:.2f}")
-
-    # Place market buy order
-    entry_order = submit_order(ticker, qty, "buy", "market", "day")
-    if not entry_order:
-        print(f"[scanner] {ticker}: entry order failed")
-        return None
-
-    order_id = entry_order.get("id", "")
-    tracer.log_order_event(
-        order_id=order_id,
-        ticker=ticker,
-        event_type="submitted",
-        side="buy",
-        qty_ordered=qty,
-        price=price,
-        raw_event=entry_order,
-    )
-
-    # Poll for fill — market orders typically fill in seconds
-    fill = poll_for_fill(order_id, timeout_seconds=120)
-    if fill:
-        fill_status = fill.get("status", "unknown")
-        filled_qty = float(fill.get("filled_qty", 0) or 0)
-        avg_price = float(fill.get("filled_avg_price", 0) or 0)
-        tracer.log_order_event(
-            order_id=order_id,
-            ticker=ticker,
-            event_type="filled" if fill_status == "filled" else fill_status,
-            side="buy",
-            qty_ordered=qty,
-            qty_filled=filled_qty,
-            avg_fill_price=avg_price if avg_price > 0 else None,
-            raw_event=fill,
-        )
-        if avg_price > 0:
-            price = avg_price  # Use actual fill price for stop calc + trade record
-        if filled_qty > 0:
-            qty = int(filled_qty)
-        print(f"[scanner] {ticker} fill: {filled_qty} @ ${avg_price:.2f} ({fill_status})")
-    else:
-        print(f"[scanner] {ticker}: fill poll timed out, using quote price")
-        tracer.log_order_event(
-            order_id=order_id,
-            ticker=ticker,
-            event_type="poll_timeout",
-            side="buy",
-            qty_ordered=qty,
-            raw_event={"reason": "poll_for_fill timed out after 120s"},
-        )
-
-    # Recalculate stop with actual fill price
-    stop_price = round(price - (atr * 2.0), 2)
-
-    # Place stop-loss GTC order (retry up to 3 times, close position if all fail)
-    stop_order = None
-    for stop_attempt in range(3):
-        stop_order = submit_order(ticker, qty, "sell", "stop", "gtc", stop_price=stop_price)
-        if stop_order:
-            tracer.log_order_event(
-                order_id=stop_order.get("id", ""),
-                ticker=ticker,
-                event_type="submitted",
-                side="sell",
-                qty_ordered=qty,
-                price=stop_price,
-                raw_event=stop_order,
-            )
+    consecutive_losses = 0
+    for t in recent_trades:
+        if t.get("outcome") in ("LOSS", "STRONG_LOSS"):
+            consecutive_losses += 1
+        else:
             break
-        print(f"[scanner] {ticker}: stop-loss attempt {stop_attempt + 1}/3 failed")
-        time.sleep(2)
 
-    if not stop_order:
-        print(f"[scanner] {ticker}: ALL stop-loss attempts failed — closing position for safety")
-        close_order = submit_order(ticker, qty, "sell", "market", "day")
-        if close_order:
-            tracer.log_order_event(
-                order_id=close_order.get("id", ""),
-                ticker=ticker,
-                event_type="submitted",
-                side="sell",
-                qty_ordered=qty,
-                raw_event={"reason": "stop_loss_failed_safety_close"},
-            )
-        return None
+    if consecutive_losses >= max_consec:
+        return False, f"consecutive_losses={consecutive_losses}"
 
-    # Log to trade_decisions
-    trade_decision = {
-        "ticker": ticker,
-        "decision": inference_result["final_decision"],
-        "confidence": inference_result["final_confidence"],
-        "entry_price": price,
-        "stop_price": stop_price,
-        "qty": qty,
-        "side": "long",
-        "trade_style": profile.get("trade_style", "swing"),
-        "inference_chain_id": inference_result.get("inference_chain_id"),
-        "entry_order_id": order_id,
-        "stop_order_id": stop_order.get("id") if stop_order else None,
-        "profile_name": profile.get("profile_name", "DEFAULT"),
-        "signals_score": inference_result.get("tumblers", [{}])[0].get("confidence_before", 0) if inference_result.get("tumblers") else 0,
-        "max_depth_reached": inference_result.get("max_depth_reached", 0),
-        "metadata": {
-            "position_size_method": method,
-            "atr": atr,
-            "equity_at_entry": equity,
-        },
-    }
-    _post_to_supabase("trade_decisions", trade_decision)
-
-    print(f"[scanner] {ticker}: TRADE PLACED — {qty} shares, entry ~${price:.2f}, stop ${stop_price:.2f}")
-    return {
-        "ticker": ticker,
-        "qty": qty,
-        "entry_price": price,
-        "stop_price": stop_price,
-        "order_id": order_id,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Main scanner run
-# ---------------------------------------------------------------------------
-def run():
-    """Execute the full scan → analyze → trade pipeline."""
-    print(f"\n{'='*60}")
-    print(f"[scanner] Starting autonomous scan — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*60}\n")
-
-    tracer = PipelineTracer("scanner", metadata={"date": TODAY})
+    # Check weekly P&L
+    week_trades = sb_get("trade_decisions", {
+        "select": "pnl",
+        "created_at": f"gte.{(datetime.now(timezone.utc) - __import__('datetime').timedelta(days=7)).isoformat()}",
+    })
+    weekly_pnl = sum(float(t.get("pnl", 0) or 0) for t in week_trades)
 
     try:
-        # === Step 1: Load strategy profile ===
-        with tracer.step("load_profile") as result:
-            profile = load_strategy_profile()
-            # Also load the inference engine's copy
-            load_active_profile()
-            result.set({"profile": profile.get("profile_name", "?")})
+        acct = get_account()
+        equity = float(acct.get("equity", 100000))
+    except Exception:
+        equity = 100000
 
-        min_signal = int(profile.get("min_signal_score", 4))
-        max_positions = int(profile.get("max_concurrent_positions", 5))
-        auto_execute = profile.get("auto_execute_all", False)
-        circuit_breakers_on = profile.get("circuit_breakers_enabled", True)
+    weekly_loss_pct = abs(weekly_pnl) / equity * 100 if weekly_pnl < 0 else 0
+    if weekly_loss_pct >= max_weekly_loss:
+        return False, f"weekly_loss={weekly_loss_pct:.1f}%"
 
-        # === Step 1b: Market hours gate ===
-        with tracer.step("market_hours_check") as result:
-            is_open, reason = check_market_open()
-            result.set({"is_open": is_open, "reason": reason})
-            if not is_open:
-                print(f"[scanner] Market not open: {reason}. Exiting.")
-                tracer.complete({"stopped": reason, "trades_placed": 0})
+    return True, "ok"
+
+
+# ---------------------------------------------------------------------------
+# Watchlist
+# ---------------------------------------------------------------------------
+
+def get_watchlist() -> list[str]:
+    """Get tickers with recent catalysts or strong signals.
+
+    In UNLEASHED mode, also scans a broader universe of liquid names.
+    """
+    # Tickers with catalysts in last 24 hours
+    catalysts = sb_get("catalyst_events", {
+        "select": "ticker",
+        "event_time": f"gte.{(datetime.now(timezone.utc) - __import__('datetime').timedelta(hours=24)).isoformat()}",
+        "ticker": "not.is.null",
+    })
+    tickers = list({c["ticker"] for c in catalysts if c.get("ticker")})
+
+    # Also include a base universe of liquid names for UNLEASHED mode
+    profile = load_active_profile()
+    if profile.get("scan_all_regimes") or profile.get("profile_name") == "UNLEASHED":
+        base_universe = [
+            "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA",
+            "AMD", "PLTR", "SOFI", "COIN", "MARA", "RIOT", "SQ",
+            "SNOW", "NET", "CRWD", "DDOG", "MDB", "ABNB",
+        ]
+        for t in base_universe:
+            if t not in tickers:
+                tickers.append(t)
+
+    return tickers
+
+
+# ---------------------------------------------------------------------------
+# Main scan loop
+# ---------------------------------------------------------------------------
+
+def run():
+    """Main scanner loop — find candidates, run inference, execute trades."""
+    tracer = PipelineTracer("scanner")
+
+    if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
+        print("[scanner] ERROR: ALPACA_API_KEY and ALPACA_SECRET_KEY required")
+        return
+
+    if not SUPABASE_URL:
+        print("[scanner] ERROR: SUPABASE_URL required")
+        return
+
+    try:
+        # Load strategy profile
+        with tracer.step("load_profile"):
+            profile = load_active_profile()
+            profile_name = profile.get("profile_name", "DEFAULT")
+            auto_execute = profile.get("auto_execute_all", False)
+            min_score = int(profile.get("min_signal_score", 4))
+            print(f"[scanner] Profile: {profile_name}, auto_execute={auto_execute}, min_score={min_score}")
+
+        # Check circuit breakers
+        with tracer.step("circuit_breakers"):
+            cb_ok, cb_reason = check_circuit_breakers(profile)
+            if not cb_ok:
+                print(f"[scanner] Circuit breaker tripped: {cb_reason}. Halting scan.")
+                tracer.complete({"halted": True, "reason": cb_reason})
                 return
 
-        # === Step 2: Circuit breaker check ===
-        with tracer.step("circuit_breaker_check") as result:
-            if circuit_breakers_on:
-                cb_ok, cb_reason = check_circuit_breakers()
-                result.set({"ok": cb_ok, "reason": cb_reason})
-                if not cb_ok:
-                    print(f"[scanner] HALTED: {cb_reason}")
-                    tracer.complete({"halted": cb_reason})
-                    return
-            else:
-                result.set({"ok": True, "reason": "circuit_breakers_disabled"})
-
-        # === Step 3: Check Alpaca account ===
-        with tracer.step("account_check") as result:
+        # Check account and positions
+        with tracer.step("account_check"):
             account = get_account()
-            if not account:
-                print("[scanner] Cannot reach Alpaca API — aborting")
-                tracer.fail("alpaca_unreachable")
-                return
-
+            positions = get_positions()
+            max_positions = int(profile.get("max_concurrent_positions", 3))
+            current_tickers = [p["symbol"] for p in positions]
+            open_slots = max_positions - len(positions)
             equity = float(account.get("equity", 0))
             buying_power = float(account.get("buying_power", 0))
-            open_positions = get_positions()
-            open_tickers = {p.get("symbol") for p in open_positions}
+            print(
+                f"[scanner] Account: equity=${equity:,.2f}, "
+                f"buying_power=${buying_power:,.2f}, "
+                f"positions={len(positions)}/{max_positions}"
+            )
 
-            result.set({
-                "equity": equity,
-                "buying_power": buying_power,
-                "open_positions": len(open_positions),
-                "open_tickers": sorted(open_tickers),
-            })
+            if open_slots <= 0:
+                print("[scanner] Max positions reached. Skipping scan.")
+                tracer.complete({"halted": True, "reason": "max_positions"})
+                return
 
-            if max_positions >= 999:
-                slots_available = 999  # Unlimited
-                print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
-                      f"positions={len(open_positions)} (unlimited mode)")
-            else:
-                slots_available = max_positions - len(open_positions)
-                if slots_available <= 0:
-                    print(f"[scanner] Max positions reached ({len(open_positions)}/{max_positions}) — scan only, no new trades")
-                print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
-                      f"positions={len(open_positions)}/{max_positions}")
+        # Get watchlist
+        with tracer.step("watchlist"):
+            tickers = get_watchlist()
+            # Remove tickers we already hold
+            tickers = [t for t in tickers if t not in current_tickers]
+            print(f"[scanner] Watchlist: {len(tickers)} candidates: {tickers[:10]}...")
 
-        # === Step 4: Build watchlist and fetch SPY bars ===
-        with tracer.step("build_watchlist") as result:
-            watchlist = build_watchlist()
-            spy_bars = get_bars("SPY", days=30)
+        # Scan each candidate
+        scanned = 0
+        entries = 0
+        orders_placed = 0
 
-            if len(spy_bars) < 15:
-                print(f"[scanner] Only {len(spy_bars)} SPY bars available. Waiting 90s for data...")
-                time.sleep(90)
-                spy_bars = get_bars("SPY", days=30)
-                if len(spy_bars) < 15:
-                    print(f"[scanner] Still only {len(spy_bars)} SPY bars after retry. Aborting.")
-                    tracer.complete({"stopped": "insufficient_spy_data", "spy_bars": len(spy_bars)})
-                    return
+        for ticker in tickers:
+            if open_slots <= 0:
+                print("[scanner] No more open slots. Stopping scan.")
+                break
 
-            result.set({"watchlist_size": len(watchlist), "spy_bars": len(spy_bars)})
-            print(f"[scanner] Watchlist: {len(watchlist)} tickers, SPY bars: {len(spy_bars)}")
+            with tracer.step(f"scan_{ticker}"):
+                # Build signals
+                sig_data = build_signals(ticker)
+                total_score = sig_data["total_score"]
+                signals = sig_data["signals"]
 
-        # === Step 5: Compute signals for all tickers ===
-        candidates = []
-        with tracer.step("signal_scan", input_snapshot={"tickers": watchlist}) as result:
-            for ticker in watchlist:
-                if ticker in open_tickers:
-                    continue  # Skip tickers we already hold
-
-                bars = get_bars(ticker, days=60)
-                if not bars or len(bars) < 20:
+                if total_score < min_score:
+                    print(f"[scanner] {ticker}: score={total_score}/{min_score} — skip")
+                    scanned += 1
                     continue
 
-                sig = compute_signals(ticker, bars, spy_bars)
-                if sig and sig["total_score"] >= min_signal:
-                    candidates.append(sig)
-                    print(f"[scanner]   {ticker}: score={sig['total_score']}/6, "
-                          f"price=${sig['price']:.2f}, atr=${sig['atr']:.2f}")
-
-                time.sleep(0.15)  # Rate limit courtesy
-
-            candidates.sort(key=lambda x: x["total_score"], reverse=True)
-            result.set({
-                "scanned": len(watchlist),
-                "candidates": len(candidates),
-                "top": [{"ticker": c["ticker"], "score": c["total_score"]} for c in candidates[:5]],
-            })
-            print(f"[scanner] Candidates: {len(candidates)} tickers pass signal threshold ({min_signal}+)")
-
-        # === Step 6: Run inference on candidates ===
-        inference_results = []
-        with tracer.step("inference", input_snapshot={"candidates": [c["ticker"] for c in candidates]}) as result:
-            for cand in candidates:
-                ticker = cand["ticker"]
-                print(f"\n[scanner] Running inference on {ticker} (score={cand['total_score']})...")
-
-                inf_result = run_inference(
+                # Run inference engine
+                print(f"[scanner] {ticker}: score={total_score} — running inference...")
+                result = run_inference(
                     ticker=ticker,
-                    signals=cand["signals"],
-                    total_score=cand["total_score"],
-                    scan_type="scanner",
-                    pipeline_run_id=tracer.root_id,
-                )
-                inf_result["_price"] = cand["price"]
-                inf_result["_atr"] = cand["atr"]
-                inf_result["_score"] = cand["total_score"]
-                inference_results.append(inf_result)
-
-                # Log signal evaluation
-                tracer.log_signal_evaluation(
-                    ticker=ticker,
-                    signals=cand["signals"],
-                    total_score=cand["total_score"],
-                    decision=inf_result["final_decision"],
-                    reasoning=f"confidence={inf_result['final_confidence']:.3f}, "
-                              f"depth={inf_result['max_depth_reached']}, "
-                              f"stop={inf_result.get('stopping_reason', '?')}",
-                    scan_type="scanner",
+                    signals=signals,
+                    total_score=total_score,
+                    scan_type="pre_market",
                 )
 
-            actionable = [r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")]
-            result.set({
-                "total_inferred": len(inference_results),
-                "actionable": len(actionable),
-                "decisions": {r["ticker"]: r["final_decision"] for r in inference_results},
-            })
-            print(f"\n[scanner] Inference complete: {len(actionable)} actionable / {len(inference_results)} total")
+                decision = result.get("final_decision", "skip")
+                confidence = result.get("final_confidence", 0)
+                scanned += 1
 
-        # === Step 7: Execute trades ===
-        trades_placed = []
-        with tracer.step("execution") as result:
-            if not auto_execute:
-                print("[scanner] auto_execute_all is OFF — logging decisions only, no orders placed")
-                result.set({"auto_execute": False, "trades": 0})
-            else:
-                # Sort by confidence descending, take top N available slots
-                actionable = sorted(
-                    [r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")],
-                    key=lambda x: x["final_confidence"],
-                    reverse=True,
+                if decision not in ("enter", "strong_enter"):
+                    print(f"[scanner] {ticker}: decision={decision} conf={confidence:.3f} — no trade")
+                    continue
+
+                entries += 1
+
+                # Execute trade if auto_execute is on
+                if not auto_execute:
+                    print(f"[scanner] {ticker}: {decision} conf={confidence:.3f} — auto_execute OFF, logging only")
+                    _log_trade_decision(ticker, signals, result, profile, entry_price=None, order_id=None)
+                    continue
+
+                # Get current price
+                quote = get_latest_quote(ticker)
+                ask_price = float(quote.get("ap", 0))
+                bid_price = float(quote.get("bp", 0))
+                current_price = ask_price if ask_price > 0 else bid_price
+
+                if current_price <= 0:
+                    print(f"[scanner] {ticker}: could not get price — skipping order")
+                    continue
+
+                # Calculate position size
+                qty = calculate_position_size(ticker, profile, account, current_price)
+                if qty <= 0:
+                    print(f"[scanner] {ticker}: position size=0 — skipping")
+                    continue
+
+                # Submit market order
+                print(
+                    f"[scanner] {ticker}: EXECUTING {decision} — "
+                    f"qty={qty}, price~${current_price:.2f}, "
+                    f"value=${qty * current_price:,.2f}"
                 )
+                order = submit_order(ticker, qty, side="buy")
 
-                for inf_result in actionable:
-                    if slots_available <= 0:
-                        print("[scanner] No more position slots available")
-                        break
-                    if buying_power < equity * 0.05:
-                        print(f"[scanner] Insufficient buying power (${buying_power:,.0f})")
-                        break
+                if order:
+                    order_id = order.get("id", "")
+                    orders_placed += 1
+                    open_slots -= 1
 
-                    ticker = inf_result["ticker"]
-                    quote = get_latest_quote(ticker)
-                    price = quote["price"]
-                    if price <= 0:
-                        print(f"[scanner] {ticker}: no valid quote, skipping")
-                        continue
+                    # Log order event
+                    _post_to_supabase("order_events", {
+                        "order_id": order_id,
+                        "ticker": ticker,
+                        "event_type": "submitted",
+                        "side": "buy",
+                        "qty_ordered": qty,
+                        "price": current_price,
+                        "raw_event": order,
+                    })
 
-                    trade = execute_trade(
-                        ticker=ticker,
-                        inference_result=inf_result,
-                        price=price,
-                        atr=inf_result["_atr"],
-                        equity=equity,
-                        profile=profile,
-                        tracer=tracer,
+                    # Log trade decision
+                    _log_trade_decision(
+                        ticker, signals, result, profile,
+                        entry_price=current_price,
+                        order_id=order_id,
                     )
-                    if trade:
-                        trades_placed.append(trade)
-                        slots_available -= 1
-                        buying_power -= price * trade["qty"]
 
-                result.set({
-                    "auto_execute": True,
-                    "trades_placed": len(trades_placed),
-                    "tickers": [t["ticker"] for t in trades_placed],
-                })
+                    # Submit stop-loss order
+                    atr = calculate_atr(ticker)
+                    stop_mult = float(profile.get("stop_loss_atr_multiple", 1.5))
+                    if atr > 0:
+                        stop_price = current_price - (atr * stop_mult)
+                        stop_order = submit_order(
+                            ticker, qty, side="sell",
+                            order_type="stop",
+                            stop_price=stop_price,
+                            time_in_force="gtc",
+                        )
+                        if stop_order:
+                            _post_to_supabase("order_events", {
+                                "order_id": stop_order.get("id", ""),
+                                "ticker": ticker,
+                                "event_type": "submitted",
+                                "side": "sell",
+                                "qty_ordered": qty,
+                                "price": stop_price,
+                                "raw_event": stop_order,
+                            })
+                            print(f"[scanner] {ticker}: stop-loss set at ${stop_price:.2f} ({stop_mult}x ATR)")
+                else:
+                    print(f"[scanner] {ticker}: order submission FAILED")
 
-        # === Done ===
-        summary = {
-            "date": TODAY,
-            "profile": profile.get("profile_name", "?"),
-            "watchlist_size": len(watchlist),
-            "candidates": len(candidates),
-            "inferred": len(inference_results),
-            "actionable": len([r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")]),
-            "trades_placed": len(trades_placed),
-            "tickers_traded": [t["ticker"] for t in trades_placed],
-        }
-        tracer.complete(summary)
-
-        print(f"\n{'='*60}")
-        print(f"[scanner] Complete — {len(trades_placed)} trades placed")
-        for t in trades_placed:
-            print(f"  {t['ticker']}: {t['qty']} shares @ ${t['entry_price']:.2f}, stop ${t['stop_price']:.2f}")
-        print(f"{'='*60}\n")
-
-        # Slack summary
-        lines = [f"*Scanner complete* — {profile.get('profile_name', '?')} profile"]
-        lines.append(f"Watchlist: {len(watchlist)} | Candidates: {len(candidates)} | Inferred: {len(inference_results)}")
-        if trades_placed:
-            lines.append(f"*Trades placed: {len(trades_placed)}*")
-            for t in trades_placed:
-                lines.append(f"  `{t['ticker']}` {t['qty']} shares @ ${t['entry_price']:.2f}, stop ${t['stop_price']:.2f}")
-        else:
-            actionable_count = len([r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")])
-            lines.append(f"No trades placed ({actionable_count} actionable, {len(inference_results)} inferred)")
-        slack_notify("\n".join(lines))
+        tracer.complete({
+            "scanned": scanned,
+            "entries": entries,
+            "orders_placed": orders_placed,
+            "profile": profile_name,
+        })
+        print(
+            f"[scanner] Complete. Scanned: {scanned}, "
+            f"Entries: {entries}, Orders: {orders_placed}"
+        )
 
     except Exception as e:
-        tracer.fail(str(e), traceback.format_exc())
-        print(f"[scanner] FATAL: {e}")
-        traceback.print_exc()
-        slack_notify(f"*Scanner FATAL*: {e}")
+        tracer.fail(str(e))
+        print(f"[scanner] FAILED: {e}")
         raise
 
 
+def _log_trade_decision(
+    ticker: str,
+    signals: dict,
+    inference_result: dict,
+    profile: dict,
+    entry_price: float | None,
+    order_id: str | None,
+):
+    """Log a trade decision to the trade_decisions table."""
+    decision = inference_result.get("final_decision", "skip")
+    confidence = inference_result.get("final_confidence", 0)
+    chain_id = inference_result.get("inference_chain_id")
+    total_score = sum(1 for s in signals.values() if s.get("passed"))
+
+    reasoning_parts = []
+    for name, sig in signals.items():
+        if sig.get("passed"):
+            reasoning_parts.append(f"{name}: {json.dumps({k: v for k, v in sig.items() if k != 'passed'})}")
+
+    reasoning = (
+        f"{decision.upper()} via {profile.get('profile_name', 'DEFAULT')} profile. "
+        f"Confidence: {confidence:.3f}. "
+        f"Signals ({total_score}/6): {', '.join(reasoning_parts)}"
+    )
+
+    content = (
+        f"{'BUY' if entry_price else 'SIGNAL'} {ticker} "
+        f"{total_score}/6 signals, {decision} conf={confidence:.3f}"
+    )
+
+    _post_to_supabase("trade_decisions", {
+        "ticker": ticker,
+        "action": "BUY",
+        "entry_price": entry_price,
+        "signals_fired": total_score,
+        "reasoning": reasoning,
+        "content": content,
+        "metadata": {
+            "inference_chain_id": chain_id,
+            "order_id": order_id,
+            "confidence": confidence,
+            "decision": decision,
+            "profile": profile.get("profile_name"),
+            "signals": signals,
+        },
+    })
+
+
 if __name__ == "__main__":
-    from loki_logger import get_logger
-    _logger = get_logger("scanner")
     run()
