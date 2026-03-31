@@ -27,6 +27,7 @@ from common import (
     _client,
     generate_embedding,
     sb_get,
+    slack_notify,
 )
 from tracer import PipelineTracer, _post_to_supabase
 
@@ -390,6 +391,10 @@ def run():
             result.set({"tickers": watchlist, "count": len(watchlist)})
 
         all_raw_events = []
+        finnhub_count = 0
+        sec_count = 0
+        qq_count = 0
+        ppx_count = 0
 
         # Step 2: Finnhub news + insiders per ticker
         with tracer.step("fetch_finnhub", input_snapshot={"tickers": watchlist}) as result:
@@ -397,7 +402,8 @@ def run():
                 all_raw_events.extend(fetch_finnhub_news(ticker))
                 all_raw_events.extend(fetch_finnhub_insiders(ticker))
                 time.sleep(0.2)  # Respect Finnhub rate limit (60/min)
-            result.set({"finnhub_events": len(all_raw_events)})
+            finnhub_count = len(all_raw_events)
+            result.set({"finnhub_events": finnhub_count})
 
         # Step 3: SEC EDGAR RSS
         with tracer.step("fetch_sec_edgar") as result:
@@ -406,7 +412,8 @@ def run():
             for ev in sec_events:
                 if ev["ticker"] and ev["ticker"] in watchlist:
                     all_raw_events.append(ev)
-            result.set({"sec_events": len(sec_events), "matched": len([e for e in sec_events if e["ticker"] in watchlist])})
+            sec_count = len([e for e in sec_events if e["ticker"] in watchlist])
+            result.set({"sec_events": len(sec_events), "matched": sec_count})
 
         # Step 4: QuiverQuant congressional trades
         with tracer.step("fetch_quiverquant") as result:
@@ -414,13 +421,15 @@ def run():
             for ev in qq_events:
                 if ev["ticker"] and ev["ticker"] in watchlist:
                     all_raw_events.append(ev)
-            result.set({"qq_events": len(qq_events), "matched": len([e for e in qq_events if e.get("ticker") in watchlist])})
+            qq_count = len([e for e in qq_events if e.get("ticker") in watchlist])
+            result.set({"qq_events": len(qq_events), "matched": qq_count})
 
         # Step 5: Perplexity deep search for top movers
         with tracer.step("fetch_perplexity", input_snapshot={"tickers": watchlist[:3]}) as result:
             ppx_events = fetch_perplexity_search(watchlist)
             all_raw_events.extend(ppx_events)
-            result.set({"perplexity_events": len(ppx_events)})
+            ppx_count = len(ppx_events)
+            result.set({"perplexity_events": ppx_count})
 
         print(f"[catalyst_ingest] Raw events collected: {len(all_raw_events)}")
 
@@ -485,10 +494,15 @@ def run():
 
         tracer.complete({"total_inserted": inserted, "total_duplicates": duplicates})
         print(f"[catalyst_ingest] Complete. Inserted: {inserted}, Duplicates: {duplicates}")
+        slack_notify(
+            f"*Catalyst Ingest complete* — `{inserted}` events inserted, `{duplicates}` dupes skipped\n"
+            f"Sources: finnhub `{finnhub_count}` · sec `{sec_count}` · quiverquant `{qq_count}` · perplexity `{ppx_count}`"
+        )
 
     except Exception as e:
         tracer.fail(str(e))
         print(f"[catalyst_ingest] Failed: {e}")
+        slack_notify(f"*Catalyst Ingest FATAL*: {e}")
         raise
 
 

@@ -26,6 +26,7 @@ from common import (
     generate_embedding,
     sb_get,
     sb_rpc,
+    slack_notify,
 )
 from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
 
@@ -554,10 +555,16 @@ def run():
 
         tracer.complete({"reflection_generated": True, "adjustments": len(adjustments)})
         print(f"[meta_daily] Complete. Patterns: {reflection.get('patterns_observed', 'N/A')[:100]}")
+        adj_summary = f"`{len(adjustments)}` adjustments proposed" if adjustments else "no adjustments proposed"
+        slack_notify(
+            f"*Meta Daily ({TODAY})* — pipeline health `{pipeline_health.get('success_rate', 0)}%` · {adj_summary}\n"
+            f"{reflection.get('patterns_observed', 'N/A')[:120]}"
+        )
 
     except Exception as e:
         tracer.fail(str(e))
         print(f"[meta_daily] Failed: {e}")
+        slack_notify(f"*Meta Daily FATAL*: {e}")
         raise
 
 

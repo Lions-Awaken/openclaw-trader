@@ -22,6 +22,7 @@ from common import (
     _client,
     generate_embedding,
     sb_get,
+    slack_notify,
 )
 from tracer import PipelineTracer, _post_to_supabase
 
@@ -604,10 +605,19 @@ def run():
             "patterns_discovered": len(new_patterns),
         })
         print(f"[meta_weekly] Complete. Patterns: {reflection.get('patterns_observed', 'N/A')[:100]}")
+        pattern_note = f"`{len(new_patterns)}` new patterns discovered" if new_patterns else "no new patterns"
+        trade_count = len(trades)
+        wins = sum(1 for t in trades if float(t.get("pnl", 0) or 0) > 0)
+        win_rate = round(wins / trade_count * 100) if trade_count else 0
+        slack_notify(
+            f"*Meta Weekly (w/o {WEEK_START})* — `{trade_count}` trades, `{win_rate}%` win rate · {pattern_note}\n"
+            f"{reflection.get('patterns_observed', 'N/A')[:120]}"
+        )
 
     except Exception as e:
         tracer.fail(str(e))
         print(f"[meta_weekly] Failed: {e}")
+        slack_notify(f"*Meta Weekly FATAL*: {e}")
         raise
 
 

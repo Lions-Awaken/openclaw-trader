@@ -24,6 +24,7 @@ from common import (
     _client,
     alpaca_headers,
     sb_get,
+    slack_notify,
 )
 from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
 
@@ -439,10 +440,15 @@ def run():
             f"Brier: {brier:.4f}. Cal error: {cal_error:.4f}. "
             f"Overconfidence: {overconfidence:.4f}"
         )
+        slack_notify(
+            f"*Calibrator complete* — `{graded}/{total}` chains graded · `{updated_patterns}` pattern templates updated\n"
+            f"Brier `{brier:.4f}` · cal error `{cal_error:.4f}` · overconfidence `{overconfidence:+.4f}`"
+        )
 
     except Exception as e:
         tracer.fail(str(e))
         print(f"[calibrator] Failed: {e}")
+        slack_notify(f"*Calibrator FATAL*: {e}")
         raise
 
 

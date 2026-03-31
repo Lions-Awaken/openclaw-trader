@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
+from common import slack_notify
 from tracer import _sb_headers
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -100,6 +101,16 @@ def run():
 
     tumbler_status = check_tumbler()
     update_heartbeat("tumbler", tumbler_status)
+
+    # Alert only when a service is DOWN (not on every healthy check)
+    down_services = []
+    if not ollama_status.get("alive"):
+        down_services.append("ollama")
+    if not tumbler_status.get("alive"):
+        failed_checks = [k for k, v in tumbler_status.get("checks", {}).items() if not v]
+        down_services.append(f"tumbler ({', '.join(failed_checks)})" if failed_checks else "tumbler")
+    if down_services:
+        slack_notify(f"*Heartbeat ALERT* — service(s) DOWN: {', '.join(f'`{s}`' for s in down_services)}")
 
 
 if __name__ == "__main__":
