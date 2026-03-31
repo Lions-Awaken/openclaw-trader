@@ -1854,7 +1854,7 @@ body {
     serverStartTime = Date.now();
 
     // Fetch system info
-    fetch('/api/system/info')
+    fetch('/api/system/info', {credentials: 'include'})
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
@@ -1872,7 +1872,7 @@ body {
       });
 
     // Fetch current metrics
-    fetch('/api/system/metrics')
+    fetch('/api/system/metrics', {credentials: 'include'})
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
@@ -1898,7 +1898,7 @@ body {
 
     for (var i = 0; i < historyMetrics.length; i++) {
       (function(metricName) {
-        fetch('/api/system/metrics/' + metricName + '/history?window=300')
+        fetch('/api/system/metrics/' + metricName + '/history?window=300', {credentials: 'include'})
           .then(function(r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
@@ -1947,7 +1947,7 @@ body {
     }
 
     try {
-      eventSource = new EventSource('/api/system/stream');
+      eventSource = new EventSource('/api/system/stream', {withCredentials: true});
     } catch (e) {
       startPolling();
       return;
@@ -1992,7 +1992,7 @@ body {
       }
 
       // Re-sync state on reconnect
-      fetch('/api/system/metrics')
+      fetch('/api/system/metrics', {credentials: 'include'})
         .then(function(r) {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
@@ -2030,7 +2030,7 @@ body {
   function startPolling() {
     if (pollTimer) return;
     pollTimer = setInterval(function() {
-      fetch('/api/system/metrics')
+      fetch('/api/system/metrics', {credentials: 'include'})
         .then(function(r) {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
