@@ -1932,8 +1932,15 @@ body {
   // -- SSE Connection ---------------------------------------------------
   var reconnectTimer = null;
   var pollTimer = null;
+  var sseFailCount = 0;
 
   function connectSSE() {
+    // After 3 failed SSE attempts, give up and poll instead
+    if (sseFailCount >= 3) {
+      startPolling();
+      return;
+    }
+
     if (eventSource) {
       eventSource.close();
       eventSource = null;
@@ -1942,7 +1949,6 @@ body {
     try {
       eventSource = new EventSource('/api/system/stream');
     } catch (e) {
-      // SSE not available, fall back to polling
       startPolling();
       return;
     }
@@ -1973,6 +1979,7 @@ body {
 
     eventSource.onopen = function() {
       sseConnected = true;
+      sseFailCount = 0;
       isOffline = false;
       document.getElementById('disconnectBanner').classList.remove('visible');
       document.getElementById('liveDot').style.background = GREEN;
@@ -1998,9 +2005,17 @@ body {
 
     eventSource.onerror = function() {
       sseConnected = false;
+      sseFailCount++;
       document.getElementById('disconnectBanner').classList.add('visible');
       document.getElementById('liveDot').style.background = RED;
       document.getElementById('liveDot').style.boxShadow = '0 0 6px ' + RED;
+
+      if (sseFailCount >= 3) {
+        eventSource.close();
+        eventSource = null;
+        startPolling();
+        return;
+      }
 
       if (eventSource.readyState === EventSource.CLOSED) {
         clearTimeout(reconnectTimer);
