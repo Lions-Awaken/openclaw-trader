@@ -18,6 +18,7 @@ Failed Supabase writes buffer to local JSONL file for retry.
 Automatically captures active tuning profile and hardware telemetry.
 """
 
+import atexit
 import json
 import os
 import time
@@ -31,6 +32,10 @@ import httpx
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+
+# Module-level client for all Supabase writes (reused, not per-call)
+_sb_client = httpx.Client(timeout=10.0)
+atexit.register(_sb_client.close)
 TUNING_PROFILE_PATH = Path.home() / ".openclaw/workspace/active_tuning_profile.json"
 BUFFER_PATH = Path.home() / ".openclaw/workspace/tracer_buffer.jsonl"
 
@@ -51,19 +56,20 @@ def _post_to_supabase(table: str, data: dict) -> dict | None:
         return None
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.post(
-                f"{SUPABASE_URL}/rest/v1/{table}",
-                headers=_sb_headers(),
-                json=data,
-            )
-            if resp.status_code in (200, 201):
-                rows = resp.json()
-                return rows[0] if rows else data
-            else:
-                _buffer_locally(table, data)
-                return None
-    except Exception:
+        resp = _sb_client.post(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=_sb_headers(),
+            json=data,
+        )
+        if resp.status_code in (200, 201):
+            rows = resp.json()
+            return rows[0] if rows else data
+        else:
+            print(f"[tracer] Supabase write FAILED: {table} → {resp.status_code} {resp.text[:300]}")
+            _buffer_locally(table, data)
+            return None
+    except Exception as e:
+        print(f"[tracer] Supabase write ERROR: {table} → {e}")
         _buffer_locally(table, data)
         return None
 
@@ -74,13 +80,12 @@ def _patch_supabase(table: str, row_id: str, data: dict) -> bool:
         return False
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.patch(
-                f"{SUPABASE_URL}/rest/v1/{table}?id=eq.{row_id}",
-                headers=_sb_headers(),
-                json=data,
-            )
-            return resp.status_code in (200, 204)
+        resp = _sb_client.patch(
+            f"{SUPABASE_URL}/rest/v1/{table}?id=eq.{row_id}",
+            headers=_sb_headers(),
+            json=data,
+        )
+        return resp.status_code in (200, 204)
     except Exception:
         return False
 
@@ -339,7 +344,15 @@ class PipelineTracer:
         if self._tuning_profile_id:
             root_data["tuning_profile_id"] = self._tuning_profile_id
 
-        _post_to_supabase("pipeline_runs", root_data)
+        root_stored = None
+        for attempt in range(3):
+            root_stored = _post_to_supabase("pipeline_runs", root_data)
+            if root_stored:
+                break
+            print(f"[tracer] Root row write failed (attempt {attempt + 1}/3), retrying...")
+            time.sleep(2)
+        if not root_stored:
+            print("[tracer] WARNING: root pipeline_run not persisted — all child writes will fail FK constraints")
         self._current_parent_id = self.root_id
 
     @contextmanager

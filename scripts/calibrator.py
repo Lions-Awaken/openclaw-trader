@@ -16,34 +16,20 @@ import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 
-import httpx
-
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import PipelineTracer, _patch_supabase, _post_to_supabase, _sb_headers
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-ALPACA_KEY = os.environ.get("ALPACA_API_KEY", "")
-ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
-ALPACA_DATA_BASE = "https://data.alpaca.markets"
-
-# Reusable HTTP client
-_client = httpx.Client(timeout=15.0)
+from common import (
+    ALPACA_DATA,
+    ALPACA_KEY,
+    ALPACA_SECRET,
+    _client,
+    alpaca_headers,
+    sb_get,
+    slack_notify,
+)
+from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
 
 TODAY = date.today()  # Reassigned at the start of run()
 WEEK_START = ""  # Reassigned at the start of run()
-
-
-def sb_get(path: str, params: dict | None = None) -> list:
-    client = _client
-    resp = client.get(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
 
 
 def get_trade_outcomes() -> dict[str, dict]:
@@ -300,13 +286,9 @@ def _get_price_history(ticker: str, event_date: datetime) -> dict:
         start = event_date.strftime("%Y-%m-%d")
         end = (event_date + timedelta(days=7)).strftime("%Y-%m-%d")
 
-        client = _client
-        resp = client.get(
-            f"{ALPACA_DATA_BASE}/v2/stocks/{ticker}/bars",
-            headers={
-                "APCA-API-KEY-ID": ALPACA_KEY,
-                "APCA-API-SECRET-KEY": ALPACA_SECRET,
-            },
+        resp = _client.get(
+            f"{ALPACA_DATA}/v2/stocks/{ticker}/bars",
+            headers=alpaca_headers(),
             params={
                 "start": start,
                 "end": end,
@@ -458,12 +440,19 @@ def run():
             f"Brier: {brier:.4f}. Cal error: {cal_error:.4f}. "
             f"Overconfidence: {overconfidence:.4f}"
         )
+        slack_notify(
+            f"*Calibrator complete* — `{graded}/{total}` chains graded · `{updated_patterns}` pattern templates updated\n"
+            f"Brier `{brier:.4f}` · cal error `{cal_error:.4f}` · overconfidence `{overconfidence:+.4f}`"
+        )
 
     except Exception as e:
         tracer.fail(str(e))
         print(f"[calibrator] Failed: {e}")
+        slack_notify(f"*Calibrator FATAL*: {e}")
         raise
 
 
 if __name__ == "__main__":
+    from loki_logger import get_logger
+    _logger = get_logger("calibrator")
     run()

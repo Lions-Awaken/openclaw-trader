@@ -18,47 +18,19 @@ import os
 import sys
 from datetime import date
 
-import httpx
-
 # Reuse tracer for pipeline observability
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import PipelineTracer, _patch_supabase, _post_to_supabase, _sb_headers
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-
-# Reusable HTTP client
-_client = httpx.Client(timeout=15.0)
+from common import (
+    ANTHROPIC_API_KEY,
+    _client,
+    generate_embedding,
+    sb_get,
+    sb_rpc,
+    slack_notify,
+)
+from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
 
 TODAY = ""  # Reassigned at the start of run()
-
-
-def sb_get(path: str, params: dict | None = None) -> list:
-    """GET from Supabase REST API."""
-    client = _client
-    resp = client.get(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
-
-
-def sb_rpc(fn_name: str, params: dict) -> list:
-    """Call a Supabase RPC function."""
-    client = _client
-    resp = client.post(
-        f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
-        headers=_sb_headers(),
-        json=params,
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
 
 
 def get_pipeline_health() -> dict:
@@ -275,21 +247,6 @@ def rag_retrieve_context(embed_text: str) -> dict:
         "signals": signals,
         "catalysts": catalysts,
     }
-
-
-def generate_embedding(text: str) -> list[float] | None:
-    """Generate embedding using local Ollama."""
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            )
-            if resp.status_code == 200:
-                return resp.json().get("embedding")
-    except Exception:
-        pass
-    return None
 
 
 def generate_reflection(context: dict) -> tuple[dict, float]:
@@ -598,12 +555,20 @@ def run():
 
         tracer.complete({"reflection_generated": True, "adjustments": len(adjustments)})
         print(f"[meta_daily] Complete. Patterns: {reflection.get('patterns_observed', 'N/A')[:100]}")
+        adj_summary = f"`{len(adjustments)}` adjustments proposed" if adjustments else "no adjustments proposed"
+        slack_notify(
+            f"*Meta Daily ({TODAY})* — pipeline health `{pipeline_health.get('success_rate', 0)}%` · {adj_summary}\n"
+            f"{reflection.get('patterns_observed', 'N/A')[:120]}"
+        )
 
     except Exception as e:
         tracer.fail(str(e))
         print(f"[meta_daily] Failed: {e}")
+        slack_notify(f"*Meta Daily FATAL*: {e}")
         raise
 
 
 if __name__ == "__main__":
+    from loki_logger import get_logger
+    _logger = get_logger("meta_daily")
     run()

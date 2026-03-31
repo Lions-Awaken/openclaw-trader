@@ -20,10 +20,23 @@ from pathlib import Path
 
 import httpx
 from fastapi import Cookie, FastAPI, Form, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 app = FastAPI(title="OpenClaw Trader Dashboard", docs_url=None, redoc_url=None)
+
+# CORS — restrict to our own origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://openclaw-dashboard.fly.dev",
+        "http://localhost:8090",
+    ],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["*"],
+    allow_credentials=True,
+)
 
 # ============================================================================
 # Persistent HTTP clients — reuse connections across requests
@@ -79,6 +92,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
 # ============================================================================
 # Input validation helpers
 # ============================================================================
@@ -87,6 +105,11 @@ _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 _SAFE_KEY_RE = re.compile(r'^[a-z][a-z0-9_]{1,60}$')
 _SAFE_NAME_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{0,60}$')
 _SAFE_TICKER_RE = re.compile(r'^[A-Z]{1,5}$')
+
+
+def clamp_days(days: int, max_days: int = 365) -> int:
+    """Clamp days parameter to prevent unbounded queries."""
+    return min(max(1, days), max_days)
 
 ALLOWED_BUDGET_KEYS = {"daily_claude_budget", "daily_perplexity_budget"}
 
@@ -117,7 +140,7 @@ FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 SENTRY_AUTH_TOKEN = os.environ.get("SENTRY_AUTH_TOKEN", "")
 SENTRY_ORG = os.environ.get("SENTRY_ORG", "lions-awaken")
-SENTRY_PROJECT = os.environ.get("SENTRY_PROJECT", "streamsaber")
+SENTRY_PROJECT = os.environ.get("SENTRY_PROJECT", "openclaw-trader")
 
 # Magic link email config
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
@@ -136,7 +159,7 @@ PASSWORD_HASH = hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
 
 # Session store: {token_hash: expiry_timestamp}
 _sessions: dict[str, float] = {}
-SESSION_MAX_AGE = 86400 * 7  # 7 days
+SESSION_MAX_AGE = 86400 * 90  # 90 days
 
 # Rate limiting: {ip: [timestamps]}
 _login_attempts: dict[str, list[float]] = {}
@@ -302,10 +325,11 @@ async def logout(oc_session: str | None = Cookie(None)):
 
 def _login_error_page(error: str, csrf: str) -> str:
     """Return the login page HTML with an error message injected."""
+    from html import escape
     html_path = Path(__file__).parent / "login.html"
     html = html_path.read_text()
-    # Inject error and CSRF token
-    html = html.replace("<!-- ERROR_PLACEHOLDER -->", f'<div class="error">{error}</div>')
+    # Inject error (escaped) and CSRF token
+    html = html.replace("<!-- ERROR_PLACEHOLDER -->", f'<div class="error">{escape(error)}</div>')
     html = html.replace("CSRF_TOKEN_PLACEHOLDER", csrf)
     return html
 
@@ -531,6 +555,13 @@ async def index(request: Request, oc_session: str | None = Cookie(None)):
     return FileResponse(Path(__file__).parent / "index.html")
 
 
+@app.get("/systems", response_class=HTMLResponse)
+async def systems_console(request: Request, oc_session: str | None = Cookie(None)):
+    if not _is_authed(request, oc_session):
+        return RedirectResponse("/login", status_code=302)
+    return FileResponse(Path(__file__).parent / "systems-console.html")
+
+
 # ============================================================================
 # API Routes (all require auth)
 # ============================================================================
@@ -723,6 +754,197 @@ async def get_system_history(request: Request, oc_session: str | None = Cookie(N
     if resp.status_code == 200:
         return resp.json()
     return []
+
+
+# ============================================================================
+# Systems Console API — transforms system_stats for the 3D console
+# ============================================================================
+
+@app.get("/api/system/info")
+async def system_info(request: Request, oc_session: str | None = Cookie(None)):
+    """Static hardware info for the systems console header."""
+    _require_auth(request, oc_session)
+    return {
+        "hostname": "ridley",
+        "hardware": {
+            "device": "Jetson Orin Nano Super",
+            "cpu": "6x ARM Cortex-A78AE",
+            "gpu": "Orin (Ampere)",
+            "ram_mb": 7620,
+            "power_mode": "MAXN_SUPER",
+        },
+    }
+
+
+@app.get("/api/system/metrics")
+async def system_metrics(request: Request, oc_session: str | None = Cookie(None)):
+    """Current system metrics snapshot for the systems console."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {"timestamp": None, "metrics": {}}
+    client = get_http()
+
+    # Latest system_stats row
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_stats",
+        headers=sb_headers(),
+        params={"order": "collected_at.desc", "limit": "1"},
+    )
+    row = (resp.json()[0] if resp.status_code == 200 and resp.json() else {})
+
+    # Pipeline health (last 24h)
+    cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    resp2 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "status",
+            "step_name": "eq.root",
+            "started_at": f"gte.{cutoff_24h}",
+        },
+    )
+    runs = resp2.json() if resp2.status_code == 200 else []
+    total_runs = len(runs)
+    success_runs = sum(1 for r in runs if r.get("status") == "success")
+
+    # Stack health
+    resp3 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/stack_heartbeats",
+        headers=sb_headers(),
+    )
+    heartbeats = resp3.json() if resp3.status_code == 200 else []
+    services = {}
+    for hb in heartbeats:
+        svc = hb.get("service", "")
+        meta = hb.get("metadata", {})
+        services[svc] = meta.get("alive", False)
+
+    # Cron freshness
+    resp4 = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "pipeline_name,status,started_at",
+            "step_name": "eq.root",
+            "order": "started_at.desc",
+            "limit": "50",
+        },
+    )
+    cron_rows = resp4.json() if resp4.status_code == 200 else []
+    pipelines = {}
+    for cr in cron_rows:
+        name = cr.get("pipeline_name", "")
+        if name not in pipelines:
+            pipelines[name] = {"name": name, "last_run": cr.get("started_at"), "status": cr.get("status")}
+    cron_list = sorted(pipelines.values(), key=lambda x: x.get("last_run") or "", reverse=True)
+
+    cpu_pct = float(row.get("cpu_percent", 0) or 0)
+    mem_pct = float(row.get("mem_percent", 0) or 0)
+    gpu_pct = float(row.get("gpu_load_pct", 0) or 0)
+    tj = float(row.get("gpu_temp_c", 0) or row.get("cpu_temp_c", 0) or 0)
+
+    return {
+        "timestamp": row.get("collected_at"),
+        "metrics": {
+            "cpu_usage": {
+                "value": cpu_pct,
+                "unit": "%",
+                "status": "critical" if cpu_pct > 90 else "warning" if cpu_pct > 75 else "normal",
+                "freq_mhz": row.get("cpu_freq_mhz", 0),
+            },
+            "mem_usage": {
+                "value": mem_pct,
+                "unit": "%",
+                "status": "critical" if mem_pct > 90 else "warning" if mem_pct > 80 else "normal",
+                "total_mb": row.get("mem_total_mb", 0),
+                "used_mb": row.get("mem_used_mb", 0),
+                "available_mb": row.get("mem_available_mb", 0),
+                "breakdown": {
+                    "ollama_mb": row.get("ollama_mem_mb", 0),
+                    "gateway_mb": 0,
+                    "openclaw_mb": row.get("openclaw_mem_mb", 0),
+                },
+            },
+            "gpu_load": {
+                "value": gpu_pct,
+                "unit": "%",
+                "status": "critical" if gpu_pct > 90 else "warning" if gpu_pct > 75 else "normal",
+                "freq_mhz": 1020,
+            },
+            "tj_temp": {
+                "value": tj,
+                "unit": "C",
+                "status": "critical" if tj > 85 else "warning" if tj > 75 else "normal",
+                "zones": {
+                    "cpu": float(row.get("cpu_temp_c", 0) or 0),
+                    "gpu": float(row.get("gpu_temp_c", 0) or 0),
+                },
+            },
+            "pipeline_health": {
+                "value": round(success_runs / total_runs * 100, 1) if total_runs else 0,
+                "unit": "%",
+                "total": total_runs,
+                "successes": success_runs,
+            },
+            "ollama_status": {
+                "state": "loaded" if row.get("ollama_running") else "down",
+                "loaded_model": (row.get("ollama_models") or [None])[0] if isinstance(row.get("ollama_models"), list) else None,
+                "mem_mb": row.get("ollama_vram_mb", 0),
+            },
+            "cron_freshness": {"pipelines": cron_list},
+            "stack_health": {
+                "healthy": sum(1 for v in services.values() if v),
+                "total": max(len(services), 2),
+                "services": services,
+            },
+            "power_draw": {"value": 0, "unit": "mW"},
+            "disk_usage": {
+                "root": {"value": float(row.get("disk_root_pct", 0) or 0), "unit": "%"},
+                "nvme": {"value": float(row.get("disk_nvme_pct", 0) or 0), "unit": "%", "used_gb": float(row.get("disk_nvme_used_gb", 0) or 0)},
+            },
+            "network_latency": {"value": 0, "unit": "ms"},
+        },
+    }
+
+
+@app.get("/api/system/metrics/{metric_name}/history")
+async def system_metric_history(
+    metric_name: str, request: Request, oc_session: str | None = Cookie(None), window: int = 300,
+):
+    """Historical data for a single metric (for sparklines). Window in seconds."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {"datapoints": []}
+
+    col_map = {
+        "cpu_usage": "cpu_percent",
+        "mem_usage": "mem_percent",
+        "gpu_load": "gpu_load_pct",
+        "tj_temp": "gpu_temp_c",
+        "power_draw": None,
+        "network_latency": None,
+        "inference_latency": None,
+        "ollama_tokens_per_sec": None,
+    }
+    col = col_map.get(metric_name)
+    if not col:
+        return {"datapoints": []}
+
+    window = min(max(60, window), 3600)
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=window)).isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_stats",
+        headers=sb_headers(),
+        params={
+            "select": f"{col},collected_at",
+            "collected_at": f"gte.{cutoff}",
+            "order": "collected_at.asc",
+            "limit": "150",
+        },
+    )
+    rows = resp.json() if resp.status_code == 200 else []
+    return {"datapoints": [{"value": float(r.get(col, 0) or 0), "ts": r.get("collected_at")} for r in rows]}
 
 
 @app.get("/api/llm/stats")
@@ -1567,7 +1789,7 @@ async def get_rag_status(request: Request, oc_session: str | None = Cookie(None)
     if not SUPABASE_URL:
         return {}
 
-    tables = ["signal_evaluations", "meta_reflections", "catalyst_events", "inference_chains", "pattern_templates"]
+    tables = ["signal_evaluations", "meta_reflections", "catalyst_events", "inference_chains", "pattern_templates", "trade_learnings"]
     result = {}
 
     client = get_http()
@@ -1803,23 +2025,24 @@ async def activate_strategy(request: Request, oc_session: str | None = Cookie(No
     profile_id = _validate_uuid(profile_id)
 
     client = get_http()
-    # Deactivate all
-    await client.patch(
-        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
-        headers={**sb_headers(), "Content-Type": "application/json"},
-        params={"active": "eq.true"},
-        json={"active": False, "updated_at": datetime.now(timezone.utc).isoformat()},
-    )
-    # Activate selected
+    now = datetime.now(timezone.utc).isoformat()
+    # Activate selected FIRST (so we never have zero active profiles)
     resp = await client.patch(
         f"{SUPABASE_URL}/rest/v1/strategy_profiles",
         headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
         params={"id": f"eq.{profile_id}"},
-        json={"active": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+        json={"active": True, "updated_at": now},
     )
-    if resp.status_code == 200 and resp.json():
-        return resp.json()[0]
-    raise HTTPException(status_code=500, detail="Failed to activate profile")
+    if resp.status_code != 200 or not resp.json():
+        raise HTTPException(status_code=500, detail="Failed to activate profile")
+    # Then deactivate all others
+    await client.patch(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers={**sb_headers(), "Content-Type": "application/json"},
+        params={"active": "eq.true", "id": f"neq.{profile_id}"},
+        json={"active": False, "updated_at": now},
+    )
+    return resp.json()[0]
 
 
 # ============================================================================
@@ -2079,6 +2302,137 @@ async def compare_tuning_profiles(
         params={"total_runs": "gt.0", "order": "version.desc"},
     )
     return resp.json() if resp.status_code == 200 else []
+
+
+# ============================================================================
+# Trade Learnings API Routes
+# ============================================================================
+
+@app.get("/api/trade-learnings")
+async def get_trade_learnings(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 60,
+    ticker: str = "",
+    outcome: str = "",
+):
+    """Recent trade post-mortems from the RAG learning pipeline."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    params = {
+        "select": "id,ticker,trade_date,entry_price,exit_price,pnl,pnl_pct,outcome,hold_days,"
+                  "expected_direction,expected_confidence,actual_direction,actual_move_pct,"
+                  "expectation_accuracy,catalyst_match,key_variance,what_worked,what_failed,"
+                  "key_lesson,tumbler_depth,inference_chain_id,created_at",
+        "trade_date": f"gte.{cutoff}",
+        "order": "trade_date.desc",
+        "limit": "50",
+    }
+    if ticker:
+        ticker = _validate_ticker(ticker)
+        params["ticker"] = f"eq.{ticker}"
+    if outcome:
+        params["outcome"] = f"eq.{outcome}"
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/trade_learnings",
+        headers=sb_headers(),
+        params=params,
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/trade-learnings/stats")
+async def get_trade_learnings_stats(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 60,
+):
+    """Aggregated stats from post-mortem analysis."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {}
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/trade_learnings",
+        headers=sb_headers(),
+        params={
+            "select": "outcome,pnl_pct,expectation_accuracy,tumbler_depth,expected_confidence",
+            "trade_date": f"gte.{cutoff}",
+        },
+    )
+    if resp.status_code != 200:
+        return {}
+
+    rows = resp.json()
+    if not rows:
+        return {"total": 0}
+
+    outcomes: dict = {}
+    accuracy_counts: dict = {}
+    total_pnl = 0.0
+    depth_by_outcome: dict = {}
+
+    for r in rows:
+        o = r.get("outcome", "SCRATCH")
+        outcomes[o] = outcomes.get(o, 0) + 1
+        a = r.get("expectation_accuracy", "missed")
+        accuracy_counts[a] = accuracy_counts.get(a, 0) + 1
+        total_pnl += float(r.get("pnl_pct", 0) or 0)
+
+        depth = str(r.get("tumbler_depth", 0) or 0)
+        if depth not in depth_by_outcome:
+            depth_by_outcome[depth] = {"wins": 0, "losses": 0, "total": 0}
+        depth_by_outcome[depth]["total"] += 1
+        if o in ("STRONG_WIN", "WIN"):
+            depth_by_outcome[depth]["wins"] += 1
+        elif o in ("LOSS", "STRONG_LOSS"):
+            depth_by_outcome[depth]["losses"] += 1
+
+    total = len(rows)
+    wins = outcomes.get("STRONG_WIN", 0) + outcomes.get("WIN", 0)
+    losses = outcomes.get("LOSS", 0) + outcomes.get("STRONG_LOSS", 0)
+
+    # Expectation calibration: % of trades where direction was met or exceeded
+    well_called = accuracy_counts.get("met", 0) + accuracy_counts.get("exceeded", 0)
+
+    return {
+        "total": total,
+        "wins": wins,
+        "losses": losses,
+        "scratches": outcomes.get("SCRATCH", 0),
+        "win_rate": round(wins / total * 100, 1) if total else 0,
+        "avg_pnl_pct": round(total_pnl / total, 2) if total else 0,
+        "expectation_accuracy_pct": round(well_called / total * 100, 1) if total else 0,
+        "outcomes": outcomes,
+        "accuracy_distribution": accuracy_counts,
+        "depth_performance": depth_by_outcome,
+    }
+
+
+@app.get("/api/trade-learnings/{learning_id}")
+async def get_trade_learning_detail(
+    learning_id: str,
+    request: Request,
+    oc_session: str | None = Cookie(None),
+):
+    """Full trade learning record including market context and catalysts."""
+    _require_auth(request, oc_session)
+    learning_id = _validate_uuid(learning_id)
+    if not SUPABASE_URL:
+        return {}
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/trade_learnings",
+        headers=sb_headers(),
+        params={"id": f"eq.{learning_id}"},
+    )
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    return {}
 
 
 if __name__ == "__main__":

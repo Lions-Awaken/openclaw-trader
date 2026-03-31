@@ -20,19 +20,16 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-import httpx
-
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import PipelineTracer, _post_to_supabase, _sb_headers
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
-PERPLEXITY_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-
-# Reusable HTTP client
-_client = httpx.Client(timeout=15.0)
+from common import (
+    FINNHUB_KEY,
+    PERPLEXITY_KEY,
+    _client,
+    generate_embedding,
+    sb_get,
+    slack_notify,
+)
+from tracer import PipelineTracer, _post_to_supabase
 
 # Lookback window for news (12 hours)
 LOOKBACK_HOURS = 12
@@ -67,21 +64,8 @@ BEARISH_KEYWORDS = [
 ]
 
 
-def sb_get(path: str, params: dict | None = None) -> list:
-    """GET from Supabase REST API."""
-    client = _client
-    resp = client.get(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
-
-
 def get_watchlist() -> list[str]:
-    """Load active tickers from tiktok_accounts (used as watchlist source)."""
+    """Load active tickers for catalyst monitoring."""
     # First try trade-relevant tables
     tickers = set()
 
@@ -148,21 +132,6 @@ def classify_catalyst(headline: str, content: str = "") -> dict:
         "sentiment_score": round(sentiment, 3),
         "magnitude": magnitude,
     }
-
-
-def generate_embedding(text: str) -> list[float] | None:
-    """Generate embedding via Ollama, then release model memory."""
-    try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            )
-            if resp.status_code == 200:
-                return resp.json().get("embedding")
-    except Exception:
-        pass
-    return None
 
 
 def check_duplicate(embedding: list[float], recent_embeddings: list[list[float]], threshold: float = 0.95) -> bool:
@@ -422,6 +391,10 @@ def run():
             result.set({"tickers": watchlist, "count": len(watchlist)})
 
         all_raw_events = []
+        finnhub_count = 0
+        sec_count = 0
+        qq_count = 0
+        ppx_count = 0
 
         # Step 2: Finnhub news + insiders per ticker
         with tracer.step("fetch_finnhub", input_snapshot={"tickers": watchlist}) as result:
@@ -429,7 +402,8 @@ def run():
                 all_raw_events.extend(fetch_finnhub_news(ticker))
                 all_raw_events.extend(fetch_finnhub_insiders(ticker))
                 time.sleep(0.2)  # Respect Finnhub rate limit (60/min)
-            result.set({"finnhub_events": len(all_raw_events)})
+            finnhub_count = len(all_raw_events)
+            result.set({"finnhub_events": finnhub_count})
 
         # Step 3: SEC EDGAR RSS
         with tracer.step("fetch_sec_edgar") as result:
@@ -438,7 +412,8 @@ def run():
             for ev in sec_events:
                 if ev["ticker"] and ev["ticker"] in watchlist:
                     all_raw_events.append(ev)
-            result.set({"sec_events": len(sec_events), "matched": len([e for e in sec_events if e["ticker"] in watchlist])})
+            sec_count = len([e for e in sec_events if e["ticker"] in watchlist])
+            result.set({"sec_events": len(sec_events), "matched": sec_count})
 
         # Step 4: QuiverQuant congressional trades
         with tracer.step("fetch_quiverquant") as result:
@@ -446,13 +421,15 @@ def run():
             for ev in qq_events:
                 if ev["ticker"] and ev["ticker"] in watchlist:
                     all_raw_events.append(ev)
-            result.set({"qq_events": len(qq_events), "matched": len([e for e in qq_events if e.get("ticker") in watchlist])})
+            qq_count = len([e for e in qq_events if e.get("ticker") in watchlist])
+            result.set({"qq_events": len(qq_events), "matched": qq_count})
 
         # Step 5: Perplexity deep search for top movers
         with tracer.step("fetch_perplexity", input_snapshot={"tickers": watchlist[:3]}) as result:
             ppx_events = fetch_perplexity_search(watchlist)
             all_raw_events.extend(ppx_events)
-            result.set({"perplexity_events": len(ppx_events)})
+            ppx_count = len(ppx_events)
+            result.set({"perplexity_events": ppx_count})
 
         print(f"[catalyst_ingest] Raw events collected: {len(all_raw_events)}")
 
@@ -517,12 +494,19 @@ def run():
 
         tracer.complete({"total_inserted": inserted, "total_duplicates": duplicates})
         print(f"[catalyst_ingest] Complete. Inserted: {inserted}, Duplicates: {duplicates}")
+        slack_notify(
+            f"*Catalyst Ingest complete* — `{inserted}` events inserted, `{duplicates}` dupes skipped\n"
+            f"Sources: finnhub `{finnhub_count}` · sec `{sec_count}` · quiverquant `{qq_count}` · perplexity `{ppx_count}`"
+        )
 
     except Exception as e:
         tracer.fail(str(e))
         print(f"[catalyst_ingest] Failed: {e}")
+        slack_notify(f"*Catalyst Ingest FATAL*: {e}")
         raise
 
 
 if __name__ == "__main__":
+    from loki_logger import get_logger
+    _logger = get_logger("catalyst_ingest")
     run()

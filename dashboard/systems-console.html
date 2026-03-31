@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Systems Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ================================================================
+   RESET + BASE
+   ================================================================ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg:        #0a0a0f;
+  --panel-bg:  #12121a;
+  --border:    rgba(255,255,255,0.06);
+  --cyan:      #00ffee;
+  --blue:      #00aaff;
+  --green:     #00ff88;
+  --amber:     #ffaa00;
+  --red:       #ff3333;
+  --text:      #e0e0e0;
+  --text-dim:  #808090;
+}
+
+body {
+  font-family: 'Orbitron', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  text-transform: uppercase;
+  font-weight: 700;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  min-width: 768px;
+}
+
+/* ================================================================
+   LAYOUT
+   ================================================================ */
+.page-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 0 16px 16px;
+}
+
+/* Alert bar */
+.alert-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  letter-spacing: 1px;
+  font-weight: 900;
+  color: #000;
+  transition: height 0.3s ease, background 0.3s ease;
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+.alert-bar.visible { height: 40px; }
+.alert-bar.warning { background: var(--amber); }
+.alert-bar.critical { background: var(--red); color: #fff; }
+.alert-bar-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Disconnected banner */
+.disconnect-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 200;
+  height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  font-weight: 900;
+  transition: height 0.3s ease;
+}
+.disconnect-banner.visible { height: 36px; }
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.header-title {
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+  background: linear-gradient(135deg, var(--cyan), var(--blue));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+.header-right .hw-info { opacity: 0.7; }
+.header-right .live-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* SVG glow filter */
+.mjolnir-glow { filter: drop-shadow(0 0 4px rgba(0,255,238,0.5)); }
+
+/* Grid zones */
+.primary-zone {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.secondary-zone {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.detail-zone {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+/* Panels */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.panel-label {
+  font-size: 0.5rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.panel-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.panel canvas { display: block; }
+
+/* Gauge panels -- taller */
+.primary-zone .panel { min-height: 240px; }
+.secondary-zone .panel { min-height: 170px; }
+.detail-zone .panel { min-height: 140px; }
+
+/* Clickable primary panels */
+.panel.clickable { cursor: pointer; }
+.panel.clickable:hover { border-color: rgba(0,255,238,0.15); }
+.panel.clickable:hover::after {
+  content: 'CLICK FOR DETAIL';
+  position: absolute;
+  bottom: 6px;
+  right: 10px;
+  font-size: 0.35rem;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  opacity: 0;
+  animation: hint-fade-in 0.3s forwards;
+}
+@keyframes hint-fade-in { to { opacity: 0.6; } }
+
+/* Status glow on panels */
+.panel.status-warning { border-color: rgba(255,170,0,0.3); box-shadow: inset 0 0 20px rgba(255,170,0,0.05); }
+.panel.status-critical { border-color: rgba(255,51,51,0.3); box-shadow: inset 0 0 20px rgba(255,51,51,0.05); }
+
+/* Text panels */
+.text-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+}
+.text-readout .big-value {
+  font-size: 1.6rem;
+  font-weight: 900;
+  color: var(--cyan);
+}
+.text-readout .sub-value {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+.text-readout .status-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+/* Cron table */
+.cron-table {
+  width: 100%;
+  font-size: 0.48rem;
+  letter-spacing: 0.5px;
+  border-collapse: collapse;
+}
+.cron-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.cron-table td:first-child { color: var(--text-dim); }
+.cron-table td:last-child { text-align: right; }
+.cron-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* Stack health grid */
+.stack-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+}
+.stack-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 0.42rem;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  transition: background 0.3s ease;
+}
+.stack-cell.up { background: rgba(0,255,136,0.15); border: 1px solid rgba(0,255,136,0.3); }
+.stack-cell.down { background: rgba(255,51,51,0.15); border: 1px solid rgba(255,51,51,0.3); color: var(--red); }
+
+/* Sparkline + value layout */
+.sparkline-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+.sparkline-values {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.sparkline-values .big-value {
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: var(--cyan);
+}
+.sparkline-values .sub-value {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+}
+.sparkline-canvas-wrap {
+  flex: 1;
+  min-height: 50px;
+  position: relative;
+}
+.sparkline-canvas-wrap canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Linear gauge */
+.linear-gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 0;
+}
+.linear-gauge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.linear-gauge-label {
+  font-size: 0.45rem;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  width: 55px;
+  flex-shrink: 0;
+}
+.linear-gauge-track {
+  flex: 1;
+  height: 12px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+.linear-gauge-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.6s ease, background 0.3s ease;
+}
+.linear-gauge-value {
+  font-size: 0.5rem;
+  color: var(--text);
+  width: 50px;
+  text-align: right;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Dual sparkline */
+.dual-sparkline {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+.dual-sparkline-legend {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 4px;
+}
+.dual-sparkline-legend .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.48rem;
+  color: var(--text-dim);
+}
+.legend-swatch {
+  width: 10px; height: 3px;
+  border-radius: 1px;
+}
+
+/* ================================================================
+   DRILL-DOWN MODAL
+   ================================================================ */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.modal-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.modal-content {
+  background: var(--panel-bg);
+  border: 1px solid rgba(0,255,238,0.2);
+  border-radius: 12px;
+  padding: 20px 24px;
+  min-width: 420px;
+  max-width: 640px;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  transform: scale(0.95);
+  transition: transform 0.25s ease;
+}
+.modal-overlay.visible .modal-content {
+  transform: scale(1);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-title {
+  font-size: 0.7rem;
+  letter-spacing: 2px;
+  color: var(--cyan);
+}
+.modal-close {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.5rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.modal-close:hover { border-color: var(--cyan); color: var(--cyan); }
+
+.modal-section {
+  margin-bottom: 14px;
+}
+.modal-section-title {
+  font-size: 0.45rem;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.modal-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.modal-bar-label {
+  font-size: 0.42rem;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  width: 60px;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: none;
+}
+.modal-bar-track {
+  flex: 1;
+  height: 10px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.modal-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.4s ease;
+}
+.modal-bar-value {
+  font-size: 0.45rem;
+  width: 45px;
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: none;
+}
+
+.modal-zone-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.modal-zone-cell {
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: center;
+}
+.modal-zone-name {
+  font-size: 0.38rem;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.modal-zone-value {
+  font-size: 0.8rem;
+  font-weight: 900;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.modal-mem-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.45rem;
+}
+.modal-mem-label { color: var(--text-dim); letter-spacing: 1px; }
+.modal-mem-value { font-family: 'JetBrains Mono', monospace; text-transform: none; }
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .primary-zone .panel { min-height: 180px; }
+  .secondary-zone .panel { min-height: 140px; }
+  .header-title { font-size: 0.9rem; }
+}
+@media (max-width: 768px) {
+  .primary-zone { grid-template-columns: 1fr; }
+  .secondary-zone { grid-template-columns: repeat(2, 1fr); }
+  .detail-zone { grid-template-columns: 1fr; }
+  .modal-content { min-width: unset; }
+}
+</style>
+</head>
+<body>
+
+<!-- Disconnect banner -->
+<div class="disconnect-banner" id="disconnectBanner">
+  <span>DISCONNECTED -- RECONNECTING...</span>
+</div>
+
+<div class="page-wrapper">
+
+  <!-- Alert bar -->
+  <div class="alert-bar" id="alertBar">
+    <span class="alert-bar-text" id="alertText"></span>
+  </div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <svg class="mjolnir-glow" width="28" height="28" viewBox="0 0 100 100" fill="none">
+        <defs>
+          <filter id="mjolnir-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="2" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <path d="M16.60 18.72 L26.20 9.12 Q27.12 8.20 28.42 8.20 L71.58 8.20 Q72.88 8.20 73.80 9.12 L83.40 18.72 Q84.32 19.64 84.32 20.94 L84.32 37.06 Q84.32 38.36 83.40 39.28 L73.80 48.88 Q72.88 49.80 71.58 49.80 L55.98 49.80 Q54.68 49.80 54.68 51.10 L54.68 90.97 Q54.68 92.27 53.38 92.27 L46.62 92.27 Q45.32 92.27 45.32 90.97 L45.32 51.10 Q45.32 49.80 44.02 49.80 L28.42 49.80 Q27.12 49.80 26.20 48.88 L16.60 39.28 Q15.68 38.36 15.68 37.06 L15.68 20.94 Q15.68 19.64 16.60 18.72 Z"
+          fill="none" stroke="#00ffee" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
+          filter="url(#mjolnir-glow)" />
+      </svg>
+      <span class="header-title">Systems Console</span>
+    </div>
+    <div class="header-right">
+      <span class="hw-info" id="hwInfo">Loading...</span>
+      <div class="live-dot" id="liveDot"></div>
+    </div>
+  </header>
+
+  <!-- Primary Zone: 3 Radial Gauges -->
+  <div class="primary-zone">
+    <div class="panel clickable" id="panelCpu" data-drill="cpu">
+      <div class="panel-label">CPU Utilization</div>
+      <div class="panel-body"><canvas id="gaugeCpu"></canvas></div>
+    </div>
+    <div class="panel clickable" id="panelMem" data-drill="mem">
+      <div class="panel-label">Memory Pressure</div>
+      <div class="panel-body"><canvas id="gaugeMem"></canvas></div>
+    </div>
+    <div class="panel clickable" id="panelTemp" data-drill="temp">
+      <div class="panel-label">Junction Temperature</div>
+      <div class="panel-body"><canvas id="gaugeTemp"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Secondary Zone: 3x2 grid -->
+  <div class="secondary-zone">
+    <div class="panel" id="panelInference">
+      <div class="panel-label">Inference Latency</div>
+      <div class="panel-body">
+        <div class="sparkline-panel">
+          <div class="sparkline-values">
+            <span class="big-value" id="inferenceP50">--</span>
+            <span class="sub-value" id="inferenceP95">p95: --</span>
+          </div>
+          <div class="sparkline-canvas-wrap"><canvas id="sparkInference"></canvas></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="panelPipeline">
+      <div class="panel-label">Pipeline Health (24h)</div>
+      <div class="panel-body"><canvas id="donutPipeline"></canvas></div>
+    </div>
+    <div class="panel" id="panelOllama">
+      <div class="panel-label">Ollama Status</div>
+      <div class="panel-body">
+        <div class="text-readout" id="ollamaReadout">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="status-dot" id="ollamaDot" style="background:#808090;flex-shrink:0;"></span>
+            <span id="ollamaState" style="font-size:1.2rem;font-weight:900;">--</span>
+          </div>
+          <div class="sub-value" id="ollamaModels">No models loaded</div>
+          <div class="sub-value" id="ollamaVram">Model RAM: --</div>
+        </div>
+      </div>
+    </div>
+    <!-- Row 2 -->
+    <div class="panel" id="panelCron">
+      <div class="panel-label">Cron Freshness</div>
+      <div class="panel-body" style="align-items:flex-start;overflow-y:auto;">
+        <table class="cron-table" id="cronTable"><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="panel" id="panelStack">
+      <div class="panel-label">Stack Health</div>
+      <div class="panel-body">
+        <div class="stack-grid" id="stackGrid"></div>
+      </div>
+    </div>
+    <div class="panel" id="panelTokens">
+      <div class="panel-label">Ollama Throughput</div>
+      <div class="panel-body">
+        <div class="sparkline-panel">
+          <div class="sparkline-values">
+            <span class="big-value" id="tokensValue">--</span>
+            <span class="sub-value">tok/s</span>
+          </div>
+          <div class="sparkline-canvas-wrap"><canvas id="sparkTokens"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail Zone -->
+  <div class="detail-zone">
+    <div class="panel" id="panelPower">
+      <div class="panel-label">Power &amp; Thermal</div>
+      <div class="panel-body">
+        <div class="dual-sparkline">
+          <div class="dual-sparkline-legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--amber)"></span>Power (W)</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--red)"></span>TJ Temp</div>
+          </div>
+          <div class="sparkline-canvas-wrap"><canvas id="sparkPower"></canvas></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="panelDisk">
+      <div class="panel-label">Swap &amp; Disk</div>
+      <div class="panel-body" style="align-items:stretch;">
+        <div class="linear-gauges" id="linearGauges"></div>
+      </div>
+    </div>
+    <div class="panel" id="panelNetwork">
+      <div class="panel-label">Network Latency</div>
+      <div class="panel-body">
+        <div class="sparkline-panel">
+          <div class="sparkline-values">
+            <span class="big-value" id="networkValue">--</span>
+            <span class="sub-value">ms</span>
+          </div>
+          <div class="sparkline-canvas-wrap"><canvas id="sparkNetwork"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.page-wrapper -->
+
+<!-- Drill-down modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-content" id="modalContent">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTitle"></span>
+      <button class="modal-close" id="modalClose">ESC</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   SYSTEMS CONSOLE -- OpenClaw Trader
+   Canvas 2D rendering, SSE real-time updates, 30fps animations,
+   drill-down modals, graceful offline handling.
+   ================================================================ */
+(function() {
+  'use strict';
+
+  // -- Color constants ---------------------------------------------------
+  var CYAN     = '#00ffee';
+  var BLUE     = '#00aaff';
+  var GREEN    = '#00ff88';
+  var AMBER    = '#ffaa00';
+  var RED      = '#ff3333';
+  var TEXT     = '#e0e0e0';
+  var TEXT_DIM = '#808090';
+  var PANEL_BG = '#12121a';
+  var BG       = '#0a0a0f';
+
+  // -- State -------------------------------------------------------------
+  var metrics = {};
+  var alerts = {};
+  var sseConnected = false;
+  var eventSource = null;
+  var animFrameId = null;
+  var isOffline = false;
+  var firstCpuIgnoreUntil = 0;
+  var serverStartTime = 0;
+
+  // Sparkline data buffers (max 120 points = ~4 min at 2s)
+  var SPARK_MAX = 120;
+  var sparkData = {
+    inference_latency: [],
+    ollama_tokens_per_sec: [],
+    power_draw: [],
+    tj_temp_spark: [],
+    network_latency: [],
+    cpu_usage: [],
+    mem_usage: [],
+    gpu_load: []
+  };
+
+  // Animated gauge values (spring-based smoothing)
+  var gaugeAnimated = {
+    cpu: 0, gpu: 0,
+    mem: 0, memOllama: 0, memGateway: 0,
+    temp: 30,
+    pipelineSuccess: 0
+  };
+
+  // -- Utility -----------------------------------------------------------
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function statusColor(status) {
+    if (status === 'critical') return RED;
+    if (status === 'warning') return AMBER;
+    return CYAN;
+  }
+
+  function formatMs(ms) {
+    if (!ms || ms === 0) return '--';
+    if (ms >= 1000) return (ms / 1000).toFixed(1) + 's';
+    return Math.round(ms) + 'ms';
+  }
+
+  function relativeTime(isoString) {
+    if (!isoString) return 'never';
+    var then = new Date(isoString).getTime();
+    var now = Date.now();
+    var diff = (now - then) / 1000;
+    if (diff < 0) return 'just now';
+    if (diff < 60) return Math.round(diff) + 's ago';
+    if (diff < 3600) return Math.round(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
+    return Math.round(diff / 86400) + 'd ago';
+  }
+
+  function pushSpark(key, value) {
+    if (!sparkData[key]) sparkData[key] = [];
+    sparkData[key].push(value);
+    if (sparkData[key].length > SPARK_MAX) sparkData[key].shift();
+  }
+
+  function hexToRgb(hex) {
+    var h = hex.replace('#', '');
+    return {
+      r: parseInt(h.substr(0,2), 16),
+      g: parseInt(h.substr(2,2), 16),
+      b: parseInt(h.substr(4,2), 16)
+    };
+  }
+
+  // -- DPR-aware canvas setup -------------------------------------------
+  function setupCanvasToParent(canvas) {
+    var parent = canvas.parentElement;
+    var w = parent.clientWidth;
+    var h = parent.clientHeight;
+    if (w < 1 || h < 1) { w = 200; h = 80; }
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    var ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    return { ctx: ctx, w: w, h: h };
+  }
+
+  // -- Radial Gauge Drawing ---------------------------------------------
+  function drawRadialGauge(canvasId, options) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    var parent = canvas.parentElement;
+    var size = Math.min(parent.clientWidth, parent.clientHeight);
+    if (size < 60) size = 180;
+
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+
+    var ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    var cx = size / 2;
+    var cy = size / 2;
+    var radius = size * 0.38;
+    var lineWidth = size * 0.06;
+    var startAngle = (225 * Math.PI) / 180;
+    var sweepAngle = (270 * Math.PI) / 180;
+
+    // Background arc
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, startAngle, startAngle + sweepAngle);
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Value arc
+    var value = options.value !== undefined ? options.value : 0;
+    var min = options.min !== undefined ? options.min : 0;
+    var max = options.max !== undefined ? options.max : 100;
+    var pct = clamp((value - min) / (max - min), 0, 1);
+    var valAngle = startAngle + sweepAngle * pct;
+
+    if (pct > 0.001) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, startAngle, valAngle);
+      ctx.strokeStyle = options.color || CYAN;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Glow
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, startAngle, valAngle);
+      ctx.strokeStyle = options.color || CYAN;
+      ctx.lineWidth = lineWidth + 8;
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = 0.08;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Secondary arc (GPU inside CPU gauge)
+    if (options.secondaryValue !== undefined && options.secondaryMax !== undefined) {
+      var secRadius = radius - lineWidth - 4;
+      var secLineWidth = lineWidth * 0.5;
+      var secPct = clamp((options.secondaryValue - min) / (options.secondaryMax - min), 0, 1);
+      var secAngle = startAngle + sweepAngle * secPct;
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, secRadius, startAngle, startAngle + sweepAngle);
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = secLineWidth;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      if (secPct > 0.001) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, secRadius, startAngle, secAngle);
+        ctx.strokeStyle = options.secondaryColor || BLUE;
+        ctx.lineWidth = secLineWidth;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+
+      ctx.font = '700 ' + Math.round(size * 0.05) + 'px Orbitron';
+      ctx.fillStyle = TEXT_DIM;
+      ctx.textAlign = 'center';
+      ctx.fillText('GPU ' + Math.round(options.secondaryValue) + '%', cx, cy + radius * 0.65);
+    }
+
+    // Segmented arc for memory breakdown
+    if (options.segments) {
+      var segRadius = radius - lineWidth - 4;
+      var segLineWidth = lineWidth * 0.5;
+      var segStart = startAngle;
+      for (var si = 0; si < options.segments.length; si++) {
+        var seg = options.segments[si];
+        var segPct = clamp(seg.value / max, 0, 1);
+        var segSweep = sweepAngle * segPct;
+        if (segPct > 0.001) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, segRadius, segStart, segStart + segSweep);
+          ctx.strokeStyle = seg.color;
+          ctx.lineWidth = segLineWidth;
+          ctx.lineCap = 'butt';
+          ctx.stroke();
+        }
+        segStart += segSweep;
+      }
+    }
+
+    // Threshold marker (temperature gauge throttle zone)
+    if (options.thresholdValue !== undefined) {
+      var threshPct = clamp((options.thresholdValue - min) / (max - min), 0, 1);
+      var threshAngle = startAngle + sweepAngle * threshPct;
+      var markerLen = lineWidth * 0.8;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(threshAngle);
+      ctx.beginPath();
+      ctx.moveTo(radius - markerLen, 0);
+      ctx.lineTo(radius + markerLen, 0);
+      ctx.strokeStyle = RED;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.6;
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.font = '700 ' + Math.round(size * 0.04) + 'px Orbitron';
+      ctx.fillStyle = RED;
+      ctx.globalAlpha = 0.5;
+      ctx.textAlign = 'center';
+      var labelAngle = threshAngle;
+      var labelRadius = radius + lineWidth + 10;
+      var tlx = cx + Math.cos(labelAngle) * labelRadius;
+      var tly = cy + Math.sin(labelAngle) * labelRadius;
+      ctx.fillText('85C', tlx, tly);
+      ctx.restore();
+    }
+
+    // Center value text
+    var displayValue = options.displayValue !== undefined ? options.displayValue : Math.round(value);
+    var unit = options.unit || '%';
+    ctx.font = '900 ' + Math.round(size * 0.16) + 'px Orbitron';
+    ctx.fillStyle = options.color || CYAN;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(displayValue), cx, cy - size * 0.02);
+
+    ctx.font = '700 ' + Math.round(size * 0.06) + 'px Orbitron';
+    ctx.fillStyle = TEXT_DIM;
+    ctx.fillText(unit, cx, cy + size * 0.12);
+
+    // Annotation (frequency)
+    if (options.annotation) {
+      ctx.font = '400 ' + Math.round(size * 0.045) + 'px Orbitron';
+      ctx.fillStyle = TEXT_DIM;
+      ctx.fillText(options.annotation, cx, cy + size * 0.22);
+    }
+  }
+
+  // -- Donut Chart ------------------------------------------------------
+  function drawDonut(canvasId, successPct, total, successes, failures) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    var parent = canvas.parentElement;
+    var size = Math.min(parent.clientWidth, parent.clientHeight);
+    if (size < 60) size = 140;
+
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+
+    var ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    var cx = size / 2;
+    var cy = size / 2;
+    var radius = size * 0.35;
+    var lineWidth = size * 0.08;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+
+    var pct = clamp(successPct / 100, 0, 1);
+    var successAngle = pct * Math.PI * 2;
+
+    if (pct > 0.001) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + successAngle);
+      ctx.strokeStyle = GREEN;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'butt';
+      ctx.stroke();
+    }
+
+    if (pct < 0.999 && failures > 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, -Math.PI / 2 + successAngle, -Math.PI / 2 + Math.PI * 2);
+      ctx.strokeStyle = RED;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'butt';
+      ctx.stroke();
+    }
+
+    ctx.font = '900 ' + Math.round(size * 0.16) + 'px Orbitron';
+    ctx.fillStyle = successPct >= 90 ? GREEN : (successPct >= 75 ? AMBER : RED);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(Math.round(successPct) + '%', cx, cy - size * 0.02);
+
+    ctx.font = '700 ' + Math.round(size * 0.055) + 'px Orbitron';
+    ctx.fillStyle = TEXT_DIM;
+    ctx.fillText(successes + '/' + total + ' ok', cx, cy + size * 0.12);
+  }
+
+  // -- Sparkline Drawing ------------------------------------------------
+  function drawSparkline(canvasId, data, color, options) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    var info = setupCanvasToParent(canvas);
+    var ctx = info.ctx;
+    var w = info.w;
+    var h = info.h;
+
+    if (!data || data.length < 2) {
+      ctx.font = '400 10px Orbitron';
+      ctx.fillStyle = TEXT_DIM;
+      ctx.textAlign = 'center';
+      ctx.fillText('awaiting data', w / 2, h / 2);
+      return;
+    }
+
+    var opts = options || {};
+    var minVal = opts.min !== undefined ? opts.min : Infinity;
+    var maxVal = opts.max !== undefined ? opts.max : -Infinity;
+
+    for (var i = 0; i < data.length; i++) {
+      if (data[i] < minVal) minVal = data[i];
+      if (data[i] > maxVal) maxVal = data[i];
+    }
+    var range = maxVal - minVal;
+    if (range < 1) range = 1;
+    minVal -= range * 0.1;
+    maxVal += range * 0.1;
+
+    var padX = 2;
+    var padY = 4;
+    var plotW = w - padX * 2;
+    var plotH = h - padY * 2;
+
+    var baseColor = color || CYAN;
+    var rgb = hexToRgb(baseColor);
+
+    var fillGrad = ctx.createLinearGradient(0, padY, 0, h);
+    fillGrad.addColorStop(0, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.2)');
+    fillGrad.addColorStop(1, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.0)');
+
+    // Fill
+    ctx.beginPath();
+    for (var j = 0; j < data.length; j++) {
+      var px = padX + (j / (data.length - 1)) * plotW;
+      var py = padY + (1 - (data[j] - minVal) / (maxVal - minVal)) * plotH;
+      if (j === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.lineTo(padX + plotW, h);
+    ctx.lineTo(padX, h);
+    ctx.closePath();
+    ctx.fillStyle = fillGrad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    for (var k = 0; k < data.length; k++) {
+      var lx2 = padX + (k / (data.length - 1)) * plotW;
+      var ly2 = padY + (1 - (data[k] - minVal) / (maxVal - minVal)) * plotH;
+      if (k === 0) ctx.moveTo(lx2, ly2);
+      else ctx.lineTo(lx2, ly2);
+    }
+    ctx.strokeStyle = baseColor;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // Glow
+    ctx.save();
+    ctx.beginPath();
+    for (var m = 0; m < data.length; m++) {
+      var gx = padX + (m / (data.length - 1)) * plotW;
+      var gy = padY + (1 - (data[m] - minVal) / (maxVal - minVal)) * plotH;
+      if (m === 0) ctx.moveTo(gx, gy);
+      else ctx.lineTo(gx, gy);
+    }
+    ctx.strokeStyle = baseColor;
+    ctx.lineWidth = 5;
+    ctx.lineJoin = 'round';
+    ctx.globalAlpha = 0.15;
+    ctx.stroke();
+    ctx.restore();
+
+    // Latest value dot
+    var lastX = padX + plotW;
+    var lastY = padY + (1 - (data[data.length - 1] - minVal) / (maxVal - minVal)) * plotH;
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+    ctx.fillStyle = baseColor;
+    ctx.fill();
+  }
+
+  // -- Dual Sparkline ---------------------------------------------------
+  function drawDualSparkline(canvasId, data1, data2, color1, color2) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    var info = setupCanvasToParent(canvas);
+    var ctx = info.ctx;
+    var w = info.w;
+    var h = info.h;
+
+    if ((!data1 || data1.length < 2) && (!data2 || data2.length < 2)) {
+      ctx.font = '400 10px Orbitron';
+      ctx.fillStyle = TEXT_DIM;
+      ctx.textAlign = 'center';
+      ctx.fillText('awaiting data', w / 2, h / 2);
+      return;
+    }
+
+    function drawOneLine(data, color, minV, maxV) {
+      if (!data || data.length < 2) return;
+      var padX = 2, padY = 4;
+      var plotW = w - padX * 2;
+      var plotH = h - padY * 2;
+      var rng = maxV - minV;
+      if (rng < 1) rng = 1;
+
+      ctx.beginPath();
+      for (var i = 0; i < data.length; i++) {
+        var px = padX + (i / (data.length - 1)) * plotW;
+        var py = padY + (1 - (data[i] - minV) / rng) * plotH;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
+
+    // Power in watts (convert from mW)
+    var powerData = [];
+    for (var i = 0; i < (data1 || []).length; i++) {
+      powerData.push((data1[i] || 0) / 1000);
+    }
+    drawOneLine(powerData, color1, 0, 25);
+    drawOneLine(data2, color2, 30, 100);
+  }
+
+  // -- Panel Update Functions -------------------------------------------
+
+  function updateCpuGauge() {
+    var cpu = metrics.cpu_usage;
+    if (!cpu) return;
+
+    // Ignore first CPU reading of 0% (needs two samples)
+    if (cpu.value === 0 && Date.now() < firstCpuIgnoreUntil) return;
+
+    var gpu = metrics.gpu_load;
+    var gpuVal = gpu ? gpu.value : 0;
+
+    gaugeAnimated.cpu = lerp(gaugeAnimated.cpu, cpu.value, 0.12);
+    gaugeAnimated.gpu = lerp(gaugeAnimated.gpu, gpuVal, 0.12);
+
+    var color = statusColor(cpu.status);
+    drawRadialGauge('gaugeCpu', {
+      value: gaugeAnimated.cpu,
+      min: 0, max: 100,
+      color: color,
+      unit: '%',
+      secondaryValue: gaugeAnimated.gpu,
+      secondaryMax: 100,
+      secondaryColor: BLUE,
+      annotation: cpu.freq_mhz ? cpu.freq_mhz + ' MHz' : ''
+    });
+
+    updatePanelStatus('panelCpu', cpu.status);
+  }
+
+  function updateMemGauge() {
+    var mem = metrics.mem_usage;
+    if (!mem) return;
+
+    gaugeAnimated.mem = lerp(gaugeAnimated.mem, mem.value, 0.12);
+
+    var totalMb = mem.total_mb || 7620;
+    var bd = mem.breakdown || {};
+    var ollamaMb = bd.ollama_mb || 0;
+    var gatewayMb = bd.gateway_mb || 0;
+
+    var ollamaPct = (ollamaMb / totalMb) * 100;
+    var gatewayPct = (gatewayMb / totalMb) * 100;
+
+    gaugeAnimated.memOllama = lerp(gaugeAnimated.memOllama, ollamaPct, 0.12);
+    gaugeAnimated.memGateway = lerp(gaugeAnimated.memGateway, gatewayPct, 0.12);
+
+    var color = statusColor(mem.status);
+    drawRadialGauge('gaugeMem', {
+      value: gaugeAnimated.mem,
+      min: 0, max: 100,
+      color: color,
+      unit: '%',
+      displayValue: Math.round(gaugeAnimated.mem),
+      annotation: Math.round(mem.used_mb || 0) + ' / ' + Math.round(totalMb) + ' MB',
+      segments: [
+        { value: gaugeAnimated.memOllama, color: CYAN },
+        { value: gaugeAnimated.memGateway, color: BLUE },
+        { value: 100 - gaugeAnimated.memOllama - gaugeAnimated.memGateway, color: 'rgba(255,255,255,0.03)' }
+      ]
+    });
+
+    updatePanelStatus('panelMem', mem.status);
+  }
+
+  function updateTempGauge() {
+    var temp = metrics.tj_temp;
+    if (!temp) return;
+
+    gaugeAnimated.temp = lerp(gaugeAnimated.temp, temp.value, 0.12);
+
+    var color;
+    if (gaugeAnimated.temp >= 85) color = RED;
+    else if (gaugeAnimated.temp >= 75) color = AMBER;
+    else if (gaugeAnimated.temp >= 55) color = CYAN;
+    else color = BLUE;
+
+    drawRadialGauge('gaugeTemp', {
+      value: gaugeAnimated.temp,
+      min: 30, max: 100,
+      color: color,
+      unit: 'C',
+      displayValue: gaugeAnimated.temp.toFixed(1),
+      thresholdValue: 85,
+      annotation: temp.zones && temp.zones.cpu != null ? 'CPU: ' + temp.zones.cpu.toFixed(1) + 'C' : ''
+    });
+
+    updatePanelStatus('panelTemp', temp.status);
+  }
+
+  function updateInferencePanel() {
+    var inf = metrics.inference_latency;
+    if (!inf) return;
+
+    var p50El = document.getElementById('inferenceP50');
+    var p95El = document.getElementById('inferenceP95');
+
+    if (inf.value === 0 || !inf.sample_count) {
+      p50El.textContent = '--';
+      p50El.style.color = TEXT_DIM;
+      p95El.textContent = 'no recent data';
+    } else {
+      p50El.textContent = formatMs(inf.p50);
+      p50El.style.color = statusColor(inf.status);
+      p95El.textContent = 'p95: ' + formatMs(inf.p95);
+    }
+
+    drawSparkline('sparkInference', sparkData.inference_latency, statusColor(inf.status));
+    updatePanelStatus('panelInference', inf.status);
+  }
+
+  function updatePipelinePanel() {
+    var pl = metrics.pipeline_health;
+    if (!pl) return;
+
+    gaugeAnimated.pipelineSuccess = lerp(gaugeAnimated.pipelineSuccess, pl.value, 0.12);
+
+    drawDonut('donutPipeline',
+      gaugeAnimated.pipelineSuccess,
+      pl.total || 0,
+      pl.successes || 0,
+      pl.failures || 0
+    );
+
+    updatePanelStatus('panelPipeline', pl.status);
+  }
+
+  function updateOllamaPanel() {
+    var ol = metrics.ollama_status;
+    if (!ol) return;
+
+    var dot = document.getElementById('ollamaDot');
+    var stateEl = document.getElementById('ollamaState');
+    var modelsEl = document.getElementById('ollamaModels');
+    var vramEl = document.getElementById('ollamaVram');
+
+    var stateStr = (ol.value || 'unknown').toUpperCase();
+    stateEl.textContent = stateStr;
+
+    var stateColors = {
+      IDLE: CYAN, LOADED: GREEN, INFERRING: AMBER, DOWN: RED
+    };
+    var dotColor = stateColors[stateStr] || TEXT_DIM;
+    dot.style.background = dotColor;
+    dot.style.boxShadow = '0 0 6px ' + dotColor;
+    stateEl.style.color = dotColor;
+
+    var modelsList = ol.models_loaded || [];
+    modelsEl.textContent = modelsList.length > 0 ? modelsList.join(', ') : 'no models loaded';
+
+    // Use "Model RAM" not "VRAM" per spec (Jetson unified memory)
+    vramEl.textContent = 'Model RAM: ' + (ol.vram_mb || 0) + ' MB';
+
+    updatePanelStatus('panelOllama', ol.status);
+  }
+
+  function updateCronPanel() {
+    var cr = metrics.cron_health;
+    if (!cr || !cr.pipelines) return;
+
+    var tbody = document.querySelector('#cronTable tbody');
+    tbody.innerHTML = '';
+
+    var pipelines = cr.pipelines;
+    var keys = Object.keys(pipelines);
+    keys.sort();
+
+    for (var i = 0; i < keys.length; i++) {
+      var name = keys[i];
+      var p = pipelines[name];
+      var tr = document.createElement('tr');
+
+      var tdName = document.createElement('td');
+      tdName.textContent = name.replace(/_/g, ' ');
+      tr.appendChild(tdName);
+
+      var tdTime = document.createElement('td');
+      var stale = p.stale;
+      var dotSpan = document.createElement('span');
+      dotSpan.className = 'cron-dot';
+      dotSpan.style.background = stale ? RED : GREEN;
+      dotSpan.style.boxShadow = '0 0 4px ' + (stale ? RED : GREEN);
+      tdTime.appendChild(dotSpan);
+
+      var timeSpan = document.createElement('span');
+      timeSpan.style.color = stale ? RED : TEXT;
+      timeSpan.textContent = relativeTime(p.last_run);
+      tdTime.appendChild(timeSpan);
+      tr.appendChild(tdTime);
+
+      tbody.appendChild(tr);
+    }
+
+    updatePanelStatus('panelCron', cr.status);
+  }
+
+  function updateStackPanel() {
+    var st = metrics.stack_health;
+    if (!st || !st.services) return;
+
+    var grid = document.getElementById('stackGrid');
+    grid.innerHTML = '';
+
+    var services = st.services;
+    var serviceOrder = ['supabase', 'alpaca', 'ollama', 'finnhub', 'sentry', 'pgvector', 'tumbler', 'claude'];
+
+    for (var i = 0; i < serviceOrder.length; i++) {
+      var name = serviceOrder[i];
+      var up = services[name];
+      var cell = document.createElement('div');
+      cell.className = 'stack-cell ' + (up ? 'up' : 'down');
+      cell.textContent = name;
+      grid.appendChild(cell);
+    }
+
+    updatePanelStatus('panelStack', st.status);
+  }
+
+  function updateTokensPanel() {
+    var tok = metrics.ollama_tokens_per_sec;
+    if (!tok) return;
+
+    var valEl = document.getElementById('tokensValue');
+    var ollamaIdle = metrics.ollama_status && metrics.ollama_status.value === 'idle';
+    if (tok.value === 0) {
+      valEl.textContent = ollamaIdle ? 'IDLE' : '--';
+      valEl.style.color = TEXT_DIM;
+    } else {
+      valEl.textContent = tok.value.toFixed(1);
+      valEl.style.color = statusColor(tok.status);
+    }
+
+    var effectiveStatus = (tok.value === 0 && ollamaIdle) ? 'normal' : tok.status;
+    drawSparkline('sparkTokens', sparkData.ollama_tokens_per_sec, statusColor(effectiveStatus));
+    updatePanelStatus('panelTokens', effectiveStatus);
+  }
+
+  function updatePowerPanel() {
+    drawDualSparkline('sparkPower',
+      sparkData.power_draw,
+      sparkData.tj_temp_spark,
+      AMBER, RED
+    );
+  }
+
+  function updateDiskPanel() {
+    var swap = metrics.swap_usage;
+    var disk = metrics.disk_root_usage;
+
+    var container = document.getElementById('linearGauges');
+    container.innerHTML = '';
+
+    if (swap) {
+      var swapPct = swap.total_mb > 0 ? (swap.value / swap.total_mb) * 100 : 0;
+      appendLinearGauge(container, 'SWAP', swapPct, swap.value + ' / ' + swap.total_mb + ' MB', swap.status);
+    }
+
+    if (disk) {
+      var diskVal = disk.used_gb !== undefined ? (disk.used_gb + ' / ' + disk.total_gb + ' GB') : (disk.value + '%');
+      appendLinearGauge(container, 'ROOT', disk.value, diskVal, disk.status);
+    }
+  }
+
+  function appendLinearGauge(container, label, pct, valueText, status) {
+    var row = document.createElement('div');
+    row.className = 'linear-gauge-row';
+
+    var labelEl = document.createElement('div');
+    labelEl.className = 'linear-gauge-label';
+    labelEl.textContent = label;
+    row.appendChild(labelEl);
+
+    var track = document.createElement('div');
+    track.className = 'linear-gauge-track';
+    var fill = document.createElement('div');
+    fill.className = 'linear-gauge-fill';
+    fill.style.width = clamp(pct, 0, 100) + '%';
+    fill.style.background = statusColor(status || 'normal');
+    track.appendChild(fill);
+    row.appendChild(track);
+
+    var val = document.createElement('div');
+    val.className = 'linear-gauge-value';
+    val.textContent = valueText;
+    val.style.color = statusColor(status || 'normal');
+    row.appendChild(val);
+
+    container.appendChild(row);
+  }
+
+  function updateNetworkPanel() {
+    var net = metrics.network_latency;
+    if (!net) return;
+
+    var valEl = document.getElementById('networkValue');
+    if (net.value >= 9999) {
+      valEl.textContent = '--';
+      valEl.style.color = TEXT_DIM;
+    } else {
+      valEl.textContent = Math.round(net.value);
+      valEl.style.color = statusColor(net.status);
+    }
+
+    drawSparkline('sparkNetwork', sparkData.network_latency, statusColor(net.status));
+    updatePanelStatus('panelNetwork', net.status);
+  }
+
+  function updatePanelStatus(panelId, status) {
+    var panel = document.getElementById(panelId);
+    if (!panel) return;
+    panel.classList.remove('status-warning', 'status-critical');
+    if (status === 'warning') panel.classList.add('status-warning');
+    else if (status === 'critical') panel.classList.add('status-critical');
+  }
+
+  // -- Alert Bar --------------------------------------------------------
+  function updateAlertBar() {
+    var bar = document.getElementById('alertBar');
+    var text = document.getElementById('alertText');
+    var activeAlerts = [];
+    var worstStatus = 'normal';
+
+    var ollamaIdle = metrics.ollama_status && metrics.ollama_status.value === 'idle';
+    var metricKeys = Object.keys(metrics);
+    for (var i = 0; i < metricKeys.length; i++) {
+      var key = metricKeys[i];
+      var m = metrics[key];
+      if (!m || !m.status || m.status === 'normal') continue;
+      // Suppress tok/s alert when Ollama is idle
+      if (key === 'ollama_tokens_per_sec' && m.value === 0 && ollamaIdle) continue;
+      activeAlerts.push(key);
+      if (m.status === 'critical') worstStatus = 'critical';
+      else if (m.status === 'warning' && worstStatus !== 'critical') worstStatus = 'warning';
+    }
+
+    if (activeAlerts.length === 0) {
+      bar.classList.remove('visible', 'warning', 'critical');
+      return;
+    }
+
+    var alertLabels = {
+      cpu_usage: 'CPU', mem_usage: 'MEMORY', gpu_load: 'GPU',
+      tj_temp: 'TEMP', inference_latency: 'INFERENCE',
+      ollama_tokens_per_sec: 'OLLAMA THROUGHPUT',
+      pipeline_health: 'PIPELINE', cron_health: 'CRON',
+      swap_usage: 'SWAP', disk_root_usage: 'DISK',
+      power_draw: 'POWER', stack_health: 'STACK',
+      network_latency: 'NETWORK', ollama_status: 'OLLAMA'
+    };
+    var alertUnits = {
+      cpu_usage: '%', mem_usage: '%', gpu_load: '%',
+      tj_temp: 'C', inference_latency: 'ms',
+      ollama_tokens_per_sec: ' tok/s', pipeline_health: '%',
+      cron_health: ' fresh', swap_usage: ' MB', disk_root_usage: '%',
+      power_draw: ' mW', stack_health: '/8 up',
+      network_latency: 'ms'
+    };
+    var messages = [];
+    for (var j = 0; j < activeAlerts.length; j++) {
+      var aKey = activeAlerts[j];
+      var met = metrics[aKey];
+      var label = alertLabels[aKey] || aKey.replace(/_/g, ' ').toUpperCase();
+      var val = met.value;
+      var unit = alertUnits[aKey] || '';
+      messages.push(label + ' ' + val + unit);
+    }
+
+    text.textContent = messages.join('  //  ');
+    bar.classList.add('visible');
+    bar.classList.remove('warning', 'critical');
+    bar.classList.add(worstStatus);
+  }
+
+  // -- Drill-down Modal -------------------------------------------------
+  var modalOpen = false;
+  var currentDrill = null;
+
+  function openModal(type) {
+    var overlay = document.getElementById('modalOverlay');
+    var title = document.getElementById('modalTitle');
+    var body = document.getElementById('modalBody');
+
+    currentDrill = type;
+    modalOpen = true;
+
+    if (type === 'cpu') {
+      title.textContent = 'CPU Detail';
+      renderCpuDrilldown(body);
+    } else if (type === 'mem') {
+      title.textContent = 'Memory Breakdown';
+      renderMemDrilldown(body);
+    } else if (type === 'temp') {
+      title.textContent = 'Thermal Zones';
+      renderTempDrilldown(body);
+    }
+
+    overlay.classList.add('visible');
+  }
+
+  function closeModal() {
+    var overlay = document.getElementById('modalOverlay');
+    overlay.classList.remove('visible');
+    modalOpen = false;
+    currentDrill = null;
+  }
+
+  function renderCpuDrilldown(body) {
+    var cpu = metrics.cpu_usage;
+    if (!cpu) {
+      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:0.5rem;">No CPU data available</p>';
+      return;
+    }
+
+    var html = '';
+
+    // Per-core bars
+    html += '<div class="modal-section">';
+    html += '<div class="modal-section-title">Per-Core Utilization</div>';
+    var cores = cpu.per_core || [];
+    for (var i = 0; i < cores.length; i++) {
+      var coreVal = cores[i];
+      var coreColor = coreVal >= 90 ? RED : (coreVal >= 75 ? AMBER : CYAN);
+      html += '<div class="modal-bar-row">';
+      html += '<div class="modal-bar-label">Core ' + i + '</div>';
+      html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp(coreVal, 0, 100) + '%;background:' + coreColor + '"></div></div>';
+      html += '<div class="modal-bar-value" style="color:' + coreColor + '">' + coreVal.toFixed(1) + '%</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // GPU detail
+    var gpu = metrics.gpu_load;
+    if (gpu) {
+      html += '<div class="modal-section">';
+      html += '<div class="modal-section-title">GPU</div>';
+      var gpuColor = statusColor(gpu.status);
+      html += '<div class="modal-bar-row">';
+      html += '<div class="modal-bar-label">Load</div>';
+      html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp(gpu.value, 0, 100) + '%;background:' + gpuColor + '"></div></div>';
+      html += '<div class="modal-bar-value" style="color:' + gpuColor + '">' + gpu.value.toFixed(1) + '%</div>';
+      html += '</div>';
+      html += '<div class="modal-bar-row">';
+      html += '<div class="modal-bar-label">Freq</div>';
+      html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp((gpu.freq_mhz || 0) / 1020 * 100, 0, 100) + '%;background:' + BLUE + '"></div></div>';
+      html += '<div class="modal-bar-value" style="color:' + BLUE + '">' + (gpu.freq_mhz || 0) + ' MHz</div>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // Frequency
+    html += '<div class="modal-section">';
+    html += '<div class="modal-section-title">CPU Frequency</div>';
+    html += '<div class="modal-bar-row">';
+    html += '<div class="modal-bar-label">Freq</div>';
+    html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp((cpu.freq_mhz || 0) / 1728 * 100, 0, 100) + '%;background:' + CYAN + '"></div></div>';
+    html += '<div class="modal-bar-value" style="color:' + CYAN + '">' + (cpu.freq_mhz || 0) + ' / 1728 MHz</div>';
+    html += '</div>';
+    html += '</div>';
+
+    body.innerHTML = html;
+  }
+
+  function renderMemDrilldown(body) {
+    var mem = metrics.mem_usage;
+    if (!mem) {
+      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:0.5rem;">No memory data available</p>';
+      return;
+    }
+
+    var totalMb = mem.total_mb || 7620;
+    var usedMb = mem.used_mb || 0;
+    var availMb = mem.available_mb || 0;
+    var bd = mem.breakdown || {};
+
+    var html = '';
+
+    // Summary
+    html += '<div class="modal-section">';
+    html += '<div class="modal-section-title">Memory Summary</div>';
+    html += '<div class="modal-mem-row"><span class="modal-mem-label">Total</span><span class="modal-mem-value">' + totalMb + ' MB</span></div>';
+    html += '<div class="modal-mem-row"><span class="modal-mem-label">Used</span><span class="modal-mem-value" style="color:' + statusColor(mem.status) + '">' + usedMb + ' MB (' + mem.value.toFixed(1) + '%)</span></div>';
+    html += '<div class="modal-mem-row"><span class="modal-mem-label">Available</span><span class="modal-mem-value" style="color:' + GREEN + '">' + availMb + ' MB</span></div>';
+    html += '</div>';
+
+    // Breakdown
+    html += '<div class="modal-section">';
+    html += '<div class="modal-section-title">Process Breakdown</div>';
+
+    var processes = [
+      { name: 'Ollama', value: bd.ollama_mb || 0, color: CYAN },
+      { name: 'Gateway', value: bd.gateway_mb || 0, color: BLUE },
+      { name: 'OpenClaw', value: bd.openclaw_mb || 0, color: GREEN }
+    ];
+
+    for (var i = 0; i < processes.length; i++) {
+      var proc = processes[i];
+      var procPct = (proc.value / totalMb) * 100;
+      html += '<div class="modal-bar-row">';
+      html += '<div class="modal-bar-label">' + proc.name + '</div>';
+      html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp(procPct, 0, 100) + '%;background:' + proc.color + '"></div></div>';
+      html += '<div class="modal-bar-value" style="color:' + proc.color + '">' + Math.round(proc.value) + ' MB</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // Swap
+    var swap = metrics.swap_usage;
+    if (swap) {
+      html += '<div class="modal-section">';
+      html += '<div class="modal-section-title">Swap (zRAM)</div>';
+      var swapPct = swap.total_mb > 0 ? (swap.value / swap.total_mb) * 100 : 0;
+      html += '<div class="modal-bar-row">';
+      html += '<div class="modal-bar-label">Swap</div>';
+      html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp(swapPct, 0, 100) + '%;background:' + statusColor(swap.status) + '"></div></div>';
+      html += '<div class="modal-bar-value" style="color:' + statusColor(swap.status) + '">' + swap.value + ' / ' + swap.total_mb + ' MB</div>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    body.innerHTML = html;
+  }
+
+  function renderTempDrilldown(body) {
+    var temp = metrics.tj_temp;
+    if (!temp) {
+      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:0.5rem;">No temperature data available</p>';
+      return;
+    }
+
+    var zones = temp.zones || {};
+    var zoneNames = ['tj', 'cpu', 'gpu', 'soc0', 'soc1', 'soc2', 'cv0', 'cv1', 'cv2'];
+    var zoneLabels = {
+      tj: 'Junction (TJ)', cpu: 'CPU', gpu: 'GPU',
+      soc0: 'SoC 0', soc1: 'SoC 1', soc2: 'SoC 2',
+      cv0: 'CV 0', cv1: 'CV 1', cv2: 'CV 2'
+    };
+
+    var html = '';
+    html += '<div class="modal-section">';
+    html += '<div class="modal-section-title">All Thermal Zones</div>';
+    html += '<div class="modal-zone-grid">';
+
+    for (var i = 0; i < zoneNames.length; i++) {
+      var zName = zoneNames[i];
+      var zVal = zones[zName];
+      var displayVal = zVal != null ? zVal.toFixed(1) + 'C' : '--';
+      var zColor = TEXT_DIM;
+
+      if (zVal != null) {
+        if (zVal >= 85) zColor = RED;
+        else if (zVal >= 75) zColor = AMBER;
+        else if (zVal >= 55) zColor = CYAN;
+        else zColor = BLUE;
+      }
+
+      html += '<div class="modal-zone-cell">';
+      html += '<div class="modal-zone-name">' + (zoneLabels[zName] || zName) + '</div>';
+      html += '<div class="modal-zone-value" style="color:' + zColor + '">' + displayVal + '</div>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    html += '</div>';
+
+    // Power correlation
+    var power = metrics.power_draw;
+    if (power) {
+      html += '<div class="modal-section">';
+      html += '<div class="modal-section-title">Power Rails</div>';
+
+      var rails = power.rails || {};
+      var railList = [
+        { name: 'VDD_IN (Total)', value: rails.vdd_in || power.value, max: 25000, color: AMBER },
+        { name: 'CPU/GPU/CV', value: rails.vdd_cpu_gpu_cv || 0, max: 15000, color: CYAN },
+        { name: 'SoC', value: rails.vdd_soc || 0, max: 5000, color: BLUE }
+      ];
+
+      for (var j = 0; j < railList.length; j++) {
+        var rail = railList[j];
+        var railPct = (rail.value / rail.max) * 100;
+        html += '<div class="modal-bar-row">';
+        html += '<div class="modal-bar-label" style="width:80px">' + rail.name + '</div>';
+        html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp(railPct, 0, 100) + '%;background:' + rail.color + '"></div></div>';
+        html += '<div class="modal-bar-value" style="color:' + rail.color + '">' + (rail.value / 1000).toFixed(1) + ' W</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    // Throttle warning
+    if (temp.value >= 80) {
+      html += '<div class="modal-section" style="padding:10px;background:rgba(255,51,51,0.1);border-radius:6px;border:1px solid rgba(255,51,51,0.3);">';
+      html += '<div style="font-size:0.5rem;color:' + RED + ';letter-spacing:1px;">THERMAL THROTTLE ZONE APPROACHING</div>';
+      html += '<div style="font-size:0.4rem;color:' + TEXT_DIM + ';margin-top:4px;letter-spacing:0.5px;">Clock speeds will reduce above 85C. Current headroom: ' + (85 - temp.value).toFixed(1) + 'C</div>';
+      html += '</div>';
+    }
+
+    body.innerHTML = html;
+  }
+
+  function updateDrilldown() {
+    if (!modalOpen || !currentDrill) return;
+    var body = document.getElementById('modalBody');
+    if (currentDrill === 'cpu') renderCpuDrilldown(body);
+    else if (currentDrill === 'mem') renderMemDrilldown(body);
+    else if (currentDrill === 'temp') renderTempDrilldown(body);
+  }
+
+  // Click handlers for drill-down
+  document.addEventListener('click', function(e) {
+    var panel = e.target.closest('.panel[data-drill]');
+    if (panel) {
+      openModal(panel.getAttribute('data-drill'));
+      return;
+    }
+
+    // Close modal on overlay click
+    if (e.target.id === 'modalOverlay') {
+      closeModal();
+    }
+  });
+
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && modalOpen) closeModal();
+  });
+
+  // -- Master render loop -----------------------------------------------
+  var lastRender = -100;
+  var renderInterval = 1000 / 30; // 30fps for gauge animations -- saves CPU
+  var drilldownCounter = 0;
+
+  function render(now) {
+    animFrameId = requestAnimationFrame(render);
+
+    if (now - lastRender < renderInterval) return;
+    lastRender = now;
+
+    updateCpuGauge();
+    updateMemGauge();
+    updateTempGauge();
+    updateInferencePanel();
+    updatePipelinePanel();
+    updateOllamaPanel();
+    updateCronPanel();
+    updateStackPanel();
+    updateTokensPanel();
+    updatePowerPanel();
+    updateDiskPanel();
+    updateNetworkPanel();
+    updateAlertBar();
+
+    // Update drill-down at lower rate (every 5th frame = ~6fps)
+    drilldownCounter++;
+    if (drilldownCounter >= 5) {
+      drilldownCounter = 0;
+      updateDrilldown();
+    }
+  }
+
+  // -- Data fetching ----------------------------------------------------
+
+  function applyMetrics(data) {
+    if (!data) return;
+    var keys = Object.keys(data);
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      metrics[key] = data[key];
+
+      var val = data[key].value;
+      if (key === 'inference_latency' && val > 0) pushSpark('inference_latency', val);
+      if (key === 'ollama_tokens_per_sec' && val > 0) pushSpark('ollama_tokens_per_sec', val);
+      if (key === 'power_draw') pushSpark('power_draw', val);
+      if (key === 'tj_temp') pushSpark('tj_temp_spark', val);
+      if (key === 'network_latency' && val < 9999) pushSpark('network_latency', val);
+      if (key === 'cpu_usage') pushSpark('cpu_usage', val);
+      if (key === 'mem_usage') pushSpark('mem_usage', val);
+      if (key === 'gpu_load') pushSpark('gpu_load', val);
+    }
+  }
+
+  function fetchInitialData() {
+    // Mark first CPU reading ignore window (3 seconds)
+    firstCpuIgnoreUntil = Date.now() + 3000;
+    serverStartTime = Date.now();
+
+    // Fetch system info
+    fetch('/api/system/info', {credentials: 'include'})
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(info) {
+        var hw = info.hardware || {};
+        var infoText = (info.hostname || 'ridley').toUpperCase() +
+          '  //  ' + (hw.cpu || '6x ARM') +
+          '  //  ' + (hw.power_mode || 'MAXN');
+        document.getElementById('hwInfo').textContent = infoText;
+      })
+      .catch(function(err) {
+        console.warn('Failed to fetch system info:', err);
+        document.getElementById('hwInfo').textContent = 'RIDLEY  //  OFFLINE';
+      });
+
+    // Fetch current metrics
+    fetch('/api/system/metrics', {credentials: 'include'})
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        if (data && data.metrics) {
+          isOffline = false;
+          applyMetrics(data.metrics);
+        }
+      })
+      .catch(function(err) {
+        console.warn('Failed to fetch metrics:', err);
+        isOffline = true;
+        showOfflineState();
+      });
+
+    // Fetch sparkline history for key metrics
+    var historyMetrics = [
+      'cpu_usage', 'mem_usage', 'gpu_load', 'tj_temp',
+      'inference_latency', 'ollama_tokens_per_sec',
+      'power_draw', 'network_latency'
+    ];
+
+    for (var i = 0; i < historyMetrics.length; i++) {
+      (function(metricName) {
+        fetch('/api/system/metrics/' + metricName + '/history?window=300', {credentials: 'include'})
+          .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+          })
+          .then(function(data) {
+            if (data && data.datapoints && data.datapoints.length > 0) {
+              var sparkKey = metricName;
+              if (metricName === 'tj_temp') sparkKey = 'tj_temp_spark';
+              var skipZero = (metricName === 'inference_latency' || metricName === 'ollama_tokens_per_sec');
+              sparkData[sparkKey] = [];
+              for (var j = 0; j < data.datapoints.length; j++) {
+                var v = data.datapoints[j].value;
+                if (skipZero && v === 0) continue;
+                if (sparkData[sparkKey].length < SPARK_MAX) {
+                  sparkData[sparkKey].push(v);
+                }
+              }
+            }
+          })
+          .catch(function() {});
+      })(historyMetrics[i]);
+    }
+  }
+
+  function showOfflineState() {
+    document.getElementById('disconnectBanner').classList.add('visible');
+    document.getElementById('liveDot').style.background = RED;
+    document.getElementById('liveDot').style.boxShadow = '0 0 6px ' + RED;
+  }
+
+  // -- SSE Connection ---------------------------------------------------
+  var reconnectTimer = null;
+  var pollTimer = null;
+  var sseFailCount = 0;
+
+  function connectSSE() {
+    // After 3 failed SSE attempts, give up and poll instead
+    if (sseFailCount >= 3) {
+      startPolling();
+      return;
+    }
+
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+
+    try {
+      eventSource = new EventSource('/api/system/stream', {withCredentials: true});
+    } catch (e) {
+      startPolling();
+      return;
+    }
+
+    eventSource.addEventListener('metrics', function(e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data && data.updates) {
+          applyMetrics(data.updates);
+        }
+      } catch (err) {
+        console.warn('SSE parse error:', err);
+      }
+    });
+
+    eventSource.addEventListener('alert', function(e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data && data.metric) {
+          alerts[data.metric] = {
+            status: data.status,
+            message: data.message,
+            time: Date.now()
+          };
+        }
+      } catch (err) {}
+    });
+
+    eventSource.onopen = function() {
+      sseConnected = true;
+      sseFailCount = 0;
+      isOffline = false;
+      document.getElementById('disconnectBanner').classList.remove('visible');
+      document.getElementById('liveDot').style.background = GREEN;
+      document.getElementById('liveDot').style.boxShadow = '0 0 6px ' + GREEN;
+
+      // Stop polling if it was running as fallback
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+
+      // Re-sync state on reconnect
+      fetch('/api/system/metrics', {credentials: 'include'})
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function(data) {
+          if (data && data.metrics) applyMetrics(data.metrics);
+        })
+        .catch(function() {});
+    };
+
+    eventSource.onerror = function() {
+      sseConnected = false;
+      sseFailCount++;
+      document.getElementById('disconnectBanner').classList.add('visible');
+      document.getElementById('liveDot').style.background = RED;
+      document.getElementById('liveDot').style.boxShadow = '0 0 6px ' + RED;
+
+      if (sseFailCount >= 3) {
+        eventSource.close();
+        eventSource = null;
+        startPolling();
+        return;
+      }
+
+      if (eventSource.readyState === EventSource.CLOSED) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(function() {
+          connectSSE();
+        }, 5000);
+      }
+    };
+  }
+
+  // Polling fallback if SSE fails entirely
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(function() {
+      fetch('/api/system/metrics', {credentials: 'include'})
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function(data) {
+          if (data && data.metrics) {
+            isOffline = false;
+            document.getElementById('disconnectBanner').classList.remove('visible');
+            document.getElementById('liveDot').style.background = AMBER;
+            document.getElementById('liveDot').style.boxShadow = '0 0 6px ' + AMBER;
+            applyMetrics(data.metrics);
+          }
+        })
+        .catch(function() {
+          isOffline = true;
+          showOfflineState();
+        });
+    }, 2000);
+  }
+
+  // -- Resize handler ---------------------------------------------------
+  var resizeTimer = null;
+  window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+      lastRender = 0; // Force redraw
+    }, 100);
+  });
+
+  // -- Init -------------------------------------------------------------
+  function init() {
+    fetchInitialData();
+    connectSSE();
+    animFrameId = requestAnimationFrame(render);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+</script>
+</body>
+</html>

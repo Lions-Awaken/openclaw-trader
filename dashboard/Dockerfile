@@ -1,6 +1,19 @@
 FROM python:3.12-slim
+
 WORKDIR /app
-RUN pip install --no-cache-dir fastapi uvicorn[standard] httpx python-multipart
-COPY server.py index.html login.html theme.css ./
+
+# Pinned dependencies
+RUN pip install --no-cache-dir \
+    fastapi==0.115.12 \
+    uvicorn[standard]==0.34.2 \
+    httpx==0.28.1 \
+    python-multipart==0.0.20
+
+COPY server.py index.html login.html theme.css systems-console.html ./
+
+# Non-root user
+RUN adduser --disabled-password --no-create-home appuser
+USER appuser
+
 EXPOSE 8090
 CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8090"]

@@ -31,16 +31,16 @@ from datetime import date
 import httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import _post_to_supabase, _sb_headers
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-PERPLEXITY_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-
-# Reusable HTTP client
-_client = httpx.Client(timeout=15.0)
+from common import (
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_API_KEY_2,
+    OLLAMA_URL,
+    _claude_client,
+    generate_embedding,
+    sb_get,
+    sb_rpc,
+)
+from tracer import _post_to_supabase
 
 # Default confidence thresholds (overridden by active strategy profile)
 CONFIDENCE_THRESHOLDS = {
@@ -114,46 +114,6 @@ def get_min_signal_score() -> int:
     return 4
 
 
-def sb_get(path: str, params: dict | None = None) -> list:
-    client = _client
-    resp = client.get(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
-
-
-def sb_rpc(fn_name: str, params: dict) -> list:
-    """Call a Supabase RPC function (for RAG queries)."""
-    client = _client
-    resp = client.post(
-        f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
-        headers=_sb_headers(),
-        json=params,
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
-
-
-def generate_embedding(text: str) -> list[float] | None:
-    """Generate embedding via Ollama."""
-    try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            )
-            if resp.status_code == 200:
-                return resp.json().get("embedding")
-    except Exception:
-        pass
-    return None
-
-
 def get_todays_claude_spend() -> float:
     """Check how much Claude API budget has been used today."""
     rows = sb_get("cost_ledger", {
@@ -212,38 +172,63 @@ def call_ollama_qwen(prompt: str) -> str | None:
     return None
 
 
-def call_claude(prompt: str, max_tokens: int = 1024) -> tuple[str | None, float]:
-    """Call Claude Sonnet. Returns (response, cost)."""
-    if not ANTHROPIC_API_KEY:
+def call_claude(
+    prompt: str,
+    max_tokens: int = 1024,
+    start_time: float | None = None,
+) -> tuple[str | None, float]:
+    """Call Claude Sonnet with retry + key fallback. Returns (response, cost)."""
+    keys_to_try = [k for k in [ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2] if k]
+    if not keys_to_try:
         return None, 0.0
 
-    try:
-        client = _client
-        resp = client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-4-6-20250514",
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            content = data["content"][0]["text"]
-            usage = data.get("usage", {})
-            input_tokens = usage.get("input_tokens", 0)
-            output_tokens = usage.get("output_tokens", 0)
-            # Claude Sonnet pricing: $3/1M input, $15/1M output
-            cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
-            return content, cost
-    except Exception as e:
-        print(f"[inference_engine] Claude error: {e}")
+    RETRYABLE = {429, 529}
 
+    for key_index, api_key in enumerate(keys_to_try):
+        backoff = 2.0
+        for attempt in range(3):
+            if start_time is not None and (time.time() - start_time) > TIME_LIMIT - 5:
+                print("[inference_engine] call_claude: time budget exhausted, aborting")
+                return None, 0.0
+            try:
+                resp = _claude_client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-sonnet-4-6-20250514",
+                        "max_tokens": max_tokens,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["content"][0]["text"]
+                    usage = data.get("usage", {})
+                    cost = (usage.get("input_tokens", 0) * 3 + usage.get("output_tokens", 0) * 15) / 1_000_000
+                    return content, cost
+                if resp.status_code in RETRYABLE:
+                    wait = min(float(resp.headers.get("retry-after", backoff)), 16.0)
+                    key_label = f"key{'2' if key_index else '1'}"
+                    print(f"[inference_engine] call_claude: {resp.status_code} attempt {attempt + 1}/3 ({key_label}), waiting {wait:.1f}s")
+                    if attempt == 2 and key_index == 0 and ANTHROPIC_API_KEY_2:
+                        print("[inference_engine] call_claude: switching to fallback key")
+                        break
+                    time.sleep(wait)
+                    backoff = min(backoff * 2, 16.0)
+                    continue
+                print(f"[inference_engine] call_claude: non-retryable {resp.status_code}")
+                return None, 0.0
+            except httpx.TimeoutException:
+                print(f"[inference_engine] call_claude: timeout attempt {attempt + 1}")
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 16.0)
+            except Exception as e:
+                print(f"[inference_engine] call_claude: error: {e}")
+                return None, 0.0
     return None, 0.0
 
 
@@ -374,7 +359,7 @@ def tumbler_2_fundamental(ticker: str, confidence: float) -> dict:
 def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> dict:
     """Tumbler 3: Flow + Cross-Asset Analysis.
 
-    RAG: retrieve similar inference chains.
+    RAG: retrieve similar inference chains + past trade learnings.
     LLM: Ollama qwen2.5:3b (local, free) for cross-asset analysis.
     """
     # RAG: find similar past inference chains
@@ -392,7 +377,16 @@ def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> 
         if rag_results:
             rag_similarity_avg = sum(r.get("similarity", 0) for r in rag_results) / len(rag_results)
 
-    # Ask qwen for cross-asset analysis
+    # RAG: also search past trade learnings for this setup type
+    learnings = []
+    if embedding:
+        learnings = sb_rpc("match_trade_learnings", {
+            "query_embedding": embedding,
+            "match_threshold": 0.5,
+            "match_count": 5,
+        })
+
+    # Ask qwen for cross-asset analysis, incorporating trade learnings
     past_context = ""
     for chain in rag_results[:3]:
         outcome = chain.get("actual_outcome", "unknown")
@@ -403,14 +397,26 @@ def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> 
             f"outcome={outcome}\n"
         )
 
+    learning_context = ""
+    for lr in learnings[:3]:
+        learning_context += (
+            f"- {lr.get('ticker', '?')} ({lr.get('trade_date', '?')}): "
+            f"{lr.get('outcome', '?')} ({lr.get('pnl_pct', 0):+.1f}%), "
+            f"accuracy={lr.get('expectation_accuracy', '?')}, "
+            f"lesson={lr.get('key_lesson', '')[:80]}\n"
+        )
+
     qwen_prompt = f"""Analyze this trade setup for {ticker}:
 Current confidence: {confidence:.2f}
 Context: {context.get('key_finding', 'No prior context.')}
 
-Similar past trades:
-{past_context if past_context else 'No similar past trades found.'}
+Similar past inference chains:
+{past_context if past_context else 'No similar past chains found.'}
 
-In 2-3 sentences: Does the cross-asset context support or weaken this trade?
+Past trade learnings (actual outcomes from closed trades):
+{learning_context if learning_context else 'No past trade learnings found.'}
+
+In 2-3 sentences: Does the cross-asset context and trade history support or weaken this trade?
 Respond with a JSON object: {{"adjustment": float between -0.1 and +0.1, "reasoning": "string"}}"""
 
     qwen_response = call_ollama_qwen(qwen_prompt)
@@ -434,27 +440,36 @@ Respond with a JSON object: {{"adjustment": float between -0.1 and +0.1, "reason
 
     new_confidence = max(0, min(1.0, confidence + adjustment))
 
-    # Check outcomes of similar past chains
+    # Check outcomes of similar past chains and learnings
     past_outcomes = [r.get("actual_outcome") for r in rag_results if r.get("actual_outcome")]
     win_count = sum(1 for o in past_outcomes if o in ("STRONG_WIN", "WIN"))
     loss_count = sum(1 for o in past_outcomes if o in ("LOSS", "STRONG_LOSS"))
 
+    learning_wins = sum(1 for lr in learnings if lr.get("outcome") in ("STRONG_WIN", "WIN"))
+    learning_losses = sum(1 for lr in learnings if lr.get("outcome") in ("LOSS", "STRONG_LOSS"))
+
     key_finding = f"Qwen adjustment: {adjustment:+.3f}. {reasoning}"
     if past_outcomes:
-        key_finding += f" Past similar: {win_count}W/{loss_count}L."
+        key_finding += f" Past chains: {win_count}W/{loss_count}L."
+    if learnings:
+        key_finding += f" Trade learnings: {learning_wins}W/{learning_losses}L ({len(learnings)} trades)."
+        # Surface the most relevant lesson
+        top_lesson = learnings[0].get("key_lesson", "")
+        if top_lesson:
+            key_finding += f" Top lesson: {top_lesson[:80]}"
 
     return {
         "depth": 3,
         "tumbler_name": "flow_crossasset",
         "confidence_after": round(new_confidence, 4),
-        "rag_contexts_retrieved": len(rag_results),
+        "rag_contexts_retrieved": len(rag_results) + len(learnings),
         "rag_similarity_avg": round(rag_similarity_avg, 3),
         "key_finding": key_finding,
-        "data_sources": ["inference_chains_rag", "ollama_qwen"],
+        "data_sources": ["inference_chains_rag", "trade_learnings_rag", "ollama_qwen"],
     }
 
 
-def tumbler_4_pattern(ticker: str, confidence: float, chain_context: list[dict]) -> dict:
+def tumbler_4_pattern(ticker: str, confidence: float, chain_context: list[dict], start_time: float = 0.0) -> dict:
     """Tumbler 4: Pattern Template Matching.
 
     RAG: match against pattern_templates.
@@ -502,7 +517,7 @@ Matched patterns:
 
 Respond with JSON: {{"adjustment": float between -0.1 and +0.1, "best_pattern": "pattern name or null", "reasoning": "1-2 sentences"}}"""
 
-        claude_response, claude_cost = call_claude(claude_prompt, max_tokens=256)
+        claude_response, claude_cost = call_claude(claude_prompt, max_tokens=256, start_time=start_time)
         if claude_cost > 0:
             log_cost("claude_api", f"inference_engine_tumbler4_{ticker}", claude_cost,
                      f"Pattern matching for {ticker}", {"model": "claude-sonnet-4-6", "ticker": ticker})
@@ -537,10 +552,10 @@ Respond with JSON: {{"adjustment": float between -0.1 and +0.1, "best_pattern": 
     }
 
 
-def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list[dict]) -> dict:
+def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list[dict], start_time: float = 0.0) -> dict:
     """Tumbler 5: Counterfactual + Final Synthesis.
 
-    RAG: retrieve meta_reflections and past losses.
+    RAG: retrieve meta_reflections + past trade learnings (especially losses).
     LLM: Claude Sonnet as devil's advocate.
     Apply calibration factor for final adjusted confidence.
     """
@@ -557,6 +572,15 @@ def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list
             "match_count": 3,
         })
 
+    # RAG: retrieve relevant past trade learnings — especially losses and misses
+    trade_learnings = []
+    if embedding:
+        trade_learnings = sb_rpc("match_trade_learnings", {
+            "query_embedding": embedding,
+            "match_threshold": 0.45,
+            "match_count": 5,
+        })
+
     # Past reflections context
     reflection_context = ""
     for ref in rag_results:
@@ -564,6 +588,26 @@ def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list
             f"- {ref.get('reflection_date', '?')}: {ref.get('patterns_observed', '')[:100]}. "
             f"Issues: {ref.get('operational_issues', 'none')[:80]}\n"
         )
+
+    # Trade learnings — surface what went wrong in similar past trades
+    learning_context = ""
+    losses = [row for row in trade_learnings if row.get("outcome") in ("LOSS", "STRONG_LOSS")]
+    misses = [row for row in trade_learnings if row.get("expectation_accuracy") in ("missed", "opposite")]
+    relevant = sorted(losses + misses, key=lambda x: x.get("similarity", 0), reverse=True)[:4]
+    # Deduplicate by id
+    seen_ids: set = set()
+    for row in relevant:
+        lid = row.get("id")
+        if lid not in seen_ids:
+            seen_ids.add(lid)
+            outcome = row.get("outcome", "?")
+            learning_context += (
+                f"- {row.get('ticker', '?')} ({row.get('trade_date', '?')}): {outcome} "
+                f"({row.get('pnl_pct', 0):+.1f}%), "
+                f"accuracy={row.get('expectation_accuracy', '?')}, "
+                f"what_failed={row.get('what_failed', '')[:80]}, "
+                f"lesson={row.get('key_lesson', '')[:60]}\n"
+            )
 
     # Claude as devil's advocate
     claude_prompt = f"""You are a risk analyst playing devil's advocate. Your job is to find reasons NOT to take this trade.
@@ -577,12 +621,15 @@ Tumbler chain analysis:
 Past meta-reflections:
 {reflection_context if reflection_context else 'No similar past reflections found.'}
 
-Be critical. What could go wrong? What are we missing? What did similar setups get wrong in the past?
+Past trade learnings (losses and missed expectations from similar setups):
+{learning_context if learning_context else 'No past losses found for similar setups.'}
+
+Be critical. What could go wrong? What are we missing? What patterns have failed us in similar setups before?
 
 Respond with JSON:
 {{"adjustment": float between -0.15 and +0.05, "risk_factors": ["string", ...], "reasoning": "2-3 sentences"}}"""
 
-    claude_response, claude_cost = call_claude(claude_prompt, max_tokens=512)
+    claude_response, claude_cost = call_claude(claude_prompt, max_tokens=512, start_time=start_time)
     if claude_cost > 0:
         log_cost("claude_api", f"inference_engine_tumbler5_{ticker}", claude_cost,
                  f"Counterfactual analysis for {ticker}", {"model": "claude-sonnet-4-6", "ticker": ticker})
@@ -620,7 +667,7 @@ Respond with JSON:
         "rag_contexts_retrieved": len(rag_results),
         "rag_similarity_avg": 0,
         "key_finding": key_finding,
-        "data_sources": ["meta_reflections_rag", "claude_sonnet", "calibration"],
+        "data_sources": ["meta_reflections_rag", "trade_learnings_rag", "claude_sonnet", "calibration"],
         "claude_cost": claude_cost,
         "calibration_factor": calibration_factor,
     }
@@ -770,7 +817,7 @@ def run_inference(
                                pipeline_run_id, t1.get("embedding"))
 
     t4_start = time.time()
-    t4 = tumbler_4_pattern(ticker, confidence, tumblers)
+    t4 = tumbler_4_pattern(ticker, confidence, tumblers, start_time=start_time)
     prev_confidence = confidence
     confidence = t4["confidence_after"]
     t4["confidence_before"] = prev_confidence
@@ -797,7 +844,7 @@ def run_inference(
                                pipeline_run_id, t1.get("embedding"))
 
     t5_start = time.time()
-    t5 = tumbler_5_counterfactual(ticker, confidence, tumblers)
+    t5 = tumbler_5_counterfactual(ticker, confidence, tumblers, start_time=start_time)
     prev_confidence = confidence
     confidence = t5["confidence_after"]
     t5["confidence_before"] = prev_confidence

@@ -16,46 +16,18 @@ import os
 import sys
 from datetime import date, timedelta
 
-import httpx
-
 sys.path.insert(0, os.path.dirname(__file__))
-from tracer import PipelineTracer, _post_to_supabase, _sb_headers
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-
-# Reusable HTTP client
-_client = httpx.Client(timeout=15.0)
+from common import (
+    ANTHROPIC_API_KEY,
+    _client,
+    generate_embedding,
+    sb_get,
+    slack_notify,
+)
+from tracer import PipelineTracer, _post_to_supabase
 
 TODAY = date.today()  # Reassigned at the start of run()
 WEEK_START = ""  # Reassigned at the start of run()
-
-
-def sb_get(path: str, params: dict | None = None) -> list:
-    client = _client
-    resp = client.get(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=_sb_headers(),
-        params=params or {},
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
-
-
-def sb_rpc(fn_name: str, params: dict) -> list:
-    """Call a Supabase RPC function."""
-    client = _client
-    resp = client.post(
-        f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}",
-        headers=_sb_headers(),
-        json=params,
-    )
-    if resp.status_code == 200:
-        return resp.json()
-    return []
 
 
 def get_weekly_daily_reflections() -> list[dict]:
@@ -315,20 +287,6 @@ Respond ONLY with valid JSON."""
     return []
 
 
-def generate_embedding(text: str) -> list[float] | None:
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
-            )
-            if resp.status_code == 200:
-                return resp.json().get("embedding")
-    except Exception:
-        pass
-    return None
-
-
 def generate_weekly_reflection(context: dict) -> tuple[dict, float]:
     """Use Claude Sonnet for deeper weekly analysis. Returns (reflection, cost)."""
 
@@ -434,32 +392,32 @@ Respond ONLY with valid JSON, no markdown formatting."""
 
     cost = 0.0
     try:
-        with httpx.Client(timeout=90.0) as client:
-            resp = client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-6-20250514",
-                    "max_tokens": 2048,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                content = data["content"][0]["text"]
-                if content.startswith("```"):
-                    content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        client = _client
+        resp = client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6-20250514",
+                "max_tokens": 2048,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            content = data["content"][0]["text"]
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1].rsplit("```", 1)[0]
 
-                usage = data.get("usage", {})
-                input_tokens = usage.get("input_tokens", 0)
-                output_tokens = usage.get("output_tokens", 0)
-                cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
+            usage = data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
 
-                return json.loads(content), cost
+            return json.loads(content), cost
     except Exception as e:
         print(f"[meta_weekly] Claude reflection failed: {e}")
 
@@ -647,12 +605,23 @@ def run():
             "patterns_discovered": len(new_patterns),
         })
         print(f"[meta_weekly] Complete. Patterns: {reflection.get('patterns_observed', 'N/A')[:100]}")
+        pattern_note = f"`{len(new_patterns)}` new patterns discovered" if new_patterns else "no new patterns"
+        trade_count = len(trades)
+        wins = sum(1 for t in trades if float(t.get("pnl", 0) or 0) > 0)
+        win_rate = round(wins / trade_count * 100) if trade_count else 0
+        slack_notify(
+            f"*Meta Weekly (w/o {WEEK_START})* — `{trade_count}` trades, `{win_rate}%` win rate · {pattern_note}\n"
+            f"{reflection.get('patterns_observed', 'N/A')[:120]}"
+        )
 
     except Exception as e:
         tracer.fail(str(e))
         print(f"[meta_weekly] Failed: {e}")
+        slack_notify(f"*Meta Weekly FATAL*: {e}")
         raise
 
 
 if __name__ == "__main__":
+    from loki_logger import get_logger
+    _logger = get_logger("meta_weekly")
     run()
