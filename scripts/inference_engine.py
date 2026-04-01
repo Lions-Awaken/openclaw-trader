@@ -694,7 +694,9 @@ def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time
         return "confidence_floor"
 
     # Forced connection (delta < 0.03 means new data added nothing)
-    if depth >= 2 and delta < FORCED_CONNECTION_DELTA:
+    # Only apply after tumbler 4+ — tumblers 1-3 are cheap local calls,
+    # don't let them gate Claude (tumblers 4-5) which is the whole point
+    if depth >= 4 and delta < FORCED_CONNECTION_DELTA:
         return "forced_connection"
 
     return None
