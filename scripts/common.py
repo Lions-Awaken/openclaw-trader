@@ -192,6 +192,8 @@ def get_bars(ticker: str, days: int = 60) -> list:
         )
         if resp.status_code == 200:
             return resp.json().get("bars", [])
+        else:
+            print(f"[alpaca] Bars HTTP {resp.status_code} for {ticker}: {resp.text[:200]}")
     except Exception as e:
         print(f"[alpaca] Bars error for {ticker}: {e}")
     return []
