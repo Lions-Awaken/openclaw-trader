@@ -1,0 +1,12 @@
+# Require review before merging changes to critical trading scripts.
+# This prevents any Claude session from auto-merging rewrites
+# without the repo owner reviewing the diff.
+
+# All scripts require owner approval
+/scripts/ @Lions-Awaken
+
+# Dashboard requires owner approval
+/dashboard/ @Lions-Awaken
+
+# Common module is the backbone — never auto-merge changes
+/scripts/common.py @Lions-Awaken
