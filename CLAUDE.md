@@ -2,7 +2,7 @@
 
 ## Overview
 
-Infrastructure, migrations, and ops tooling for the autonomous swing trading agent. The StreamSaber backend app itself lives in the Twilight Underground repo (`streamsaber/`). This repo holds supporting infrastructure, the Tumbler inference engine, and the dashboard.
+Autonomous swing trading agent — scanner, inference engine, position management, and dashboard. Runs on ridley (Jetson) via cron during market hours.
 
 ## Project Structure
 
@@ -15,11 +15,13 @@ openclaw-trader/
 ├── scripts/
 │   ├── scan-secrets.sh       # Secret scanner for pre-commit
 │   ├── tracer.py             # PipelineTracer — execution observability library
-│   ├── scanner.py            # Trading orchestrator — scan, infer, execute orders (cron 9:35 AM, 12:30 PM ET)
-│   ├── position_manager.py   # Position lifecycle — exits, trailing stops, EOD flatten (cron every 30m)
 │   ├── catalyst_ingest.py    # 4-source catalyst detection + embedding (3x daily)
 │   ├── inference_engine.py   # 5-tumbler Lock & Tumbler analysis engine
+│   ├── scanner.py            # Autonomous trading orchestrator — scan → infer → execute (2x daily)
+│   ├── position_manager.py   # Position lifecycle — trailing stops, time stops, EOD flatten (every 30m)
+│   ├── scanner_unleashed.py  # UNLEASHED signal scoring (9 signals, alpaca-py SDK)
 │   ├── calibrator.py         # Weekly calibration + outcome grading + pattern updates
+│   ├── post_trade_analysis.py # Post-trade RAG ingestion — triggered on every trade close
 │   ├── meta_daily.py         # Daily meta-analysis with RAG + chain analysis (cron 4:30 PM ET)
 │   └── meta_weekly.py        # Weekly strategy review + pattern discovery (cron Sunday 7 PM ET)
 ├── dashboard/
@@ -34,21 +36,13 @@ openclaw-trader/
 └── CLAUDE.md
 ```
 
-## Related Repos
-
-| Repo | What lives there |
-|------|-----------------|
-| **twilight-underground** | `streamsaber/` backend app, `relay/` stream relay, frontend admin pages |
-| **openclaw-trader** (this) | Supabase migrations, log-shipper, infra tooling, tumbler engine, dashboard |
-
 ## Fly.io Apps
 
 | App | Purpose | Deployed from | Cost |
 |-----|---------|--------------|------|
-| `tu-streamsaber` | Stream monitor + API | `twilight-underground/streamsaber/` | ~$7/mo |
 | `tu-log-shipper` | Log shipping to Grafana | `openclaw-trader/log-shipper/` | ~$2/mo |
 
-## Supabase Tables (production: `vpollvsbtushbiapoflr`)
+## Supabase Tables (project: `vpollvsbtushbiapoflr`)
 
 | Table | Purpose |
 |-------|---------|
@@ -66,6 +60,12 @@ openclaw-trader/
 | `confidence_calibration` | Weekly stated vs actual confidence tracking (1-year retention) |
 | `tuning_profiles` | Versioned hardware performance tuning configurations |
 | `tuning_telemetry` | Per-pipeline-run hardware telemetry snapshots (1-year retention) |
+| `trade_learnings` | Post-trade RAG post-mortems with embeddings (180-day retention) |
+| `trade_decisions` | Entry/exit records linking orders to inference chains |
+| `strategy_profiles` | Trading profiles (CONSERVATIVE, UNLEASHED) with all parameters |
+| `stack_heartbeats` | Service liveness (ollama, tumbler) for dashboard health display |
+| `regime_log` | Market regime snapshots (bull/bear/sideways) |
+| `system_stats` | System telemetry (CPU, RAM, GPU temps) from ridley |
 
 ## Tumbler Engine Architecture
 
@@ -74,9 +74,9 @@ The inference engine (`scripts/inference_engine.py`) implements a 5-tumbler "Loc
 ```
 Tumbler 1: Technical Foundation → min 0.25 confidence
 Tumbler 2: Fundamental + Sentiment → min 0.40 | VETO if sentiment < -0.5
-Tumbler 3: Flow + Cross-Asset (Ollama qwen) → min 0.55 | STOP if delta < 0.03
+Tumbler 3: Flow + Cross-Asset (Ollama qwen + trade_learnings RAG) → min 0.55 | STOP if delta < 0.03
 Tumbler 4: Pattern Template Matching (Claude) → min 0.65
-Tumbler 5: Counterfactual Synthesis (Claude) → calibrated final confidence
+Tumbler 5: Counterfactual Synthesis (Claude + trade_learnings loss RAG) → calibrated final confidence
 
 Decision: strong_enter (>=0.75) | enter (>=0.60) | watch (>=0.45) | skip (>=0.20) | veto (<0.20)
 ```
@@ -85,15 +85,17 @@ Stopping rules: veto_signal, confidence_floor, forced_connection (delta < 0.03),
 
 ## Cron Schedule
 
-| Script | Schedule (ET) | LLM | RAM Peak |
-|--------|--------------|-----|----------|
-| catalyst_ingest.py | M-F 8:30 AM, 12:15 PM, 3:50 PM | Ollama embed | ~3.2GB |
-| scanner.py | M-F 9:35 AM, 12:30 PM | qwen + Claude | ~3.5GB |
-| position_manager.py | M-F every 30 min (9:45 AM - 3:45 PM) | None | ~0.5GB |
-| inference_engine.py | Called by scanner | qwen + Claude | ~3.5GB |
-| meta_daily.py | M-F 4:30 PM | Claude + embed | ~3.5GB |
-| meta_weekly.py | Sun 7:00 PM | Claude + embed | ~3.5GB |
-| calibrator.py | Sun 7:30 PM | None | ~2.6GB |
+Ridley is in **PDT (America/Los_Angeles)**. Crontab uses `SHELL=/bin/bash` (dash doesn't support `source`).
+
+| Script | Schedule (ET) | PDT on ridley | LLM | RAM Peak |
+|--------|--------------|---------------|-----|----------|
+| catalyst_ingest.py | M-F 8:30 AM, 12:15 PM, 3:50 PM | 5:30, 9:15, 12:50 | Ollama embed | ~3.2GB |
+| scanner.py | M-F 9:35 AM, 12:30 PM | 6:35, 9:30 | qwen + Claude (via inference_engine) | ~3.5GB |
+| position_manager.py | M-F every 30m 9:00 AM–3:45 PM | 6:00–12:45 | None | ~1.5GB |
+| inference_engine.py | Called by scanner.py | — | qwen + Claude | ~3.5GB |
+| meta_daily.py | M-F 4:30 PM | 13:30 | Claude + embed | ~3.5GB |
+| meta_weekly.py | Sun 7:00 PM | 16:00 | Claude + embed | ~3.5GB |
+| calibrator.py | Sun 7:30 PM | 16:30 | None | ~2.6GB |
 
 ## Dashboard Tabs
 
@@ -101,9 +103,9 @@ Dashboard | Pipeline | Trade Log | Positions | Predictions | Meta-Learning | Cat
 
 ## Observability
 
-- **Sentry**: Error tracking on StreamSaber backend (auto-captures ERROR+ logs)
+- **Sentry**: Error tracking (auto-captures ERROR+ logs)
 - **Grafana Cloud Loki**: All Fly.io app logs shipped via `tu-log-shipper`
-- **Dashboard**: `lionsawaken.grafana.net` — query with `{app="tu-streamsaber"}`
+- **Dashboard**: `lionsawaken.grafana.net`
 
 ## Hard Rules — Violations Are Bugs
 
@@ -127,14 +129,8 @@ git config core.hooksPath .githooks
 # Deploy log shipper
 cd log-shipper && fly deploy
 
-# Check StreamSaber health
-curl https://tu-streamsaber.fly.dev/health
-
-# Check logs in Fly
-fly logs -a tu-streamsaber
-
 # Check logs in Grafana
-# https://lionsawaken.grafana.net → Explore → Loki → {app="tu-streamsaber"}
+# https://lionsawaken.grafana.net → Explore → Loki
 ```
 
 ---
@@ -228,7 +224,7 @@ The team shares these services across projects. If you need access to any of the
 |---------|-----------|---------|---------------|
 | **Supabase** | PostgreSQL database + Auth + Edge Functions + Realtime | Most projects | Multiple instances — check Resource Registry for URLs and credentials (encrypted) |
 | **Vercel** | Frontend/fullstack deployment | bgp-peering-wizard, youshallnotpass, tachyon-vector | Deployments via `vercel` CLI or git push |
-| **Fly.io** | Backend compute (containers) | openclaw-trader (tu-streamsaber, tu-log-shipper), twilight-underground | Deploy via `fly deploy`, check `fly status` |
+| **Fly.io** | Backend compute (containers) | openclaw-trader (tu-log-shipper), twilight-underground | Deploy via `fly deploy`, check `fly status` |
 | **Hetzner** | Bare metal / VPS | Shared infrastructure | SSH access, Docker host for multiple services |
 | **Grafana Cloud** | Monitoring, Loki log aggregation | openclaw-trader, twilight-underground | Dashboard at lionsawaken.grafana.net |
 | **Sentry** | Error tracking | bgp-peering-wizard, nexthop-sim-api, openclaw-trader, threat-hunter-ai, twilight-underground | DSNs in project .env files |
