@@ -662,41 +662,12 @@ const SEQUENCE = [
   { action: 'title', text: 'OPENCLAW' },
   { action: 'wait', ms: 150 },
   { action: 'subtitle', text: 'AUTONOMOUS TRADING TERMINAL' },
-  { action: 'wait', ms: 500 },
+  { action: 'wait', ms: 400 },
 
-  // System init
-  { action: 'section', text: 'SYSTEM INITIALIZATION' },
-  { action: 'wait', ms: 150 },
-
-  { action: 'check', tag: 'SYS', text: 'LOADING KERNEL MODULES', result: 'LOADED', delay: 350 },
-  { action: 'check', tag: 'MEM', text: 'ALLOCATING SHARED MEMORY', result: '8192 MB', delay: 250 },
-  { action: 'check', tag: 'GPU', text: 'INITIALIZING CUDA RUNTIME', result: 'ORIN NANO', delay: 300 },
-  { action: 'check', tag: 'NET', text: 'ESTABLISHING SUPABASE TUNNEL', result: 'CONNECTED', delay: 450 },
-  { action: 'check', tag: 'MKT', text: 'AUTHENTICATING ALPACA API', result: 'PAPER MODE', delay: 350 },
-  { action: 'check', tag: 'LLM', text: 'LOADING OLLAMA QWEN 2.5', result: 'STANDING BY', delay: 400 },
-  { action: 'check', tag: 'VEC', text: 'MOUNTING PGVECTOR HNSW INDEX', result: '768-DIM', delay: 300 },
-  { action: 'check', tag: 'RAG', text: 'CALIBRATING TUMBLER ENGINE', result: '5 LAYERS', delay: 350 },
-  { action: 'check', tag: 'ING', text: 'ARMING CATALYST PIPELINE', result: '4 SOURCES', delay: 280 },
   { action: 'dot', idx: 0 },
-
-  // Security
-  { action: 'wait', ms: 350 },
-  { action: 'section', text: 'SECURITY VERIFICATION' },
-  { action: 'wait', ms: 150 },
-
-  { action: 'check', tag: 'SEC', text: 'CSRF TOKEN ROTATION', result: 'ACTIVE', delay: 250 },
-  { action: 'check', tag: 'SEC', text: 'BRUTE FORCE RATE LIMITER', result: '5/5MIN', delay: 200 },
-  { action: 'check', tag: 'SEC', text: 'SESSION ENCRYPTION', result: 'SHA-256', delay: 300 },
-  { action: 'check', tag: 'SEC', text: 'SECRET EXPOSURE SCAN', result: 'CLEAN', delay: 350 },
-  { action: 'check', tag: 'SEC', text: 'ROW LEVEL SECURITY POLICIES', result: '14 TABLES', delay: 250 },
-  { action: 'check', tag: 'SEC', text: 'CONSTANT-TIME COMPARISON', result: 'VERIFIED', delay: 200 },
   { action: 'dot', idx: 1 },
-
-  // Final
-  { action: 'wait', ms: 250 },
-  { action: 'check', tag: 'RDY', text: 'ALL SYSTEMS NOMINAL', result: 'OPERATIONAL', delay: 200, bright: true },
   { action: 'dot', idx: 2 },
-  { action: 'wait', ms: 350 },
+  { action: 'wait', ms: 300 },
   { action: 'awaiting', text: 'AWAITING OPERATOR CREDENTIALS' },
   { action: 'wait', ms: 200 },
   { action: 'auth' },
