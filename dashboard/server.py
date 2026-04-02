@@ -272,7 +272,11 @@ async def login_page(request: Request, oc_session: str | None = Cookie(None)):
     csrf = _create_csrf()
     return FileResponse(
         Path(__file__).parent / "login.html",
-        headers={"X-CSRF-Token": csrf},
+        headers={
+            "X-CSRF-Token": csrf,
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
     )
 
 
