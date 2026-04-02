@@ -2195,7 +2195,7 @@ async def get_stack_health(request: Request, oc_session: str | None = Cookie(Non
                         "anthropic-version": "2023-06-01",
                         "content-type": "application/json",
                     },
-                    json={"model": "claude-sonnet-4-6-20250514", "max_tokens": 1, "messages": []},
+                    json={"model": "claude-sonnet-4-6", "max_tokens": 1, "messages": []},
                 )
                 return r.status_code in (200, 400, 429, 529)
             return False
@@ -2837,7 +2837,7 @@ async def chat_endpoint(request: Request, oc_session: str | None = Cookie(None))
                 tool_use_blocks: list = []
 
                 async with claude.messages.stream(
-                    model="claude-sonnet-4-6-20250514",
+                    model="claude-sonnet-4-6",
                     max_tokens=4096,
                     system=CHAT_SYSTEM_PROMPT,
                     messages=conv,
