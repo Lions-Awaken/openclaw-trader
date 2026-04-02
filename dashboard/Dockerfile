@@ -7,7 +7,8 @@ RUN pip install --no-cache-dir \
     fastapi==0.115.12 \
     uvicorn[standard]==0.34.2 \
     httpx==0.28.1 \
-    python-multipart==0.0.20
+    python-multipart==0.0.20 \
+    anthropic==0.88.0
 
 COPY server.py index.html login.html theme.css systems-console.html ./
 
