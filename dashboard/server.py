@@ -18,10 +18,17 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import anthropic
 import httpx
 from fastapi import Cookie, FastAPI, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from starlette.middleware.base import BaseHTTPMiddleware
 
 app = FastAPI(title="OpenClaw Trader Dashboard", docs_url=None, redoc_url=None)
@@ -2433,6 +2440,448 @@ async def get_trade_learning_detail(
     if resp.status_code == 200 and resp.json():
         return resp.json()[0]
     return {}
+
+
+# ============================================================================
+# AI Chat — Claude with full trading context via tool use
+# ============================================================================
+
+CHAT_TOOLS = [
+    {
+        "name": "get_account",
+        "description": "Get current Alpaca account: equity, cash, buying power, portfolio value, paper/live status.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_positions",
+        "description": "Get all open positions with entry price, current price, unrealized P&L, and quantity.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_trades",
+        "description": "Get recent trade decisions with entry/exit prices, P&L, outcome, signals, reasoning.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "description": "Max trades to return (default 20)"}},
+            "required": [],
+        },
+    },
+    {
+        "name": "get_inference_chains",
+        "description": "Get tumbler-by-tumbler inference chains: depth reached, confidence, decision (enter/watch/skip/veto), stopping reason, reasoning summary. This is how the system decides whether to trade.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Filter by ticker symbol (e.g. AAPL)"},
+                "days": {"type": "integer", "description": "Lookback days (default 7)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_signal_evaluations",
+        "description": "Get per-ticker signal scores: trend, momentum, volume, fundamental, sentiment, flow — each scored 0 or 1, with total score and reasoning.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Filter by ticker"},
+                "days": {"type": "integer", "description": "Lookback days (default 7)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_catalysts",
+        "description": "Get recent catalyst events: market-moving news with ticker, type, headline, direction (bullish/bearish), magnitude, sentiment score.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Filter by ticker"},
+                "days": {"type": "integer", "description": "Lookback days (default 7)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_meta_reflections",
+        "description": "Get daily/weekly meta-analysis reflections: AI-generated strategy reviews with patterns observed, pipeline health, adjustments proposed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"days": {"type": "integer", "description": "Lookback days (default 14)"}},
+            "required": [],
+        },
+    },
+    {
+        "name": "get_trade_learnings",
+        "description": "Get post-trade analysis (post-mortems): what worked, what failed, key lessons, tumbler depth, expectation accuracy, catalyst match analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Filter by ticker"},
+                "days": {"type": "integer", "description": "Lookback days (default 60)"},
+                "outcome": {"type": "string", "description": "Filter by outcome: WIN, STRONG_WIN, LOSS, STRONG_LOSS, SCRATCH"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_economics",
+        "description": "Get economics summary: trading P&L, API costs (Claude, Perplexity), budget usage, cost breakdown by category.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"days": {"type": "integer", "description": "Lookback days (default 30)"}},
+            "required": [],
+        },
+    },
+    {
+        "name": "get_pipeline_health",
+        "description": "Get pipeline health: success rate, recent run status per pipeline (scanner, catalyst_ingest, position_manager, etc), failure details.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_regime",
+        "description": "Get current market regime (UP_LOWVOL, UP_HIGHVOL, DOWN_ANY, SIDEWAYS) and recent regime history.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_calibration",
+        "description": "Get confidence calibration: Brier score, overconfidence bias, stated vs actual confidence buckets.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_strategy_profiles",
+        "description": "Get all strategy profiles (CONSERVATIVE, UNLEASHED, etc) with parameters: min confidence, max risk, position sizing, trade style, hold days.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_sitrep",
+        "description": "Get the full decision intelligence briefing: trades enriched with inference chains, signals, and catalysts. Best for comprehensive analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"days": {"type": "integer", "description": "Lookback days (default 30)"}},
+            "required": [],
+        },
+    },
+]
+
+
+async def _chat_tool_dispatch(name: str, input_data: dict) -> str:
+    """Execute a chat tool and return JSON string result."""
+    client = get_http()
+    try:
+        if name == "get_account":
+            resp = await client.get(
+                f"{ALPACA_BASE}/v2/account",
+                headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
+            )
+            if resp.status_code == 200:
+                d = resp.json()
+                return json.dumps({
+                    "equity": d.get("equity"), "cash": d.get("cash"),
+                    "buying_power": d.get("buying_power"), "portfolio_value": d.get("portfolio_value"),
+                    "status": d.get("status"), "paper": d.get("account_number", "").startswith("PA"),
+                })
+            return json.dumps({"error": f"Alpaca {resp.status_code}"})
+
+        if name == "get_positions":
+            resp = await client.get(
+                f"{ALPACA_BASE}/v2/positions",
+                headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET},
+            )
+            if resp.status_code == 200:
+                positions = []
+                for p in resp.json():
+                    positions.append({
+                        "symbol": p.get("symbol"), "qty": p.get("qty"),
+                        "avg_entry": p.get("avg_entry_price"), "current_price": p.get("current_price"),
+                        "unrealized_pl": p.get("unrealized_pl"),
+                        "unrealized_plpc": round(float(p.get("unrealized_plpc", 0)) * 100, 2),
+                        "side": p.get("side"),
+                    })
+                return json.dumps(positions)
+            return json.dumps([])
+
+        if name == "get_trades":
+            limit = min(input_data.get("limit", 20), 50)
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/trade_decisions", headers=sb_headers(),
+                params={
+                    "select": "id,ticker,action,entry_price,exit_price,pnl,outcome,signals_fired,hold_days,reasoning,what_worked,improvement,created_at",
+                    "order": "created_at.desc", "limit": str(limit),
+                },
+            )
+            return json.dumps(resp.json() if resp.status_code == 200 else [])
+
+        if name == "get_inference_chains":
+            days = clamp_days(input_data.get("days", 7), 90)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+            params: dict = {
+                "select": "id,ticker,chain_date,max_depth_reached,final_confidence,final_decision,stopping_reason,tumblers,reasoning_summary,actual_outcome,actual_pnl,created_at",
+                "chain_date": f"gte.{cutoff}", "order": "created_at.desc", "limit": "50",
+            }
+            ticker = input_data.get("ticker", "")
+            if ticker:
+                params["ticker"] = f"eq.{ticker.upper()}"
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/inference_chains", headers=sb_headers(), params=params,
+            )
+            return json.dumps(resp.json() if resp.status_code == 200 else [])
+
+        if name == "get_signal_evaluations":
+            days = clamp_days(input_data.get("days", 7), 90)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+            params = {
+                "select": "id,ticker,scan_date,scan_type,trend,momentum,volume,fundamental,sentiment,flow,total_score,decision,reasoning,created_at",
+                "scan_date": f"gte.{cutoff}", "order": "created_at.desc", "limit": "50",
+            }
+            ticker = input_data.get("ticker", "")
+            if ticker:
+                params["ticker"] = f"eq.{ticker.upper()}"
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/signal_evaluations", headers=sb_headers(), params=params,
+            )
+            return json.dumps(resp.json() if resp.status_code == 200 else [])
+
+        if name == "get_catalysts":
+            days = clamp_days(input_data.get("days", 7), 90)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            params = {
+                "select": "id,ticker,catalyst_type,headline,direction,magnitude,sentiment_score,event_time",
+                "event_time": f"gte.{cutoff}", "order": "event_time.desc", "limit": "50",
+            }
+            ticker = input_data.get("ticker", "")
+            if ticker:
+                params["ticker"] = f"eq.{ticker.upper()}"
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/catalyst_events", headers=sb_headers(), params=params,
+            )
+            return json.dumps(resp.json() if resp.status_code == 200 else [])
+
+        if name == "get_meta_reflections":
+            days = clamp_days(input_data.get("days", 14), 90)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/meta_reflections", headers=sb_headers(),
+                params={
+                    "select": "id,reflection_type,reflection_date,patterns_observed,pipeline_health_score,adjustments_proposed,trade_count,win_rate,created_at",
+                    "reflection_date": f"gte.{cutoff}", "order": "reflection_date.desc", "limit": "20",
+                },
+            )
+            return json.dumps(resp.json() if resp.status_code == 200 else [])
+
+        if name == "get_trade_learnings":
+            days = clamp_days(input_data.get("days", 60), 180)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+            params = {
+                "select": "id,ticker,trade_date,entry_price,exit_price,pnl,pnl_pct,outcome,hold_days,"
+                          "expected_direction,expected_confidence,actual_direction,actual_move_pct,"
+                          "expectation_accuracy,catalyst_match,key_variance,what_worked,what_failed,"
+                          "key_lesson,tumbler_depth,created_at",
+                "trade_date": f"gte.{cutoff}", "order": "trade_date.desc", "limit": "50",
+            }
+            ticker = input_data.get("ticker", "")
+            if ticker:
+                params["ticker"] = f"eq.{ticker.upper()}"
+            outcome = input_data.get("outcome", "")
+            if outcome:
+                params["outcome"] = f"eq.{outcome}"
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/trade_learnings", headers=sb_headers(), params=params,
+            )
+            return json.dumps(resp.json() if resp.status_code == 200 else [])
+
+        if name == "get_economics":
+            days = clamp_days(input_data.get("days", 30), 365)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/cost_ledger", headers=sb_headers(),
+                params={
+                    "select": "cost_type,source,amount,currency,description,created_at",
+                    "created_at": f"gte.{cutoff}T00:00:00Z", "order": "created_at.desc", "limit": "100",
+                },
+            )
+            rows = resp.json() if resp.status_code == 200 else []
+            summary: dict = {}
+            total = 0.0
+            for r in rows:
+                ct = r.get("cost_type", "other")
+                amt = float(r.get("amount", 0))
+                summary[ct] = summary.get(ct, 0.0) + amt
+                total += amt
+            return json.dumps({"total": round(total, 2), "by_type": {k: round(v, 2) for k, v in summary.items()}, "recent": rows[:20]})
+
+        if name == "get_pipeline_health":
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/pipeline_runs", headers=sb_headers(),
+                params={
+                    "select": "pipeline_name,status,error_message,started_at,completed_at",
+                    "order": "started_at.desc", "limit": "30",
+                },
+            )
+            rows = resp.json() if resp.status_code == 200 else []
+            by_pipeline: dict = {}
+            for r in rows:
+                name_ = r.get("pipeline_name", "unknown")
+                if name_ not in by_pipeline:
+                    by_pipeline[name_] = {"total": 0, "ok": 0, "failed": 0, "last_status": r.get("status"), "last_error": r.get("error_message")}
+                by_pipeline[name_]["total"] += 1
+                if r.get("status") == "completed":
+                    by_pipeline[name_]["ok"] += 1
+                elif r.get("status") == "failed":
+                    by_pipeline[name_]["failed"] += 1
+            return json.dumps(by_pipeline)
+
+        if name == "get_regime":
+            regime_file = Path.home() / ".openclaw/workspace/memory/regime-current.json"
+            current = json.loads(regime_file.read_text()) if regime_file.exists() else {"regime": "UNKNOWN"}
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/regime_log", headers=sb_headers(),
+                params={"order": "logged_at.desc", "limit": "10"},
+            )
+            history = resp.json() if resp.status_code == 200 else []
+            return json.dumps({"current": current, "history": history})
+
+        if name == "get_calibration":
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/confidence_calibration", headers=sb_headers(),
+                params={"order": "week_start.desc", "limit": "8"},
+            )
+            return json.dumps(resp.json() if resp.status_code == 200 else [])
+
+        if name == "get_strategy_profiles":
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/strategy_profiles", headers=sb_headers(),
+                params={
+                    "select": "id,profile_name,description,active,min_signal_score,min_tumbler_depth,min_confidence,max_risk_per_trade_pct,max_concurrent_positions,position_size_method,trade_style,max_hold_days,circuit_breakers_enabled,created_at",
+                    "order": "created_at.asc",
+                },
+            )
+            return json.dumps(resp.json() if resp.status_code == 200 else [])
+
+        if name == "get_sitrep":
+            days = clamp_days(input_data.get("days", 30), 90)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            trades_resp, chains_resp = await asyncio.gather(
+                client.get(
+                    f"{SUPABASE_URL}/rest/v1/trade_decisions", headers=sb_headers(),
+                    params={"select": "id,ticker,action,entry_price,exit_price,pnl,outcome,signals_fired,hold_days,reasoning,created_at", "created_at": f"gte.{cutoff}", "order": "created_at.desc", "limit": "30"},
+                ),
+                client.get(
+                    f"{SUPABASE_URL}/rest/v1/inference_chains", headers=sb_headers(),
+                    params={"select": "id,ticker,chain_date,max_depth_reached,final_confidence,final_decision,stopping_reason,reasoning_summary,created_at", "chain_date": f"gte.{cutoff[:10]}", "order": "created_at.desc", "limit": "50"},
+                ),
+            )
+            return json.dumps({
+                "trades": trades_resp.json() if trades_resp.status_code == 200 else [],
+                "chains": chains_resp.json() if chains_resp.status_code == 200 else [],
+            })
+
+        return json.dumps({"error": f"Unknown tool: {name}"})
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+CHAT_SYSTEM_PROMPT = """You are the OpenClaw Trader AI assistant — the brain behind an autonomous swing trading system running on a Jetson Orin Nano.
+
+You have access to every piece of data in the system through your tools. Use them to answer questions with specific numbers and evidence. Don't guess — look it up.
+
+Architecture overview:
+- Scanner runs 2x daily (9:35 AM, 12:30 PM ET) scanning a watchlist for signal candidates
+- 5-tumbler "Lock & Tumbler" inference engine evaluates candidates: Technical → Fundamental/Sentiment → Flow/Cross-Asset (Ollama) → Pattern Matching (Claude) → Counterfactual Synthesis (Claude)
+- Position manager runs every 30m during market hours: trailing stops, time stops, EOD flatten
+- Catalyst ingest runs 3x daily collecting market-moving events from 4 sources
+- Meta-analysis (daily + weekly) reviews performance and proposes strategy adjustments
+- Post-trade analysis runs on every trade close for RAG learning
+
+Key concepts:
+- Tumbler depth: how many of the 5 analysis layers a ticker passed through (higher = more conviction)
+- Signal score: 0-6 across trend, momentum, volume, fundamental, sentiment, flow
+- Stopping reasons: veto_signal, confidence_floor, forced_connection (delta < 0.03), time_limit
+- Decisions: strong_enter (>=0.75), enter (>=0.60), watch (>=0.45), skip (>=0.20), veto (<0.20)
+- Strategy profiles: CONSERVATIVE (safe), UNLEASHED (aggressive day-trade style)
+
+Keep responses concise and data-driven. Use tables for comparisons. The user is the system's creator — speak like a co-pilot, not a tutorial."""
+
+
+@app.post("/api/chat")
+async def chat_endpoint(request: Request, oc_session: str | None = Cookie(None)):
+    """Streaming AI chat with full trading context via tool use."""
+    _require_auth(request, oc_session)
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=503, detail="Claude API key not configured")
+
+    body = await request.json()
+    messages = body.get("messages", [])
+    if not messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
+
+    # Limit conversation history to prevent runaway context
+    messages = messages[-20:]
+
+    claude = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+
+    async def generate():
+        conv = list(messages)
+        max_tool_rounds = 5
+
+        for _round in range(max_tool_rounds + 1):
+            try:
+                collected_text = ""
+                tool_use_blocks: list = []
+
+                async with claude.messages.stream(
+                    model="claude-sonnet-4-6-20250514",
+                    max_tokens=4096,
+                    system=CHAT_SYSTEM_PROMPT,
+                    messages=conv,
+                    tools=CHAT_TOOLS,
+                ) as stream:
+                    async for event in stream:
+                        if hasattr(event, "type"):
+                            if event.type == "content_block_delta" and hasattr(event, "delta"):
+                                if getattr(event.delta, "type", "") == "text_delta":
+                                    chunk = event.delta.text
+                                    collected_text += chunk
+                                    yield f"data: {json.dumps({'type': 'text', 'text': chunk})}\n\n"
+
+                    final_message = await stream.get_final_message()
+
+                # Check if we need to handle tool calls
+                if final_message.stop_reason == "tool_use":
+                    # Collect tool use blocks from the response
+                    for block in final_message.content:
+                        if block.type == "tool_use":
+                            tool_use_blocks.append(block)
+
+                    # Notify client about tool calls
+                    for tb in tool_use_blocks:
+                        yield f"data: {json.dumps({'type': 'tool_call', 'name': tb.name, 'input': tb.input})}\n\n"
+
+                    # Execute all tools
+                    tool_results = []
+                    for tb in tool_use_blocks:
+                        result = await _chat_tool_dispatch(tb.name, tb.input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tb.id,
+                            "content": result,
+                        })
+
+                    # Add assistant response + tool results to conversation
+                    conv.append({"role": "assistant", "content": [b.model_dump() for b in final_message.content]})
+                    conv.append({"role": "user", "content": tool_results})
+                    continue  # Next round — Claude will respond to tool results
+                else:
+                    break  # Done — Claude finished with text
+
+            except anthropic.APIError as e:
+                yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+                break
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":

@@ -372,7 +372,7 @@ def run():
                     continue
 
                 # --- Check 3: Trailing stop adjustment ---
-                bars = get_bars(ticker, days=20)
+                bars = get_bars(ticker, days=30)
                 atr = compute_atr(bars)
                 if atr > 0:
                     adjusted = manage_trailing_stop(ticker, current_price, atr, stop_orders, tracer)
