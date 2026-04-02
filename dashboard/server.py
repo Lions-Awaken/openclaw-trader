@@ -164,8 +164,9 @@ if not DASHBOARD_PASSWORD:
 
 PASSWORD_HASH = hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
 
-# Session store: {token_hash: expiry_timestamp}
-_sessions: dict[str, float] = {}
+# Signing key for stateless session cookies (derived from password so it's stable across restarts)
+_SIGNING_KEY = hashlib.sha256(f"oc-session-{DASHBOARD_PASSWORD}".encode()).digest()
+
 SESSION_MAX_AGE = 86400 * 90  # 90 days
 
 # Rate limiting: {ip: [timestamps]}
@@ -191,27 +192,27 @@ def _record_attempt(ip: str):
 
 
 def _create_session() -> str:
-    """Create a session token, store its hash, return the raw token."""
-    token = secrets.token_urlsafe(32)
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    _sessions[token_hash] = time.time() + SESSION_MAX_AGE
-    # Prune expired sessions
-    now = time.time()
-    expired = [k for k, v in _sessions.items() if v < now]
-    for k in expired:
-        del _sessions[k]
-    return token
+    """Create a signed session cookie. Stateless — survives machine restarts."""
+    issued = str(int(time.time()))
+    sig = hmac.new(_SIGNING_KEY, issued.encode(), hashlib.sha256).hexdigest()
+    return f"{issued}.{sig}"
 
 
 def _verify_session(token: str | None) -> bool:
-    if not token:
+    if not token or "." not in token:
         return False
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    expiry = _sessions.get(token_hash)
-    if not expiry:
+    parts = token.split(".", 1)
+    if len(parts) != 2:
         return False
-    if time.time() > expiry:
-        del _sessions[token_hash]
+    issued_str, sig = parts
+    try:
+        issued = int(issued_str)
+    except ValueError:
+        return False
+    expected = hmac.new(_SIGNING_KEY, issued_str.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return False
+    if time.time() - issued > SESSION_MAX_AGE:
         return False
     return True
 
@@ -322,9 +323,6 @@ async def login_submit(
 
 @app.get("/logout")
 async def logout(oc_session: str | None = Cookie(None)):
-    if oc_session:
-        token_hash = hashlib.sha256(oc_session.encode()).hexdigest()
-        _sessions.pop(token_hash, None)
     resp = RedirectResponse("/login", status_code=302)
     resp.delete_cookie("oc_session")
     return resp
