@@ -174,8 +174,8 @@ _login_attempts: dict[str, list[float]] = {}
 MAX_ATTEMPTS = 5
 ATTEMPT_WINDOW = 300  # 5 minutes
 
-# CSRF tokens: {token_hash: expiry}
-_csrf_tokens: dict[str, float] = {}
+
+
 
 
 def _check_rate_limit(ip: str) -> bool:
@@ -218,26 +218,30 @@ def _verify_session(token: str | None) -> bool:
 
 
 def _create_csrf() -> str:
-    """Create a CSRF token."""
-    token = secrets.token_urlsafe(32)
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    _csrf_tokens[token_hash] = time.time() + 600  # 10 min expiry
-    # Prune
-    now = time.time()
-    expired = [k for k, v in _csrf_tokens.items() if v < now]
-    for k in expired:
-        del _csrf_tokens[k]
-    return token
+    """Create a signed CSRF token. Stateless — works across machines."""
+    nonce = secrets.token_urlsafe(16)
+    issued = str(int(time.time()))
+    payload = f"{nonce}.{issued}"
+    sig = hmac.new(_SIGNING_KEY, payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
 
 
 def _verify_csrf(token: str | None) -> bool:
     if not token:
         return False
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    expiry = _csrf_tokens.pop(token_hash, None)  # One-time use
-    if not expiry:
+    parts = token.rsplit(".", 1)
+    if len(parts) != 2:
         return False
-    return time.time() <= expiry
+    payload, sig = parts
+    expected = hmac.new(_SIGNING_KEY, payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return False
+    # Check expiry (10 min)
+    try:
+        issued = int(payload.split(".")[1])
+    except (IndexError, ValueError):
+        return False
+    return time.time() - issued <= 600
 
 
 def _is_authed(request: Request, session: str | None) -> bool:
