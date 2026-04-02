@@ -883,7 +883,7 @@ function nextStep() {
 setTimeout(nextStep, 600);
 
 // CSRF
-fetch('/login', { method: 'GET', credentials: 'same-origin' })
+fetch('/login', { method: 'GET', credentials: 'same-origin', cache: 'no-store' })
   .then(r => {
     const csrf = r.headers.get('X-CSRF-Token');
     if (csrf) document.getElementById('csrfToken').value = csrf;
@@ -927,7 +927,7 @@ async function handleSubmit(e) {
 }
 
 function reFetchCsrf() {
-  fetch('/login', { credentials: 'same-origin' }).then(r => {
+  fetch('/login', { credentials: 'same-origin', cache: 'no-store' }).then(r => {
     const c = r.headers.get('X-CSRF-Token');
     if (c) document.getElementById('csrfToken').value = c;
   }).catch(() => {});
