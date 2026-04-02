@@ -2875,7 +2875,12 @@ async def chat_endpoint(request: Request, oc_session: str | None = Cookie(None))
                         })
 
                     # Add assistant response + tool results to conversation
-                    conv.append({"role": "assistant", "content": [b.model_dump() for b in final_message.content]})
+                    # Use model_dump with exclude to strip SDK-internal fields
+                    # the API rejects (e.g. parsed_output from structured output)
+                    conv.append({"role": "assistant", "content": [
+                        b.model_dump(exclude_none=True, exclude={"parsed_output"})
+                        for b in final_message.content
+                    ]})
                     conv.append({"role": "user", "content": tool_results})
                     continue  # Next round — Claude will respond to tool results
                 else:
