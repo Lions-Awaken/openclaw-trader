@@ -26,7 +26,7 @@ import json
 import os
 import sys
 import time
-from datetime import date
+from datetime import date, datetime
 
 import httpx
 
@@ -245,6 +245,40 @@ def log_cost(category: str, subcategory: str, amount: float, description: str, m
     })
 
 
+# ============================================================================
+# Congress-mode helpers (CONGRESS_MIRROR profile only)
+# ============================================================================
+
+def get_legislative_context(ticker: str) -> dict:
+    """Check legislative_calendar for upcoming events affecting this ticker's sector."""
+    upcoming = sb_get("legislative_calendar", {
+        "select": "event_date,event_type,committee,bill_title,affected_sectors,significance",
+        "event_date": f"gte.{TODAY}",
+        "order": "event_date.asc",
+        "limit": "10",
+    })
+    # Find events where ticker's sector overlaps
+    relevant = []
+    for event in upcoming:
+        sectors = event.get("affected_sectors", [])
+        # Simple check — in production this should use the ticker's known sector
+        if sectors:
+            relevant.append(event)
+    return {"upcoming_events": relevant[:3], "count": len(relevant)}
+
+
+def get_congress_cluster_context(ticker: str) -> dict:
+    """Check for recent congress clusters on this ticker."""
+    clusters = sb_get("congress_clusters", {
+        "select": "cluster_date,member_count,cross_chamber,members,"
+                  "confidence_boost,avg_signal_score",
+        "ticker": f"eq.{ticker}",
+        "order": "cluster_date.desc",
+        "limit": "3",
+    })
+    return {"clusters": clusters, "count": len(clusters)}
+
+
 def tumbler_1_technical(ticker: str, signals: dict, total_score: int) -> dict:
     """Tumbler 1: Technical Foundation — pure computation, no LLM.
 
@@ -342,6 +376,54 @@ def tumbler_2_fundamental(ticker: str, confidence: float) -> dict:
         key_finding += " Top: " + "; ".join(key_findings)
     if veto:
         key_finding += " VETO: sentiment < -0.5"
+
+    # Congress mode enhancement (CONGRESS_MIRROR profile only)
+    congress_boost = 0.0
+    congress_context = ""
+
+    if _active_profile and _active_profile.get("profile_name") == "CONGRESS_MIRROR":
+        # Get legislative calendar context
+        leg_context = get_legislative_context(ticker)
+        if leg_context["count"] > 0:
+            upcoming = leg_context["upcoming_events"][0]
+            try:
+                days_until = (
+                    datetime.strptime(upcoming["event_date"], "%Y-%m-%d")
+                    - datetime.today()
+                ).days
+                if (
+                    days_until <= 14
+                    and upcoming.get("significance") in ("high", "critical")
+                ):
+                    congress_boost += 0.07
+                    congress_context += (
+                        f"High-impact {upcoming['event_type']} in "
+                        f"{days_until} days: "
+                        f"{upcoming.get('bill_title', '')}. "
+                    )
+            except (ValueError, KeyError):
+                pass
+
+        # Get cluster context
+        cluster_ctx = get_congress_cluster_context(ticker)
+        if cluster_ctx["count"] > 0:
+            best_cluster = cluster_ctx["clusters"][0]
+            cross = best_cluster.get("cross_chamber", False)
+            boost = best_cluster.get("confidence_boost", 0.05)
+            congress_boost += boost
+            congress_context += (
+                f"Congress cluster: {best_cluster['member_count']} "
+                f"members bought "
+                f"({'cross-chamber' if cross else 'same chamber'}). "
+            )
+
+        # Apply congress boost to confidence
+        if congress_boost > 0:
+            new_confidence = min(1.0, new_confidence + congress_boost)
+            key_finding += (
+                f" Congress boost: +{congress_boost:.3f}. "
+                f"{congress_context}"
+            )
 
     return {
         "depth": 2,
@@ -673,7 +755,7 @@ Respond with JSON:
     }
 
 
-def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time: float, has_veto: bool = False) -> str | None:
+def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time: float, has_veto: bool = False, ticker: str = "") -> str | None:
     """Evaluate stopping rules after a tumbler. Returns reason or None to continue."""
     depth = tumbler_result["depth"]
     confidence = tumbler_result["confidence_after"]
@@ -698,6 +780,26 @@ def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time
     # don't let them gate Claude (tumblers 4-5) which is the whole point
     if depth >= 4 and delta < FORCED_CONNECTION_DELTA:
         return "forced_connection"
+
+    # Congress signal stale (CONGRESS_MIRROR only)
+    if _active_profile and _active_profile.get("profile_name") == "CONGRESS_MIRROR":
+        if ticker:
+            congress_events = sb_get("catalyst_events", {
+                "select": "disclosure_freshness_score,disclosure_days_since_trade",
+                "catalyst_type": "eq.congressional_trade",
+                "ticker": f"eq.{ticker}",
+                "order": "created_at.desc",
+                "limit": "1",
+            })
+            if congress_events:
+                freshness = float(
+                    congress_events[0].get("disclosure_freshness_score", 0.5),
+                )
+                days = int(
+                    congress_events[0].get("disclosure_days_since_trade", 20),
+                )
+                if freshness < 0.2 and days > 40:
+                    return "congress_signal_stale"
 
     return None
 
@@ -772,7 +874,7 @@ def run_inference(
     t1["duration_ms"] = int((time.time() - start_time) * 1000)
     tumblers.append(t1)
 
-    stopping_reason = check_stopping_rule(t1, prev_confidence, start_time)
+    stopping_reason = check_stopping_rule(t1, prev_confidence, start_time, ticker=ticker)
     if stopping_reason:
         return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
                                signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
@@ -789,7 +891,7 @@ def run_inference(
     tumblers.append(t2)
     has_veto = t2.get("veto", False)
 
-    stopping_reason = check_stopping_rule(t2, prev_confidence, start_time, has_veto)
+    stopping_reason = check_stopping_rule(t2, prev_confidence, start_time, has_veto, ticker=ticker)
     if stopping_reason:
         return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
                                signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
@@ -805,7 +907,7 @@ def run_inference(
     t3["duration_ms"] = int((time.time() - t3_start) * 1000)
     tumblers.append(t3)
 
-    stopping_reason = check_stopping_rule(t3, prev_confidence, start_time)
+    stopping_reason = check_stopping_rule(t3, prev_confidence, start_time, ticker=ticker)
     if stopping_reason:
         return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
                                signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
@@ -832,7 +934,7 @@ def run_inference(
     claude_spent = get_todays_claude_spend()
     claude_available = claude_budget - claude_spent > 0.01
 
-    stopping_reason = check_stopping_rule(t4, prev_confidence, start_time)
+    stopping_reason = check_stopping_rule(t4, prev_confidence, start_time, ticker=ticker)
     if stopping_reason:
         return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
                                signal_evaluation_id, catalyst_event_ids, pattern_template_ids,

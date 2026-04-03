@@ -242,6 +242,29 @@ def calculate_position_size(
 # ---------------------------------------------------------------------------
 # Build watchlist
 # ---------------------------------------------------------------------------
+def build_congress_watchlist() -> list[str]:
+    """Build watchlist from recent high-signal congressional buys (last 21 days)."""
+    cutoff = (date.today() - timedelta(days=21)).isoformat()
+    events = sb_get("catalyst_events", {
+        "select": "ticker,politician_signal_score,disclosure_freshness_score,created_at",
+        "catalyst_type": "eq.congressional_trade",
+        "direction": "eq.bullish",
+        "created_at": f"gte.{cutoff}T00:00:00Z",
+        "politician_signal_score": "gte.0.25",  # only high-signal members
+        "order": "politician_signal_score.desc",
+        "limit": "25",
+    })
+    tickers = []
+    seen: set[str] = set()
+    for ev in events:
+        t = ev.get("ticker", "")
+        if t and t not in seen:
+            tickers.append(t)
+            seen.add(t)
+    print(f"[scanner] Congress watchlist: {tickers}")
+    return tickers
+
+
 def build_watchlist() -> list[str]:
     """Combine catalyst tickers (24h) with liquid universe, deduplicated."""
     tickers = set(LIQUID_UNIVERSE)
@@ -497,7 +520,20 @@ def run():
 
         # === Step 4: Build watchlist and fetch SPY bars ===
         with tracer.step("build_watchlist") as result:
-            watchlist = build_watchlist()
+            watchlist_source = "technical"
+            profile_name = profile.get("profile_name", "")
+            if profile_name == "CONGRESS_MIRROR":
+                congress_wl = build_congress_watchlist()
+                if congress_wl:
+                    watchlist = congress_wl
+                    watchlist_source = "congress"
+                else:
+                    print("[scanner] No high-signal congress buys in last 21 days. "
+                          "Falling back to technical watchlist.")
+                    watchlist = build_watchlist()
+            else:
+                watchlist = build_watchlist()
+
             spy_bars = get_bars("SPY", days=30)
 
             if len(spy_bars) < 15:
@@ -509,8 +545,8 @@ def run():
                     tracer.complete({"stopped": "insufficient_spy_data", "spy_bars": len(spy_bars)})
                     return
 
-            result.set({"watchlist_size": len(watchlist), "spy_bars": len(spy_bars)})
-            print(f"[scanner] Watchlist: {len(watchlist)} tickers, SPY bars: {len(spy_bars)}")
+            result.set({"watchlist_size": len(watchlist), "watchlist_source": watchlist_source, "spy_bars": len(spy_bars)})
+            print(f"[scanner] Watchlist ({watchlist_source}): {len(watchlist)} tickers, SPY bars: {len(spy_bars)}")
 
         # === Step 5: Compute signals for all tickers ===
         candidates = []

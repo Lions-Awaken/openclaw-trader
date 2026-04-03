@@ -1563,6 +1563,116 @@ async def get_active_patterns(request: Request, oc_session: str | None = Cookie(
 
 
 # ============================================================================
+# Congress API Routes
+# ============================================================================
+
+
+@app.get("/api/congress/politicians")
+async def get_congress_politicians(
+    request: Request, oc_session: str | None = Cookie(None),
+):
+    """Politician leaderboard sorted by signal score."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/politician_intel",
+        headers=sb_headers(),
+        params={
+            "select": "full_name,chamber,party,state,leadership_role,"
+                      "signal_score,trailing_12m_return_pct,"
+                      "trailing_12m_vs_spy_pct,sector_expertise,"
+                      "tracks_spouse,chronic_late_filer,last_trade_date",
+            "order": "signal_score.desc",
+            "limit": "50",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/congress/signals")
+async def get_congress_signals(
+    request: Request, oc_session: str | None = Cookie(None),
+):
+    """High-signal congressional buys from the last 21 days."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=21)).isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/catalyst_events",
+        headers=sb_headers(),
+        params={
+            "select": "ticker,politician_signal_score,"
+                      "disclosure_freshness_score,"
+                      "disclosure_days_since_trade,"
+                      "in_jurisdiction,filer_type,"
+                      "event_time,metadata",
+            "catalyst_type": "eq.congressional_trade",
+            "direction": "eq.bullish",
+            "created_at": f"gte.{cutoff}",
+            "politician_signal_score": "gte.0.25",
+            "order": "politician_signal_score.desc",
+            "limit": "50",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/congress/clusters")
+async def get_congress_clusters(
+    request: Request, oc_session: str | None = Cookie(None),
+):
+    """Recent cluster detections (multi-member buys)."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=21)
+    ).date().isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/congress_clusters",
+        headers=sb_headers(),
+        params={
+            "select": "ticker,cluster_date,member_count,"
+                      "cross_chamber,members,confidence_boost,"
+                      "avg_signal_score",
+            "cluster_date": f"gte.{cutoff}",
+            "order": "confidence_boost.desc",
+            "limit": "20",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/congress/calendar")
+async def get_congress_calendar(
+    request: Request, oc_session: str | None = Cookie(None),
+):
+    """Upcoming legislative events (next 30 days)."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+    today = datetime.now(timezone.utc).date().isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/legislative_calendar",
+        headers=sb_headers(),
+        params={
+            "select": "event_date,event_type,chamber,committee,"
+                      "bill_title,affected_sectors,significance",
+            "event_date": f"gte.{today}",
+            "order": "event_date.asc",
+            "limit": "30",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+# ============================================================================
 # Economics & Budget API Routes
 # ============================================================================
 

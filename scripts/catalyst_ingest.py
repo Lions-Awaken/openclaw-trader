@@ -18,7 +18,8 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
 from common import (
@@ -150,6 +151,129 @@ def check_duplicate(embedding: list[float], recent_embeddings: list[list[float]]
     return False
 
 
+# ============================================================================
+# Congress enrichment helpers
+# ============================================================================
+
+# Simple ticker-to-sector classification for jurisdiction checks
+TICKER_SECTOR_MAP = {
+    "NVDA": "semiconductors", "AMD": "semiconductors", "INTC": "semiconductors",
+    "AVGO": "semiconductors", "QCOM": "semiconductors", "MU": "semiconductors",
+    "ARM": "semiconductors", "TSM": "semiconductors", "MRVL": "semiconductors",
+    "SMCI": "semiconductors", "AAPL": "technology", "MSFT": "technology",
+    "GOOGL": "technology", "META": "technology", "AMZN": "technology",
+    "TSLA": "ev", "PLTR": "defense", "LMT": "defense", "RTX": "defense",
+    "NOC": "defense", "GD": "defense", "BA": "aerospace",
+    "JPM": "banking", "GS": "banking", "MS": "banking",
+    "XOM": "energy", "CVX": "energy", "NEE": "energy",
+    "UNH": "healthcare", "JNJ": "healthcare", "PFE": "healthcare",
+    "LLY": "healthcare", "ABBV": "healthcare", "MRK": "healthcare",
+}
+
+
+def classify_ticker_sector(ticker: str) -> str:
+    """Return broad sector classification for a ticker."""
+    return TICKER_SECTOR_MAP.get(ticker, "unknown")
+
+
+def load_politician_scores() -> dict:
+    """Load politician signal scores keyed by normalized name."""
+    politicians = sb_get("politician_intel", {
+        "select": "full_name,signal_score,committees,sector_expertise,"
+                  "chronic_late_filer,tracks_spouse,spouse_name,chamber",
+    })
+    return {p["full_name"].lower().strip(): p for p in politicians}
+
+
+def score_disclosure_freshness(
+    trade_date_str: str, disclosure_date_str: str,
+) -> tuple[float, int]:
+    """Score how fresh a disclosure is. Returns (freshness_score, days_since_trade)."""
+    try:
+        fmt = "%Y-%m-%d"
+        trade_dt = datetime.strptime(trade_date_str[:10], fmt)
+        disc_dt = datetime.strptime(disclosure_date_str[:10], fmt)
+        days = max(0, (disc_dt - trade_dt).days)
+        # Decay curve: 1-10 days = 1.0, 11-20 = 0.8, 21-30 = 0.5, 31-45 = 0.2
+        if days <= 10:
+            score = 1.0
+        elif days <= 20:
+            score = 0.8
+        elif days <= 30:
+            score = 0.5
+        else:
+            score = max(0.1, 0.2 - (days - 30) * 0.01)
+        return round(score, 3), days
+    except Exception:
+        return 0.5, -1
+
+
+def detect_congress_clusters(
+    new_events: list[dict], politician_scores: dict, window_days: int = 14,
+) -> list[dict]:
+    """Detect multi-member buys of the same ticker within window_days."""
+    # Group bullish congress events by ticker
+    by_ticker: dict[str, list[dict]] = defaultdict(list)
+    for ev in new_events:
+        if (
+            ev.get("catalyst_type") == "congressional_trade"
+            and ev.get("direction") == "bullish"
+        ):
+            by_ticker[ev.get("ticker", "")].append(ev)
+
+    clusters = []
+    for ticker, events in by_ticker.items():
+        if len(events) < 2:
+            continue
+        # Check all pairs within window
+        for i, ev1 in enumerate(events):
+            for ev2 in events[i + 1:]:
+                try:
+                    d1 = datetime.strptime(ev1["event_time"][:10], "%Y-%m-%d")
+                    d2 = datetime.strptime(ev2["event_time"][:10], "%Y-%m-%d")
+                    if abs((d2 - d1).days) <= window_days:
+                        # Get chambers
+                        p1 = politician_scores.get(
+                            ev1.get("metadata", {}).get("representative", "").lower(), {},
+                        )
+                        p2 = politician_scores.get(
+                            ev2.get("metadata", {}).get("representative", "").lower(), {},
+                        )
+                        cross_chamber = (
+                            p1.get("chamber") != p2.get("chamber")
+                            if p1 and p2 else False
+                        )
+                        boost = 0.10 if cross_chamber else 0.05
+                        clusters.append({
+                            "ticker": ticker,
+                            "cluster_date": date.today().isoformat(),
+                            "member_count": 2,
+                            "cross_chamber": cross_chamber,
+                            "members": [
+                                {
+                                    "name": ev1.get("metadata", {}).get(
+                                        "representative", "",
+                                    ),
+                                    "signal_score": ev1.get("metadata", {}).get(
+                                        "signal_score", 0,
+                                    ),
+                                },
+                                {
+                                    "name": ev2.get("metadata", {}).get(
+                                        "representative", "",
+                                    ),
+                                    "signal_score": ev2.get("metadata", {}).get(
+                                        "signal_score", 0,
+                                    ),
+                                },
+                            ],
+                            "confidence_boost": boost,
+                        })
+                except Exception:
+                    continue
+    return clusters
+
+
 def fetch_finnhub_news(ticker: str, lookback_hours: int = LOOKBACK_HOURS) -> list[dict]:
     """Fetch recent company news from Finnhub."""
     if not FINNHUB_KEY:
@@ -276,8 +400,10 @@ def fetch_sec_edgar_rss() -> list[dict]:
     return events
 
 
-def fetch_quiverquant_trades() -> list[dict]:
-    """Fetch recent congressional trades from QuiverQuant."""
+def fetch_quiverquant_trades(politician_scores: dict | None = None) -> list[dict]:
+    """Fetch recent congressional trades from QuiverQuant with politician enrichment."""
+    if politician_scores is None:
+        politician_scores = {}
     events = []
     try:
         client = _client
@@ -294,22 +420,105 @@ def fetch_quiverquant_trades() -> list[dict]:
                     continue
 
                 ticker = trade.get("Ticker", "")
-                name = trade.get("Representative", "Unknown")
+                rep_name = trade.get("Representative", "").strip()
                 txn_type = trade.get("Transaction", "")
                 amount = trade.get("Amount", "")
 
-                headline = f"Congressional trade: {name} — {txn_type} {ticker} ({amount})"
-                events.append({
+                # --- Politician enrichment ---
+                rep_key = rep_name.lower()
+                pol = politician_scores.get(rep_key, {})
+                signal_score = pol.get("signal_score", 0.05)
+
+                # Filter out low-signal members to save embedding cost and noise
+                if politician_scores and signal_score < 0.20:
+                    continue
+
+                # Score disclosure freshness
+                trade_date = (
+                    trade.get("TransactionDate", "")
+                    or trade.get("Date", "")
+                )
+                freshness_score, days_since = score_disclosure_freshness(
+                    trade_date, report_date,
+                )
+
+                # Chronic late filer bonus: if usually late but this one is fresh
+                if pol.get("chronic_late_filer") and days_since <= 10:
+                    freshness_score = min(1.0, freshness_score + 0.20)
+
+                # Sector jurisdiction check
+                ticker_sector = classify_ticker_sector(ticker)
+                sector_expertise = pol.get("sector_expertise", [])
+                in_jurisdiction = any(
+                    s.lower() in ticker_sector.lower() for s in sector_expertise
+                )
+
+                # Filer type multiplier
+                filer_type = "member"
+                if (
+                    pol.get("tracks_spouse")
+                    and rep_name == pol.get("spouse_name", "")
+                ):
+                    filer_type = "spouse"
+
+                filer_multiplier = {
+                    "member": 1.0, "spouse": 0.85, "dependent_child": 0.70,
+                }.get(filer_type, 1.0)
+
+                # Combined effective score
+                effective_score = round(
+                    signal_score
+                    * freshness_score
+                    * filer_multiplier
+                    * (1.1 if in_jurisdiction else 1.0),
+                    3,
+                )
+
+                # Determine direction from transaction type
+                txn_lower = txn_type.lower()
+                if "purchase" in txn_lower or "buy" in txn_lower:
+                    direction = "bullish"
+                elif "sale" in txn_lower or "sell" in txn_lower:
+                    direction = "bearish"
+                else:
+                    direction = "neutral"
+
+                headline = (
+                    f"Congressional trade: {rep_name} — "
+                    f"{txn_type} {ticker} ({amount})"
+                )
+                event = {
                     "ticker": ticker if ticker else None,
                     "headline": headline,
-                    "content": f"Congressional trading disclosure. {name} {txn_type} {ticker}. "
-                               f"Amount range: {amount}. Report date: {report_date}.",
+                    "catalyst_type": "congressional_trade",
+                    "direction": direction,
+                    "content": (
+                        f"Congressional trading disclosure. "
+                        f"{rep_name} {txn_type} {ticker}. "
+                        f"Amount range: {amount}. Report date: {report_date}."
+                    ),
                     "source": "quiverquant",
                     "source_url": "",
-                    "event_time": (datetime.strptime(report_date, "%Y-%m-%d").replace(
-                        tzinfo=timezone.utc
-                    ) if report_date else datetime.now(timezone.utc)).isoformat(),
-                })
+                    "event_time": (
+                        datetime.strptime(report_date, "%Y-%m-%d").replace(
+                            tzinfo=timezone.utc,
+                        ) if report_date else datetime.now(timezone.utc)
+                    ).isoformat(),
+                    # Congress enrichment columns
+                    "politician_signal_score": effective_score,
+                    "disclosure_days_since_trade": days_since,
+                    "disclosure_freshness_score": freshness_score,
+                    "in_jurisdiction": in_jurisdiction,
+                    "filer_type": filer_type,
+                    "metadata": {
+                        "representative": rep_name,
+                        "signal_score": signal_score,
+                        "freshness_score": freshness_score,
+                        "days_since_trade": days_since,
+                        "in_jurisdiction": in_jurisdiction,
+                    },
+                }
+                events.append(event)
     except Exception as e:
         print(f"[catalyst_ingest] QuiverQuant error: {e}")
 
@@ -415,9 +624,12 @@ def run():
             sec_count = len([e for e in sec_events if e["ticker"] in watchlist])
             result.set({"sec_events": len(sec_events), "matched": sec_count})
 
-        # Step 4: QuiverQuant congressional trades
+        # Load politician scores for congress enrichment
+        politician_scores = load_politician_scores()
+
+        # Step 4: QuiverQuant congressional trades (with politician enrichment)
         with tracer.step("fetch_quiverquant") as result:
-            qq_events = fetch_quiverquant_trades()
+            qq_events = fetch_quiverquant_trades(politician_scores)
             for ev in qq_events:
                 if ev["ticker"] and ev["ticker"] in watchlist:
                     all_raw_events.append(ev)
@@ -468,21 +680,33 @@ def run():
                 if raw_event.get("ticker"):
                     affected.append(raw_event["ticker"])
 
-                # Build record
+                # Build record — prefer raw event catalyst_type/direction if set
                 record = {
                     "ticker": raw_event.get("ticker"),
-                    "catalyst_type": classification["catalyst_type"],
+                    "catalyst_type": raw_event.get("catalyst_type") or classification["catalyst_type"],
                     "headline": headline[:200],
                     "source": raw_event["source"],
                     "source_url": raw_event.get("source_url", ""),
                     "event_time": raw_event.get("event_time", datetime.now(timezone.utc).isoformat()),
                     "magnitude": classification["magnitude"],
-                    "direction": classification["direction"],
+                    "direction": raw_event.get("direction") or classification["direction"],
                     "sentiment_score": classification["sentiment_score"],
                     "affected_tickers": affected,
                     "content": embed_text,
-                    "metadata": {},
+                    "metadata": raw_event.get("metadata", {}),
                 }
+
+                # Carry through congress enrichment columns if present
+                for col in (
+                    "politician_signal_score",
+                    "disclosure_days_since_trade",
+                    "disclosure_freshness_score",
+                    "in_jurisdiction",
+                    "filer_type",
+                ):
+                    if col in raw_event:
+                        record[col] = raw_event[col]
+
                 if embedding:
                     record["embedding"] = embedding
 
@@ -491,6 +715,20 @@ def run():
                     inserted += 1
 
             result.set({"inserted": inserted, "duplicates": duplicates, "total_raw": len(all_raw_events)})
+
+        # Step 7: Detect congress clusters
+        with tracer.step("detect_congress_clusters") as result:
+            congress_events = [
+                e for e in all_raw_events
+                if e.get("catalyst_type") == "congressional_trade"
+                or e.get("source") == "quiverquant"
+            ]
+            clusters = detect_congress_clusters(
+                congress_events, politician_scores,
+            )
+            for cluster in clusters:
+                _post_to_supabase("congress_clusters", cluster)
+            result.set({"clusters_detected": len(clusters)})
 
         tracer.complete({"total_inserted": inserted, "total_duplicates": duplicates})
         print(f"[catalyst_ingest] Complete. Inserted: {inserted}, Duplicates: {duplicates}")
