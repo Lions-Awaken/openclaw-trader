@@ -2149,7 +2149,14 @@ async def activate_strategy(request: Request, oc_session: str | None = Cookie(No
 
     client = get_http()
     now = datetime.now(timezone.utc).isoformat()
-    # Activate selected FIRST (so we never have zero active profiles)
+    # Deactivate all FIRST (unique constraint on active=true allows only one)
+    await client.patch(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers={**sb_headers(), "Content-Type": "application/json"},
+        params={"active": "eq.true"},
+        json={"active": False, "updated_at": now},
+    )
+    # Then activate the selected one
     resp = await client.patch(
         f"{SUPABASE_URL}/rest/v1/strategy_profiles",
         headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
@@ -2158,13 +2165,6 @@ async def activate_strategy(request: Request, oc_session: str | None = Cookie(No
     )
     if resp.status_code != 200 or not resp.json():
         raise HTTPException(status_code=500, detail="Failed to activate profile")
-    # Then deactivate all others
-    await client.patch(
-        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
-        headers={**sb_headers(), "Content-Type": "application/json"},
-        params={"active": "eq.true", "id": f"neq.{profile_id}"},
-        json={"active": False, "updated_at": now},
-    )
     return resp.json()[0]
 
 

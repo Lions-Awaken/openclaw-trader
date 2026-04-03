@@ -3405,15 +3405,18 @@ async function loadStrategyProfiles() {
 }
 
 async function activateStrategy(id) {
+  if (!confirm('Switch active strategy profile?')) return;
   try {
-    await fetch('/api/strategy/activate', {
+    const resp = await fetch('/api/strategy/activate', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
+      credentials: 'include',
       body: JSON.stringify({id}),
     });
+    if (!resp.ok) { alert('Failed to activate profile'); return; }
     loadActiveStrategy();
     loadStrategyProfiles();
-  } catch(e) {}
+  } catch(e) { alert('Error: ' + e.message); }
 }
 
 loadActiveStrategy();
