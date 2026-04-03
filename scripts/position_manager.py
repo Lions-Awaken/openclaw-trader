@@ -167,7 +167,7 @@ def close_position(
         # Log P&L to cost_ledger
         _post_to_supabase("cost_ledger", {
             "ledger_date": TODAY,
-            "category": "trading_pnl",
+            "category": "trade_pnl",
             "subcategory": f"trade_{ticker}",
             "amount": round(pnl, 2),
             "description": f"{ticker}: {outcome} ({pnl_pct:+.1f}%) — {reason}",
