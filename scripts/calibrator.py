@@ -26,7 +26,13 @@ from common import (
     sb_get,
     slack_notify,
 )
-from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
+from tracer import (
+    PipelineTracer,
+    _patch_supabase,
+    _post_to_supabase,
+    set_active_tracer,
+    traced,
+)
 
 TODAY = date.today()  # Reassigned at the start of run()
 WEEK_START = ""  # Reassigned at the start of run()
@@ -54,6 +60,7 @@ def get_trade_outcomes() -> dict[str, dict]:
     return outcomes
 
 
+@traced("meta")
 def grade_chains(trade_outcomes: dict[str, dict]) -> tuple[int, int]:
     """Grade ungraded inference chains by matching to trade outcomes."""
     ungraded = sb_get("inference_chains", {
@@ -110,6 +117,7 @@ def grade_chains(trade_outcomes: dict[str, dict]) -> tuple[int, int]:
     return graded, total
 
 
+@traced("meta")
 def compute_calibration_buckets() -> tuple[list[dict], dict]:
     """Compute stated vs actual confidence calibration buckets."""
     # Get all graded chains from last 30 days
@@ -198,6 +206,7 @@ def compute_calibration_buckets() -> tuple[list[dict], dict]:
     return buckets, {"active_factors": active_factors, "depth_factors": depth_factors}
 
 
+@traced("meta")
 def compute_brier_score(chains: list[dict]) -> tuple[float, float, float]:
     """Compute Brier score, calibration error, and overconfidence bias."""
     if not chains:
@@ -224,6 +233,7 @@ def compute_brier_score(chains: list[dict]) -> tuple[float, float, float]:
     )
 
 
+@traced("meta")
 def fill_catalyst_prices() -> int:
     """Fill price follow-up data for catalyst events that are old enough."""
     # Get catalysts from 1-5 days ago that don't have prices filled
@@ -318,6 +328,7 @@ def _get_price_history(ticker: str, event_date: datetime) -> dict:
     return {}
 
 
+@traced("meta")
 def update_pattern_templates() -> int:
     """Update pattern template match counts based on graded chains."""
     # Get chains from last 30 days that matched patterns
@@ -372,6 +383,7 @@ def run():
     WEEK_START = (TODAY - timedelta(days=7)).isoformat()
 
     tracer = PipelineTracer("calibrator", metadata={"week_start": WEEK_START})
+    set_active_tracer(tracer)
 
     try:
         # Step 1: Get trade outcomes

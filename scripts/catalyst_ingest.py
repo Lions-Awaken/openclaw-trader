@@ -30,7 +30,7 @@ from common import (
     sb_get,
     slack_notify,
 )
-from tracer import PipelineTracer, _post_to_supabase
+from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced
 
 # Lookback window for news (12 hours)
 LOOKBACK_HOURS = 12
@@ -85,6 +85,7 @@ def get_watchlist() -> list[str]:
     return sorted(tickers)
 
 
+@traced("catalysts")
 def classify_catalyst(headline: str, content: str = "") -> dict:
     """Classify catalyst type, magnitude, and direction using keyword rules."""
     text = (headline + " " + content).lower()
@@ -208,6 +209,7 @@ def score_disclosure_freshness(
         return 0.5, -1
 
 
+@traced("catalysts")
 def detect_congress_clusters(
     new_events: list[dict], politician_scores: dict, window_days: int = 14,
 ) -> list[dict]:
@@ -274,6 +276,7 @@ def detect_congress_clusters(
     return clusters
 
 
+@traced("catalysts")
 def fetch_finnhub_news(ticker: str, lookback_hours: int = LOOKBACK_HOURS) -> list[dict]:
     """Fetch recent company news from Finnhub."""
     if not FINNHUB_KEY:
@@ -313,6 +316,7 @@ def fetch_finnhub_news(ticker: str, lookback_hours: int = LOOKBACK_HOURS) -> lis
     return events
 
 
+@traced("catalysts")
 def fetch_finnhub_insiders(ticker: str) -> list[dict]:
     """Fetch insider transactions from Finnhub."""
     if not FINNHUB_KEY:
@@ -362,6 +366,7 @@ def fetch_finnhub_insiders(ticker: str) -> list[dict]:
     return events
 
 
+@traced("catalysts")
 def fetch_sec_edgar_rss() -> list[dict]:
     """Fetch recent 8-K and insider filings from SEC EDGAR RSS."""
     events = []
@@ -400,6 +405,7 @@ def fetch_sec_edgar_rss() -> list[dict]:
     return events
 
 
+@traced("catalysts")
 def fetch_quiverquant_trades(politician_scores: dict | None = None) -> list[dict]:
     """Fetch recent congressional trades from QuiverQuant with politician enrichment."""
     if politician_scores is None:
@@ -525,6 +531,7 @@ def fetch_quiverquant_trades(politician_scores: dict | None = None) -> list[dict
     return events
 
 
+@traced("catalysts")
 def fetch_perplexity_search(tickers: list[str]) -> list[dict]:
     """Deep search for breaking catalysts using Perplexity API."""
     if not PERPLEXITY_KEY or not tickers:
@@ -592,6 +599,7 @@ def fetch_perplexity_search(tickers: list[str]) -> list[dict]:
 
 def run():
     tracer = PipelineTracer("catalyst_ingest", metadata={"time": datetime.now(timezone.utc).isoformat()})
+    set_active_tracer(tracer)
 
     try:
         # Step 1: Load watchlist

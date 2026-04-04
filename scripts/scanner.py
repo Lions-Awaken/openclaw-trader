@@ -40,7 +40,7 @@ from common import (
     submit_order,
 )
 from inference_engine import load_active_profile, run_inference
-from tracer import PipelineTracer, _post_to_supabase
+from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced
 
 TODAY = date.today().isoformat()
 
@@ -64,6 +64,7 @@ LIQUID_UNIVERSE = [
 # ---------------------------------------------------------------------------
 # Circuit breaker check
 # ---------------------------------------------------------------------------
+@traced("pipeline")
 def check_circuit_breakers() -> tuple[bool, str]:
     """Check for consecutive losses and drawdown. Returns (ok, reason)."""
     # Check last 5 trades for consecutive losses
@@ -242,6 +243,7 @@ def calculate_position_size(
 # ---------------------------------------------------------------------------
 # Build watchlist
 # ---------------------------------------------------------------------------
+@traced("pipeline")
 def build_congress_watchlist() -> list[str]:
     """Build watchlist from recent high-signal congressional buys (last 21 days)."""
     cutoff = (date.today() - timedelta(days=21)).isoformat()
@@ -265,6 +267,7 @@ def build_congress_watchlist() -> list[str]:
     return tickers
 
 
+@traced("pipeline")
 def build_watchlist() -> list[str]:
     """Combine catalyst tickers (24h) with liquid universe, deduplicated."""
     tickers = set(LIQUID_UNIVERSE)
@@ -300,6 +303,7 @@ def build_watchlist() -> list[str]:
 # ---------------------------------------------------------------------------
 # Core execution
 # ---------------------------------------------------------------------------
+@traced("trades")
 def execute_trade(
     ticker: str,
     inference_result: dict,
@@ -452,6 +456,7 @@ def run():
     print(f"{'='*60}\n")
 
     tracer = PipelineTracer("scanner", metadata={"date": TODAY})
+    set_active_tracer(tracer)
 
     try:
         # === Step 1: Load strategy profile ===

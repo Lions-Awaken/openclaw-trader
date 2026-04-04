@@ -42,7 +42,13 @@ from common import (
     generate_embedding,
     sb_get,
 )
-from tracer import _patch_supabase, _post_to_supabase
+from tracer import (
+    PipelineTracer,
+    _patch_supabase,
+    _post_to_supabase,
+    set_active_tracer,
+    traced,
+)
 
 TODAY = date.today().isoformat()
 
@@ -51,6 +57,7 @@ TODAY = date.today().isoformat()
 # Data fetchers
 # ============================================================================
 
+@traced("economics")
 def fetch_inference_chain(chain_id: str | None, ticker: str, trade_date: str) -> dict | None:
     """Get the inference chain that led to this trade."""
     if chain_id:
@@ -70,6 +77,7 @@ def fetch_inference_chain(chain_id: str | None, ticker: str, trade_date: str) ->
     return rows[0] if rows else None
 
 
+@traced("economics")
 def fetch_market_context(ticker: str, entry_date: str, exit_date: str) -> dict:
     """Fetch SPY/QQQ bars for the hold period to give market backdrop context."""
     context = {}
@@ -103,6 +111,7 @@ def fetch_market_context(ticker: str, entry_date: str, exit_date: str) -> dict:
     return context
 
 
+@traced("economics")
 def fetch_active_catalysts(ticker: str, entry_date: str, exit_date: str) -> list:
     """Get catalysts that were active during the hold period."""
     rows = sb_get("catalyst_events", {
@@ -115,6 +124,7 @@ def fetch_active_catalysts(ticker: str, entry_date: str, exit_date: str) -> list
     return rows
 
 
+@traced("economics")
 def call_claude_postmortem(prompt: str) -> tuple[str | None, float]:
     """Call Claude Sonnet for post-mortem analysis. Returns (response, cost)."""
     if not ANTHROPIC_API_KEY:
@@ -277,173 +287,184 @@ def run(
     print(f"\n[post_trade] Analyzing closed trade: {ticker} "
           f"${entry_price:.2f} → ${exit_price:.2f} ({hold_days}d)")
 
-    pnl = exit_price - entry_price
-    outcome, pnl_pct = classify_outcome(pnl, entry_price)
-    trade_date = entry_date or TODAY
-    exit_date = (
-        datetime.fromisoformat(trade_date) + timedelta(days=hold_days)
-    ).date().isoformat()
+    tracer = PipelineTracer("post_trade_analysis", metadata={"ticker": ticker})
+    set_active_tracer(tracer)
 
-    print(f"[post_trade] Outcome: {outcome} ({pnl_pct:+.2f}%)")
+    try:
+        pnl = exit_price - entry_price
+        outcome, pnl_pct = classify_outcome(pnl, entry_price)
+        trade_date = entry_date or TODAY
+        exit_date = (
+            datetime.fromisoformat(trade_date) + timedelta(days=hold_days)
+        ).date().isoformat()
 
-    # === 1. Retrieve original inference chain ===
-    chain = fetch_inference_chain(chain_id, ticker, trade_date)
-    if chain:
-        print(f"[post_trade] Found inference chain: depth={chain.get('max_depth_reached')}, "
-              f"conf={chain.get('final_confidence'):.3f}")
-    else:
-        print("[post_trade] No inference chain found — proceeding with market context only")
+        print(f"[post_trade] Outcome: {outcome} ({pnl_pct:+.2f}%)")
 
-    # === 2. Market context ===
-    market_ctx = fetch_market_context(ticker, trade_date, exit_date)
-    print(f"[post_trade] Market context: SPY={market_ctx.get('SPY', {}).get('move_pct', 'N/A')}%, "
-          f"QQQ={market_ctx.get('QQQ', {}).get('move_pct', 'N/A')}%")
+        # === 1. Retrieve original inference chain ===
+        chain = fetch_inference_chain(chain_id, ticker, trade_date)
+        if chain:
+            print(f"[post_trade] Found inference chain: depth={chain.get('max_depth_reached')}, "
+                  f"conf={chain.get('final_confidence'):.3f}")
+        else:
+            print("[post_trade] No inference chain found — proceeding with market context only")
 
-    # === 3. Active catalysts ===
-    catalysts = fetch_active_catalysts(ticker, trade_date, exit_date)
-    print(f"[post_trade] Found {len(catalysts)} active catalysts during hold")
+        # === 2. Market context ===
+        market_ctx = fetch_market_context(ticker, trade_date, exit_date)
+        print(f"[post_trade] Market context: SPY={market_ctx.get('SPY', {}).get('move_pct', 'N/A')}%, "
+              f"QQQ={market_ctx.get('QQQ', {}).get('move_pct', 'N/A')}%")
 
-    # === 4. Claude post-mortem ===
-    prompt = build_postmortem_prompt(
-        ticker, entry_price, exit_price, pnl, pnl_pct, outcome,
-        hold_days, chain, market_ctx, catalysts,
-    )
+        # === 3. Active catalysts ===
+        catalysts = fetch_active_catalysts(ticker, trade_date, exit_date)
+        print(f"[post_trade] Found {len(catalysts)} active catalysts during hold")
 
-    print("[post_trade] Calling Claude for post-mortem analysis...")
-    t0 = time.time()
-    raw_response, claude_cost = call_claude_postmortem(prompt)
-    elapsed = time.time() - t0
+        # === 4. Claude post-mortem ===
+        prompt = build_postmortem_prompt(
+            ticker, entry_price, exit_price, pnl, pnl_pct, outcome,
+            hold_days, chain, market_ctx, catalysts,
+        )
 
-    analysis = {}
-    if raw_response:
-        try:
-            analysis = json.loads(raw_response)
-            print(f"[post_trade] Claude analysis complete ({elapsed:.1f}s, ${claude_cost:.4f})")
-        except json.JSONDecodeError:
-            # Try to extract JSON from response
-            if "{" in raw_response:
-                try:
-                    start = raw_response.index("{")
-                    end = raw_response.rindex("}") + 1
-                    analysis = json.loads(raw_response[start:end])
-                    print(f"[post_trade] Claude analysis extracted ({elapsed:.1f}s)")
-                except (json.JSONDecodeError, ValueError):
-                    print("[post_trade] Could not parse Claude response, using defaults")
-    else:
-        print("[post_trade] Claude unavailable — storing with factual data only")
+        print("[post_trade] Calling Claude for post-mortem analysis...")
+        t0 = time.time()
+        raw_response, claude_cost = call_claude_postmortem(prompt)
+        elapsed = time.time() - t0
 
-    if claude_cost > 0:
-        log_cost(claude_cost, ticker, f"Post-mortem analysis for {ticker} {outcome}",
-                 {"model": "claude-sonnet-4-6", "ticker": ticker, "outcome": outcome})
+        analysis = {}
+        if raw_response:
+            try:
+                analysis = json.loads(raw_response)
+                print(f"[post_trade] Claude analysis complete ({elapsed:.1f}s, ${claude_cost:.4f})")
+            except json.JSONDecodeError:
+                # Try to extract JSON from response
+                if "{" in raw_response:
+                    try:
+                        start = raw_response.index("{")
+                        end = raw_response.rindex("}") + 1
+                        analysis = json.loads(raw_response[start:end])
+                        print(f"[post_trade] Claude analysis extracted ({elapsed:.1f}s)")
+                    except (json.JSONDecodeError, ValueError):
+                        print("[post_trade] Could not parse Claude response, using defaults")
+        else:
+            print("[post_trade] Claude unavailable — storing with factual data only")
 
-    # === 5. Build content string for embedding ===
-    key_lesson = analysis.get("key_lesson", "")
-    what_worked = analysis.get("what_worked", "")
-    what_failed = analysis.get("what_failed", "")
-    key_variance = analysis.get("key_variance", "")
+        if claude_cost > 0:
+            log_cost(claude_cost, ticker, f"Post-mortem analysis for {ticker} {outcome}",
+                     {"model": "claude-sonnet-4-6", "ticker": ticker, "outcome": outcome})
 
-    chain_summary_for_embed = ""
-    if chain:
-        chain_summary_for_embed = f"Confidence {chain.get('final_confidence', 0):.2f}. {chain.get('reasoning_summary', '')[:200]}"
+        # === 5. Build content string for embedding ===
+        key_lesson = analysis.get("key_lesson", "")
+        what_worked = analysis.get("what_worked", "")
+        what_failed = analysis.get("what_failed", "")
+        key_variance = analysis.get("key_variance", "")
 
-    content = (
-        f"Trade: {ticker}. Outcome: {outcome} ({pnl_pct:+.2f}%). "
-        f"Hold: {hold_days}d. Entry ${entry_price:.2f} exit ${exit_price:.2f}. "
-        f"Expectation: {analysis.get('expected_direction', 'bullish')} with {chain.get('final_confidence', 0) if chain else 0:.2f} confidence. "
-        f"Reality: {analysis.get('actual_direction', '?')} {analysis.get('actual_move_pct', 0):+.2f}%. "
-        f"Accuracy: {analysis.get('expectation_accuracy', '?')}. "
-        f"Catalysts: {analysis.get('catalyst_match', 'unknown')}. "
-        f"What worked: {what_worked}. "
-        f"What failed: {what_failed}. "
-        f"Key variance: {key_variance}. "
-        f"Lesson: {key_lesson}. "
-        f"Chain: {chain_summary_for_embed}"
-    )
+        chain_summary_for_embed = ""
+        if chain:
+            chain_summary_for_embed = f"Confidence {chain.get('final_confidence', 0):.2f}. {chain.get('reasoning_summary', '')[:200]}"
 
-    # === 6. Generate embedding ===
-    print("[post_trade] Generating embedding...")
-    embedding = generate_embedding(content)
-    if embedding:
-        print(f"[post_trade] Embedding generated ({len(embedding)} dims)")
-    else:
-        print("[post_trade] Embedding failed — storing without vector")
+        content = (
+            f"Trade: {ticker}. Outcome: {outcome} ({pnl_pct:+.2f}%). "
+            f"Hold: {hold_days}d. Entry ${entry_price:.2f} exit ${exit_price:.2f}. "
+            f"Expectation: {analysis.get('expected_direction', 'bullish')} with {chain.get('final_confidence', 0) if chain else 0:.2f} confidence. "
+            f"Reality: {analysis.get('actual_direction', '?')} {analysis.get('actual_move_pct', 0):+.2f}%. "
+            f"Accuracy: {analysis.get('expectation_accuracy', '?')}. "
+            f"Catalysts: {analysis.get('catalyst_match', 'unknown')}. "
+            f"What worked: {what_worked}. "
+            f"What failed: {what_failed}. "
+            f"Key variance: {key_variance}. "
+            f"Lesson: {key_lesson}. "
+            f"Chain: {chain_summary_for_embed}"
+        )
 
-    # === 7. Store in trade_learnings ===
-    expected_confidence = float(chain.get("final_confidence", 0)) if chain else 0.0
-    actual_move = float(analysis.get("actual_move_pct", 0) or 0)
+        # === 6. Generate embedding ===
+        print("[post_trade] Generating embedding...")
+        embedding = generate_embedding(content)
+        if embedding:
+            print(f"[post_trade] Embedding generated ({len(embedding)} dims)")
+        else:
+            print("[post_trade] Embedding failed — storing without vector")
 
-    record: dict = {
-        "ticker": ticker,
-        "trade_date": trade_date,
-        "entry_price": round(entry_price, 4),
-        "exit_price": round(exit_price, 4),
-        "pnl": round(pnl, 4),
-        "pnl_pct": round(pnl_pct, 3),
-        "outcome": outcome,
-        "hold_days": hold_days,
-        "expected_direction": analysis.get("expected_direction", "bullish"),
-        "expected_confidence": round(expected_confidence, 4),
-        "actual_direction": analysis.get("actual_direction", "flat"),
-        "actual_move_pct": round(actual_move, 3),
-        "expectation_accuracy": analysis.get("expectation_accuracy", "missed"),
-        "inference_chain_id": chain.get("id") if chain else None,
-        "signal_score": chain.get("signal_score") if chain else None,
-        "tumbler_depth": chain.get("max_depth_reached") if chain else None,
-        "stopping_reason": chain.get("stopping_reason") if chain else None,
-        "catalyst_match": analysis.get("catalyst_match", ""),
-        "pattern_effectiveness": analysis.get("pattern_effectiveness", ""),
-        "key_variance": analysis.get("key_variance", ""),
-        "what_worked": what_worked,
-        "what_failed": what_failed,
-        "key_lesson": key_lesson,
-        "setup_conditions": analysis.get("setup_conditions", {}),
-        "exit_conditions": analysis.get("exit_conditions", {}),
-        "market_context": market_ctx,
-        "active_catalysts": [
-            {"type": c.get("catalyst_type"), "headline": c.get("headline", "")[:100],
-             "direction": c.get("direction"), "sentiment": c.get("sentiment_score")}
-            for c in catalysts[:8]
-        ],
-        "content": content,
-        "metadata": {
-            "claude_cost": round(claude_cost, 6),
-            "analysis_duration_s": round(elapsed, 1),
-        },
-    }
-    if pipeline_run_id:
-        record["pipeline_run_id"] = pipeline_run_id
-    if embedding:
-        record["embedding"] = embedding
+        # === 7. Store in trade_learnings ===
+        expected_confidence = float(chain.get("final_confidence", 0)) if chain else 0.0
+        actual_move = float(analysis.get("actual_move_pct", 0) or 0)
 
-    stored = _post_to_supabase("trade_learnings", record)
-    learning_id = stored.get("id") if stored else None
-    print(f"[post_trade] Stored trade_learnings row: {learning_id}")
-
-    # === 8. Back-fill inference chain outcome ===
-    if chain and chain.get("id"):
-        outcome_map = {
-            "STRONG_WIN": "STRONG_WIN",
-            "WIN": "WIN",
-            "SCRATCH": "SCRATCH",
-            "LOSS": "LOSS",
-            "STRONG_LOSS": "STRONG_LOSS",
+        record: dict = {
+            "ticker": ticker,
+            "trade_date": trade_date,
+            "entry_price": round(entry_price, 4),
+            "exit_price": round(exit_price, 4),
+            "pnl": round(pnl, 4),
+            "pnl_pct": round(pnl_pct, 3),
+            "outcome": outcome,
+            "hold_days": hold_days,
+            "expected_direction": analysis.get("expected_direction", "bullish"),
+            "expected_confidence": round(expected_confidence, 4),
+            "actual_direction": analysis.get("actual_direction", "flat"),
+            "actual_move_pct": round(actual_move, 3),
+            "expectation_accuracy": analysis.get("expectation_accuracy", "missed"),
+            "inference_chain_id": chain.get("id") if chain else None,
+            "signal_score": chain.get("signal_score") if chain else None,
+            "tumbler_depth": chain.get("max_depth_reached") if chain else None,
+            "stopping_reason": chain.get("stopping_reason") if chain else None,
+            "catalyst_match": analysis.get("catalyst_match", ""),
+            "pattern_effectiveness": analysis.get("pattern_effectiveness", ""),
+            "key_variance": analysis.get("key_variance", ""),
+            "what_worked": what_worked,
+            "what_failed": what_failed,
+            "key_lesson": key_lesson,
+            "setup_conditions": analysis.get("setup_conditions", {}),
+            "exit_conditions": analysis.get("exit_conditions", {}),
+            "market_context": market_ctx,
+            "active_catalysts": [
+                {"type": c.get("catalyst_type"), "headline": c.get("headline", "")[:100],
+                 "direction": c.get("direction"), "sentiment": c.get("sentiment_score")}
+                for c in catalysts[:8]
+            ],
+            "content": content,
+            "metadata": {
+                "claude_cost": round(claude_cost, 6),
+                "analysis_duration_s": round(elapsed, 1),
+            },
         }
-        patched = _patch_supabase("inference_chains", chain["id"], {
-            "actual_outcome": outcome_map.get(outcome, outcome),
-            "actual_pnl": round(pnl, 4),
-        })
-        if patched:
-            print(f"[post_trade] Back-filled inference_chain {chain['id'][:8]}... with outcome {outcome}")
+        if pipeline_run_id:
+            record["pipeline_run_id"] = pipeline_run_id
+        if embedding:
+            record["embedding"] = embedding
 
-    print(f"[post_trade] Done. Learning ID: {learning_id}")
-    return {
-        "learning_id": learning_id,
-        "ticker": ticker,
-        "outcome": outcome,
-        "pnl_pct": pnl_pct,
-        "key_lesson": key_lesson,
-        "expectation_accuracy": analysis.get("expectation_accuracy", "?"),
-    }
+        stored = _post_to_supabase("trade_learnings", record)
+        learning_id = stored.get("id") if stored else None
+        print(f"[post_trade] Stored trade_learnings row: {learning_id}")
+
+        # === 8. Back-fill inference chain outcome ===
+        if chain and chain.get("id"):
+            outcome_map = {
+                "STRONG_WIN": "STRONG_WIN",
+                "WIN": "WIN",
+                "SCRATCH": "SCRATCH",
+                "LOSS": "LOSS",
+                "STRONG_LOSS": "STRONG_LOSS",
+            }
+            patched = _patch_supabase("inference_chains", chain["id"], {
+                "actual_outcome": outcome_map.get(outcome, outcome),
+                "actual_pnl": round(pnl, 4),
+            })
+            if patched:
+                print(f"[post_trade] Back-filled inference_chain {chain['id'][:8]}... with outcome {outcome}")
+
+        print(f"[post_trade] Done. Learning ID: {learning_id}")
+        result = {
+            "learning_id": learning_id,
+            "ticker": ticker,
+            "outcome": outcome,
+            "pnl_pct": pnl_pct,
+            "key_lesson": key_lesson,
+            "expectation_accuracy": analysis.get("expectation_accuracy", "?"),
+        }
+        tracer.complete({"outcome": outcome, "pnl_pct": pnl_pct, "learning_id": learning_id})
+        return result
+
+    except Exception as e:
+        tracer.fail(str(e))
+        print(f"[post_trade] FATAL: {e}")
+        raise
 
 
 # ============================================================================

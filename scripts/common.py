@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from tracer import traced
 
 # ==========================================================================
 # Sentry — initialize before anything else so all errors are captured
@@ -112,6 +113,7 @@ def alpaca_headers() -> dict:
     }
 
 
+@traced("sitrep")
 def check_market_open() -> tuple[bool, str]:
     """Check Alpaca /v2/clock to see if market is currently open."""
     try:
@@ -130,6 +132,7 @@ def check_market_open() -> tuple[bool, str]:
     return False, "clock_check_failed"
 
 
+@traced("sitrep")
 def get_account() -> dict | None:
     """GET /v2/account from Alpaca paper."""
     try:
@@ -144,6 +147,7 @@ def get_account() -> dict | None:
     return None
 
 
+@traced("positions")
 def get_positions() -> list:
     """GET /v2/positions from Alpaca paper."""
     try:
@@ -158,6 +162,7 @@ def get_positions() -> list:
     return []
 
 
+@traced("positions")
 def get_open_orders() -> list:
     """GET /v2/orders?status=open from Alpaca paper."""
     try:
@@ -218,6 +223,7 @@ def get_latest_quote(ticker: str) -> dict:
     return {"price": 0, "bid": 0, "ask": 0}
 
 
+@traced("trades")
 def submit_order(
     ticker: str,
     qty: int,
@@ -252,6 +258,7 @@ def submit_order(
     return None
 
 
+@traced("trades")
 def cancel_order(order_id: str) -> bool:
     """DELETE /v2/orders/{order_id}."""
     try:
@@ -265,6 +272,7 @@ def cancel_order(order_id: str) -> bool:
     return False
 
 
+@traced("trades")
 def poll_for_fill(order_id: str, timeout_seconds: int = 120) -> dict | None:
     """Poll Alpaca for order fill status. Returns final order state or None on timeout."""
     TERMINAL = {"filled", "partially_filled", "cancelled", "rejected", "expired", "done_for_day"}

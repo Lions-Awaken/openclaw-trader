@@ -28,11 +28,18 @@ from common import (
     sb_rpc,
     slack_notify,
 )
-from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
+from tracer import (
+    PipelineTracer,
+    _patch_supabase,
+    _post_to_supabase,
+    set_active_tracer,
+    traced,
+)
 
 TODAY = ""  # Reassigned at the start of run()
 
 
+@traced("meta")
 def get_pipeline_health() -> dict:
     """Today's pipeline run stats."""
     runs = sb_get("pipeline_runs", {
@@ -61,6 +68,7 @@ def get_pipeline_health() -> dict:
     }
 
 
+@traced("meta")
 def get_signal_accuracy() -> dict:
     """Today's signal evaluation stats."""
     evals = sb_get("signal_evaluations", {
@@ -104,6 +112,7 @@ def get_data_quality_issues() -> list[dict]:
     })
 
 
+@traced("meta")
 def get_todays_trades() -> list[dict]:
     """Trades made today."""
     return sb_get("trade_decisions", {
@@ -156,6 +165,7 @@ def get_inference_chain_analysis() -> dict:
     }
 
 
+@traced("meta")
 def get_todays_catalysts() -> list[dict]:
     """Catalyst events from today."""
     return sb_get("catalyst_events", {
@@ -249,6 +259,7 @@ def rag_retrieve_context(embed_text: str) -> dict:
     }
 
 
+@traced("meta")
 def generate_reflection(context: dict) -> tuple[dict, float]:
     """Use Claude Sonnet to generate meta-reflection. Returns (reflection, cost)."""
 
@@ -382,6 +393,7 @@ def get_active_profile() -> dict:
     return rows[0] if rows else {}
 
 
+@traced("meta")
 def auto_approve_adjustments(adjustments: list[dict]) -> list[dict]:
     """Auto-approve adjustments based on active strategy profile settings."""
     profile = get_active_profile()
@@ -419,6 +431,7 @@ def run():
     TODAY = date.today().isoformat()
 
     tracer = PipelineTracer("meta_daily", metadata={"date": TODAY})
+    set_active_tracer(tracer)
 
     try:
         # Step 1: Gather data

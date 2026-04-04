@@ -10,13 +10,14 @@ Cron: */5 * * * * /path/to/heartbeat.py
 
 import os
 import sys
+import traceback
 from datetime import datetime, timezone
 
 import httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
 from common import slack_notify
-from tracer import _sb_headers
+from tracer import PipelineTracer, _sb_headers, set_active_tracer, traced
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
@@ -26,6 +27,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 _client = httpx.Client(timeout=15.0)
 
 
+@traced("sitrep")
 def check_ollama() -> dict:
     """Check if Ollama is running and responsive."""
     try:
@@ -43,6 +45,7 @@ def check_ollama() -> dict:
     return {"alive": False}
 
 
+@traced("sitrep")
 def check_tumbler() -> dict:
     """Check if the tumbler engine dependencies are available."""
     result = {"alive": True, "checks": {}}
@@ -72,6 +75,7 @@ def check_tumbler() -> dict:
     return result
 
 
+@traced("sitrep")
 def update_heartbeat(service: str, metadata: dict):
     """Write heartbeat to Supabase via upsert (POST + merge-duplicates)."""
     if not SUPABASE_URL or not SUPABASE_KEY:
@@ -96,21 +100,33 @@ def update_heartbeat(service: str, metadata: dict):
 
 
 def run():
-    ollama_status = check_ollama()
-    update_heartbeat("ollama", ollama_status)
+    tracer = PipelineTracer("heartbeat")
+    set_active_tracer(tracer)
+    try:
+        ollama_status = check_ollama()
+        update_heartbeat("ollama", ollama_status)
 
-    tumbler_status = check_tumbler()
-    update_heartbeat("tumbler", tumbler_status)
+        tumbler_status = check_tumbler()
+        update_heartbeat("tumbler", tumbler_status)
 
-    # Alert only when a service is DOWN (not on every healthy check)
-    down_services = []
-    if not ollama_status.get("alive"):
-        down_services.append("ollama")
-    if not tumbler_status.get("alive"):
-        failed_checks = [k for k, v in tumbler_status.get("checks", {}).items() if not v]
-        down_services.append(f"tumbler ({', '.join(failed_checks)})" if failed_checks else "tumbler")
-    if down_services:
-        slack_notify(f"*Heartbeat ALERT* — service(s) DOWN: {', '.join(f'`{s}`' for s in down_services)}")
+        # Alert only when a service is DOWN (not on every healthy check)
+        down_services = []
+        if not ollama_status.get("alive"):
+            down_services.append("ollama")
+        if not tumbler_status.get("alive"):
+            failed_checks = [k for k, v in tumbler_status.get("checks", {}).items() if not v]
+            down_services.append(f"tumbler ({', '.join(failed_checks)})" if failed_checks else "tumbler")
+        if down_services:
+            slack_notify(f"*Heartbeat ALERT* — service(s) DOWN: {', '.join(f'`{s}`' for s in down_services)}")
+
+        tracer.complete({
+            "services_checked": ["ollama", "tumbler"],
+            "ollama_alive": ollama_status.get("alive", False),
+            "tumbler_alive": tumbler_status.get("alive", False),
+        })
+    except Exception as e:
+        tracer.fail(str(e), traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":

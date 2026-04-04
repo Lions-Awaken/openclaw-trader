@@ -34,11 +34,18 @@ from common import (
     slack_notify,
     submit_order,
 )
-from tracer import PipelineTracer, _patch_supabase, _post_to_supabase
+from tracer import (
+    PipelineTracer,
+    _patch_supabase,
+    _post_to_supabase,
+    set_active_tracer,
+    traced,
+)
 
 TODAY = date.today().isoformat()
 
 
+@traced("trades")
 def find_trade_decision(ticker: str) -> dict | None:
     """Find the open trade_decisions row for a ticker (no exit_price yet)."""
     rows = sb_get("trade_decisions", {
@@ -71,6 +78,7 @@ def compute_atr(bars: list, period: int = 14) -> float:
 # ---------------------------------------------------------------------------
 # Position close
 # ---------------------------------------------------------------------------
+@traced("trades")
 def close_position(
     ticker: str,
     qty: int,
@@ -217,6 +225,7 @@ def close_position(
 # ---------------------------------------------------------------------------
 # Trailing stop management
 # ---------------------------------------------------------------------------
+@traced("positions")
 def manage_trailing_stop(
     ticker: str,
     current_price: float,
@@ -295,6 +304,7 @@ def run():
     print(f"\n[position_mgr] Starting position check — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     tracer = PipelineTracer("position_manager", metadata={"date": TODAY})
+    set_active_tracer(tracer)
 
     try:
         # === Load profile ===

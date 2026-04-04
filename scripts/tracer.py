@@ -19,8 +19,10 @@ Automatically captures active tuning profile and hardware telemetry.
 """
 
 import atexit
+import functools
 import json
 import os
+import threading
 import time
 import traceback
 import uuid
@@ -38,6 +40,57 @@ _sb_client = httpx.Client(timeout=10.0)
 atexit.register(_sb_client.close)
 TUNING_PROFILE_PATH = Path.home() / ".openclaw/workspace/active_tuning_profile.json"
 BUFFER_PATH = Path.home() / ".openclaw/workspace/tracer_buffer.jsonl"
+
+
+# Thread-local active tracer for @traced() decorator support
+_active_tracer = threading.local()
+
+
+def set_active_tracer(tracer):
+    """Set the active tracer for the current thread. Called by PipelineTracer.__init__()."""
+    _active_tracer.instance = tracer
+
+
+def get_active_tracer():
+    """Get the active tracer for the current thread, or None."""
+    return getattr(_active_tracer, 'instance', None)
+
+
+def clear_active_tracer():
+    """Clear the active tracer. Called by PipelineTracer.complete()/fail()."""
+    _active_tracer.instance = None
+
+
+def traced(domain: str):
+    """Decorator to trace function execution into pipeline_runs.
+
+    When an active PipelineTracer exists (set via set_active_tracer),
+    creates a child step named '{domain}:{function_name}'.
+    When no tracer is active, the function runs untraced (zero overhead).
+
+    Usage:
+        @traced("catalysts")
+        def fetch_finnhub_news(ticker, lookback_hours=24):
+            ...
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            tracer = get_active_tracer()
+            if tracer is None:
+                return fn(*args, **kwargs)
+            step_name = f"{domain}:{fn.__name__}"
+            # Safe snapshot: capture first string arg (usually ticker/table name)
+            input_snap = {}
+            if args and isinstance(args[0], str):
+                input_snap["arg0"] = args[0]
+            with tracer.step(step_name, input_snapshot=input_snap) as result:
+                ret = fn(*args, **kwargs)
+                if isinstance(ret, dict):
+                    result.set(ret)
+                return ret
+        return wrapper
+    return decorator
 
 
 def _sb_headers():
@@ -354,6 +407,7 @@ class PipelineTracer:
         if not root_stored:
             print("[tracer] WARNING: root pipeline_run not persisted — all child writes will fail FK constraints")
         self._current_parent_id = self.root_id
+        set_active_tracer(self)
 
     @contextmanager
     def step(
@@ -416,6 +470,7 @@ class PipelineTracer:
         })
         # Store hardware telemetry for this run
         self.telemetry.finalize(self.root_id)
+        clear_active_tracer()
 
     def fail(self, error: str, tb: str = ""):
         """Mark the root pipeline run as failed and finalize telemetry."""
@@ -427,6 +482,7 @@ class PipelineTracer:
         })
         # Still store telemetry on failure — valuable for diagnosing issues
         self.telemetry.finalize(self.root_id)
+        clear_active_tracer()
 
     def log_order_event(
         self,
@@ -517,16 +573,38 @@ class StepResult:
 if __name__ == "__main__":
     # Self-test: create a traced pipeline run
     print("[tracer] Running self-test...")
+
+    # Test 1: decorator is a no-op without active tracer
+    @traced("test")
+    def helper_no_context():
+        return {"result": "ok"}
+
+    out = helper_no_context()
+    assert out == {"result": "ok"}, "Decorator should be a no-op without active tracer"
+    print("[tracer] ✓ Decorator no-op without active tracer")
+
+    # Test 2: decorator traces within pipeline context
+    @traced("test")
+    def helper_with_context(ticker):
+        return {"ticker": ticker, "score": 42}
+
     tracer = PipelineTracer("self_test", metadata={"test": True})
 
     with tracer.step("step_1", input_snapshot={"msg": "hello"}) as result:
         time.sleep(0.1)
         result.set({"status": "ok"})
 
-    with tracer.step("step_2") as result:
-        result.set({"computed": 42})
+    # This should create a "test:helper_with_context" step
+    out = helper_with_context("NVDA")
+    assert out == {"ticker": "NVDA", "score": 42}, "Decorator should return function result"
+    print("[tracer] ✓ Decorator traced within pipeline context")
 
     tracer.complete({"test": "passed"})
+
+    # After complete, active tracer should be cleared
+    assert get_active_tracer() is None, "Active tracer should be cleared after complete()"
+    print("[tracer] ✓ Active tracer cleared after complete()")
+
     print("[tracer] Self-test complete. Check pipeline_runs table.")
 
     # Flush any buffered writes

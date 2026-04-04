@@ -40,7 +40,7 @@ from common import (
     sb_get,
     sb_rpc,
 )
-from tracer import _post_to_supabase
+from tracer import _post_to_supabase, traced
 
 # Default confidence thresholds (overridden by active strategy profile)
 CONFIDENCE_THRESHOLDS = {
@@ -151,6 +151,7 @@ def get_calibration_factor(confidence: float) -> float:
     return float(factors.get(bucket_key, factors.get("default", 1.0)))
 
 
+@traced("predictions")
 def call_ollama_qwen(prompt: str) -> str | None:
     """Call local Ollama qwen2.5:3b for fast inference."""
     try:
@@ -172,6 +173,7 @@ def call_ollama_qwen(prompt: str) -> str | None:
     return None
 
 
+@traced("predictions")
 def call_claude(
     prompt: str,
     max_tokens: int = 1024,
@@ -279,6 +281,7 @@ def get_congress_cluster_context(ticker: str) -> dict:
     return {"clusters": clusters, "count": len(clusters)}
 
 
+@traced("predictions")
 def tumbler_1_technical(ticker: str, signals: dict, total_score: int) -> dict:
     """Tumbler 1: Technical Foundation — pure computation, no LLM.
 
@@ -332,6 +335,7 @@ def tumbler_1_technical(ticker: str, signals: dict, total_score: int) -> dict:
     }
 
 
+@traced("predictions")
 def tumbler_2_fundamental(ticker: str, confidence: float) -> dict:
     """Tumbler 2: Fundamental + Sentiment Context.
 
@@ -438,6 +442,7 @@ def tumbler_2_fundamental(ticker: str, confidence: float) -> dict:
     }
 
 
+@traced("predictions")
 def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> dict:
     """Tumbler 3: Flow + Cross-Asset Analysis.
 
@@ -551,6 +556,7 @@ Respond with a JSON object: {{"adjustment": float between -0.1 and +0.1, "reason
     }
 
 
+@traced("predictions")
 def tumbler_4_pattern(ticker: str, confidence: float, chain_context: list[dict], start_time: float = 0.0) -> dict:
     """Tumbler 4: Pattern Template Matching.
 
@@ -634,6 +640,7 @@ Respond with JSON: {{"adjustment": float between -0.1 and +0.1, "best_pattern": 
     }
 
 
+@traced("predictions")
 def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list[dict], start_time: float = 0.0) -> dict:
     """Tumbler 5: Counterfactual + Final Synthesis.
 
@@ -755,6 +762,7 @@ Respond with JSON:
     }
 
 
+@traced("predictions")
 def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time: float, has_veto: bool = False, ticker: str = "") -> str | None:
     """Evaluate stopping rules after a tumbler. Returns reason or None to continue."""
     depth = tumbler_result["depth"]
@@ -817,6 +825,7 @@ def decide(confidence: float) -> str:
     return "veto"
 
 
+@traced("predictions")
 def run_inference(
     ticker: str,
     signals: dict,

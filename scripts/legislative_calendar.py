@@ -14,7 +14,12 @@ import httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
 from common import PERPLEXITY_KEY  # noqa: E402
-from tracer import PipelineTracer, _post_to_supabase  # noqa: E402
+from tracer import (  # noqa: E402
+    PipelineTracer,
+    _post_to_supabase,
+    set_active_tracer,
+    traced,
+)
 
 CONGRESS_API_KEY = os.environ.get("CONGRESS_API_KEY", "")  # free from api.congress.gov
 
@@ -46,6 +51,7 @@ SECTOR_KEYWORDS = {
 }
 
 
+@traced("catalysts")
 def fetch_congress_hearings() -> list[dict]:
     """Fetch upcoming committee hearings from Congress.gov."""
     if not CONGRESS_API_KEY:
@@ -91,6 +97,7 @@ def fetch_congress_hearings() -> list[dict]:
     return events
 
 
+@traced("catalysts")
 def fetch_upcoming_votes_via_perplexity() -> list[dict]:
     """Use Perplexity to identify high-impact votes scheduled in the next 30 days."""
     if not PERPLEXITY_KEY:
@@ -144,6 +151,7 @@ def fetch_upcoming_votes_via_perplexity() -> list[dict]:
 def run():
     """Fetch and store upcoming legislative events."""
     tracer = PipelineTracer("legislative_calendar")
+    set_active_tracer(tracer)
     try:
         with tracer.step("fetch_hearings") as result:
             hearings = fetch_congress_hearings()

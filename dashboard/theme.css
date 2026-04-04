@@ -1234,3 +1234,127 @@ select {
   .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
   .header h1 { font-size: 1.6rem !important; }
 }
+
+/* ── Logging Dashboard ────────────────────────────── */
+.domain-card {
+  background: var(--bg-card, #0a0a12);
+  border: 4px solid var(--border, #1a1a2e);
+  padding: 1.2rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  text-align: center;
+  position: relative;
+}
+.domain-card:hover {
+  border-color: var(--cyan);
+  box-shadow: 0 0 20px var(--cyan-glow);
+}
+.domain-card.has-failures {
+  border-color: var(--red, #ff4444);
+  box-shadow: 0 0 15px rgba(255, 68, 68, 0.3);
+}
+.domain-card.all-success {
+  border-color: var(--green, #00ff88);
+  box-shadow: 0 0 15px rgba(0, 255, 136, 0.2);
+}
+.domain-card-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+.domain-card-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.8rem;
+}
+.domain-badges {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.domain-badge {
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: 'Orbitron', monospace;
+}
+.domain-badge-ok {
+  background: rgba(0, 255, 136, 0.15);
+  color: var(--green, #00ff88);
+  border: 1px solid var(--green, #00ff88);
+}
+.domain-badge-fail {
+  background: rgba(255, 68, 68, 0.15);
+  color: var(--red, #ff4444);
+  border: 1px solid var(--red, #ff4444);
+}
+.fn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--border, #1a1a2e);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.fn-row:hover {
+  background: rgba(0, 255, 255, 0.05);
+}
+.fn-name {
+  font-family: 'Inter', monospace;
+  font-weight: 400;
+  text-transform: none;
+  font-size: 0.85rem;
+}
+.fn-stats {
+  display: flex;
+  gap: 0.8rem;
+  font-size: 0.75rem;
+}
+.fn-runs-detail {
+  display: none;
+  padding: 0.5rem 0.8rem 0.8rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid var(--border, #1a1a2e);
+}
+.fn-runs-detail.open {
+  display: block;
+}
+.fn-run-entry {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.3rem 0;
+  font-size: 0.75rem;
+  font-family: 'Inter', monospace;
+  text-transform: none;
+  font-weight: 400;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.status-dot.success { background: var(--green, #00ff88); }
+.status-dot.failure { background: var(--red, #ff4444); }
+.status-dot.running { background: var(--yellow, #ffcc00); }
+.status-dot.timeout { background: var(--orange, #ff8800); }
+.reasoning-box {
+  background: var(--bg-card, #0a0a12);
+  border: 2px solid var(--purple, #a855f7);
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.2);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+  font-family: 'Inter', monospace;
+  font-weight: 400;
+  text-transform: none;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}

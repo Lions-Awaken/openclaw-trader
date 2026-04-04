@@ -3002,6 +3002,461 @@ async def chat_endpoint(request: Request, oc_session: str | None = Cookie(None))
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
+# ============================================================================
+# Logging & Observability API Routes
+# ============================================================================
+
+# The 8 canonical pipeline domains from the @traced() decorator
+_KNOWN_DOMAINS = frozenset([
+    "pipeline", "trades", "positions", "predictions",
+    "meta", "catalysts", "economics", "sitrep",
+])
+
+# Rate limiting for the reasoning endpoint: {trade_id: [timestamps]}
+_reasoning_rate_tracker: dict[str, list[float]] = {}
+_REASONING_MAX_PER_HOUR = 10
+_REASONING_WINDOW = 3600  # 1 hour in seconds
+
+
+def _check_reasoning_rate_limit() -> bool:
+    """Returns True if the global reasoning call limit has been exceeded."""
+    now = time.time()
+    window_start = now - _REASONING_WINDOW
+    # Use a single key for global rate limiting
+    calls = _reasoning_rate_tracker.get("__global__", [])
+    calls = [t for t in calls if t > window_start]
+    _reasoning_rate_tracker["__global__"] = calls
+    return len(calls) >= _REASONING_MAX_PER_HOUR
+
+
+def _record_reasoning_call() -> None:
+    calls = _reasoning_rate_tracker.get("__global__", [])
+    calls.append(time.time())
+    _reasoning_rate_tracker["__global__"] = calls
+
+
+@app.get("/api/logs/domains")
+async def get_logs_domains(request: Request, oc_session: str | None = Cookie(None)):
+    """Aggregated success/failure counts per domain from the last 24 hours."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return _empty_domain_summary()
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "step_name,status,started_at",
+            "started_at": f"gte.{cutoff}",
+            "limit": "2000",
+        },
+    )
+    if resp.status_code != 200:
+        return _empty_domain_summary()
+
+    rows = resp.json()
+
+    # Aggregate per domain — only process rows with a "domain:function" step_name
+    domain_data: dict[str, dict] = {}
+    for domain in _KNOWN_DOMAINS:
+        domain_data[domain] = {"success": 0, "failure": 0, "last_run": None}
+
+    for row in rows:
+        step_name = row.get("step_name") or ""
+        if ":" not in step_name:
+            continue
+        domain = step_name.split(":", 1)[0]
+        if domain not in _KNOWN_DOMAINS:
+            continue
+
+        status = row.get("status", "")
+        started_at = row.get("started_at")
+
+        if status == "success":
+            domain_data[domain]["success"] += 1
+        elif status in ("failure", "timeout"):
+            domain_data[domain]["failure"] += 1
+
+        # Track most recent run timestamp
+        current_last = domain_data[domain]["last_run"]
+        if started_at and (current_last is None or started_at > current_last):
+            domain_data[domain]["last_run"] = started_at
+
+    result = []
+    for domain in sorted(_KNOWN_DOMAINS):
+        d = domain_data[domain]
+        total = d["success"] + d["failure"]
+        result.append({
+            "domain": domain,
+            "success": d["success"],
+            "failure": d["failure"],
+            "total": total,
+            "last_run": d["last_run"],
+        })
+
+    return result
+
+
+def _empty_domain_summary() -> list:
+    return [
+        {"domain": domain, "success": 0, "failure": 0, "total": 0, "last_run": None}
+        for domain in sorted(_KNOWN_DOMAINS)
+    ]
+
+
+@app.get("/api/logs/domain/{domain_name}")
+async def get_logs_domain(
+    domain_name: str,
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 7,
+):
+    """Per-function run history for a specific domain."""
+    _require_auth(request, oc_session)
+
+    if domain_name not in _KNOWN_DOMAINS:
+        return JSONResponse(
+            {"error": f"Unknown domain '{domain_name}'. Valid domains: {sorted(_KNOWN_DOMAINS)}"},
+            status_code=400,
+        )
+
+    days = clamp_days(days, 30)
+
+    if not SUPABASE_URL:
+        return {"domain": domain_name, "functions": []}
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+        headers=sb_headers(),
+        params={
+            "select": "id,step_name,status,duration_ms,started_at,error_message,input_snapshot,output_snapshot",
+            "step_name": f"like.{domain_name}:*",
+            "started_at": f"gte.{cutoff}",
+            "order": "started_at.desc",
+            "limit": "500",
+        },
+    )
+    if resp.status_code != 200:
+        return {"domain": domain_name, "functions": []}
+
+    rows = resp.json()
+
+    # Group by function name (strip domain prefix from step_name)
+    funcs: dict[str, dict] = {}
+    prefix = f"{domain_name}:"
+
+    for row in rows:
+        step_name = row.get("step_name") or ""
+        if not step_name.startswith(prefix):
+            continue
+        fn_name = step_name[len(prefix):]
+
+        if fn_name not in funcs:
+            funcs[fn_name] = {
+                "name": fn_name,
+                "success_count": 0,
+                "failure_count": 0,
+                "_durations": [],
+                "runs": [],
+            }
+
+        status = row.get("status", "")
+        if status == "success":
+            funcs[fn_name]["success_count"] += 1
+        elif status in ("failure", "timeout"):
+            funcs[fn_name]["failure_count"] += 1
+
+        dur = row.get("duration_ms")
+        if dur is not None:
+            try:
+                funcs[fn_name]["_durations"].append(float(dur))
+            except (ValueError, TypeError):
+                pass
+
+        # Keep only the most recent 20 runs per function
+        if len(funcs[fn_name]["runs"]) < 20:
+            funcs[fn_name]["runs"].append({
+                "id": row.get("id"),
+                "status": status,
+                "duration_ms": dur,
+                "started_at": row.get("started_at"),
+                "error_message": row.get("error_message"),
+                "input_snapshot": row.get("input_snapshot"),
+                "output_snapshot": row.get("output_snapshot"),
+            })
+
+    # Finalize — compute avg_duration_ms and remove internal _durations list
+    functions_list = []
+    for fn_name, fn_data in sorted(funcs.items()):
+        durations = fn_data.pop("_durations")
+        fn_data["avg_duration_ms"] = (
+            round(sum(durations) / len(durations)) if durations else None
+        )
+        functions_list.append(fn_data)
+
+    return {"domain": domain_name, "functions": functions_list}
+
+
+@app.post("/api/trades/{trade_id}/reasoning")
+async def get_trade_reasoning(
+    trade_id: str,
+    request: Request,
+    oc_session: str | None = Cookie(None),
+):
+    """AI-powered trade reasoning analysis with caching and rate limiting."""
+    _require_auth(request, oc_session)
+    trade_id = _validate_uuid(trade_id)
+
+    if not SUPABASE_URL:
+        raise HTTPException(status_code=503, detail="No Supabase connection")
+
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=503, detail="Claude API key not configured")
+
+    client = get_http()
+
+    # 1. Fetch the trade_decisions row
+    trade_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/trade_decisions",
+        headers=sb_headers(),
+        params={"id": f"eq.{trade_id}"},
+    )
+    if trade_resp.status_code != 200 or not trade_resp.json():
+        return JSONResponse({"error": "Trade not found"}, status_code=404)
+
+    trade = trade_resp.json()[0]
+
+    # 2. Check for cached result
+    metadata = trade.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except (json.JSONDecodeError, ValueError):
+            metadata = {}
+
+    if "ai_reasoning" in metadata:
+        return {"reasoning": metadata["ai_reasoning"], "cached": True}
+
+    # 3. Rate limit check
+    if _check_reasoning_rate_limit():
+        return JSONResponse(
+            {"error": "Reasoning rate limit exceeded (10/hour). Try again later."},
+            status_code=429,
+        )
+
+    # 4. Fetch linked data in parallel
+    ticker = trade.get("ticker", "")
+    inference_chain_id = trade.get("inference_chain_id")
+    entry_order_id = trade.get("entry_order_id")
+    stop_order_id = trade.get("stop_order_id")
+
+    # Build date range for signal/catalyst lookups
+    created_at_str = trade.get("created_at") or datetime.now(timezone.utc).isoformat()
+    try:
+        trade_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        trade_dt = datetime.now(timezone.utc)
+
+    signal_start = (trade_dt - timedelta(days=1)).isoformat()
+    catalyst_start = (trade_dt - timedelta(hours=48)).isoformat()
+
+    async def _fetch_chain():
+        if not inference_chain_id:
+            return None
+        try:
+            r = await client.get(
+                f"{SUPABASE_URL}/rest/v1/inference_chains",
+                headers=sb_headers(),
+                params={"id": f"eq.{inference_chain_id}"},
+            )
+            rows = r.json() if r.status_code == 200 else []
+            return rows[0] if rows else None
+        except Exception:
+            return None
+
+    async def _fetch_signals():
+        if not ticker:
+            return []
+        try:
+            r = await client.get(
+                f"{SUPABASE_URL}/rest/v1/signal_evaluations",
+                headers=sb_headers(),
+                params={
+                    "select": "ticker,scan_date,trend,momentum,volume,fundamental,sentiment,flow,total_score,decision,reasoning",
+                    "ticker": f"eq.{ticker}",
+                    "created_at": f"gte.{signal_start}",
+                    "order": "created_at.desc",
+                    "limit": "3",
+                },
+            )
+            return r.json() if r.status_code == 200 else []
+        except Exception:
+            return []
+
+    async def _fetch_catalysts():
+        if not ticker:
+            return []
+        try:
+            r = await client.get(
+                f"{SUPABASE_URL}/rest/v1/catalyst_events",
+                headers=sb_headers(),
+                params={
+                    "select": "catalyst_type,headline,magnitude,direction,sentiment_score,event_time",
+                    "ticker": f"eq.{ticker}",
+                    "event_time": f"gte.{catalyst_start}",
+                    "order": "event_time.desc",
+                    "limit": "10",
+                },
+            )
+            return r.json() if r.status_code == 200 else []
+        except Exception:
+            return []
+
+    async def _fetch_orders():
+        order_ids = [oid for oid in [entry_order_id, stop_order_id] if oid]
+        if not order_ids:
+            return []
+        try:
+            # Fetch each order separately to avoid complex filter syntax
+            results = []
+            for oid in order_ids:
+                r = await client.get(
+                    f"{SUPABASE_URL}/rest/v1/order_events",
+                    headers=sb_headers(),
+                    params={"order_id": f"eq.{oid}", "limit": "5"},
+                )
+                if r.status_code == 200:
+                    results.extend(r.json())
+            return results
+        except Exception:
+            return []
+
+    chain, signals, catalysts, orders = await asyncio.gather(
+        _fetch_chain(),
+        _fetch_signals(),
+        _fetch_catalysts(),
+        _fetch_orders(),
+    )
+
+    # 5. Build prompt
+    action = trade.get("action", "UNKNOWN")
+    qty = trade.get("qty") or trade.get("quantity") or "?"
+    entry_price = trade.get("entry_price") or "?"
+    pnl = trade.get("pnl")
+    outcome = trade.get("outcome") or "UNKNOWN"
+    confidence = trade.get("confidence") or "?"
+    decision = trade.get("decision") or trade.get("reasoning") or "?"
+    profile_name = trade.get("profile_name") or trade.get("tuning_profile_id") or "?"
+
+    # Format inference chain tumblers
+    chain_text = "No inference chain available."
+    if chain:
+        tumblers = chain.get("tumblers") or []
+        if isinstance(tumblers, list) and tumblers:
+            tumbler_lines = []
+            for i, t in enumerate(tumblers, 1):
+                if isinstance(t, dict):
+                    name = t.get("name") or t.get("tumbler") or f"Tumbler {i}"
+                    conf = t.get("confidence") or t.get("score") or "?"
+                    summary = t.get("summary") or t.get("reasoning") or t.get("result") or ""
+                    tumbler_lines.append(f"  [{i}] {name}: confidence={conf}  {summary}")
+                else:
+                    tumbler_lines.append(f"  [{i}] {t}")
+            stopping = chain.get("stopping_reason") or "completed"
+            max_depth = chain.get("max_depth_reached") or len(tumblers)
+            chain_text = "\n".join(tumbler_lines) + f"\n  Stopping reason: {stopping}\n  Max depth reached: {max_depth}"
+        elif chain.get("reasoning_summary"):
+            chain_text = chain["reasoning_summary"]
+
+    # Format signals
+    signal_text = "No signal data available."
+    if signals:
+        sig = signals[0]
+        signal_text = (
+            f"Trend: {sig.get('trend', '?')}, Momentum: {sig.get('momentum', '?')}, "
+            f"Volume: {sig.get('volume', '?')}\n"
+            f"Fundamental: {sig.get('fundamental', '?')}, Sentiment: {sig.get('sentiment', '?')}, "
+            f"Flow: {sig.get('flow', '?')}\n"
+            f"Total: {sig.get('total_score', '?')}/6"
+        )
+
+    # Format catalysts
+    catalyst_text = "No catalysts recorded in the 48h window."
+    if catalysts:
+        lines = []
+        for cat in catalysts[:8]:
+            lines.append(
+                f"  - [{cat.get('catalyst_type', 'unknown')}] {cat.get('headline', '')} "
+                f"| {cat.get('direction', '?')} | magnitude={cat.get('magnitude', '?')}"
+            )
+        catalyst_text = "\n".join(lines)
+
+    pnl_str = f"${pnl}" if pnl is not None else "open/unknown"
+
+    prompt = f"""You are analyzing a trade made by OpenClaw, an autonomous swing trading system.
+
+TRADE DETAILS:
+- Ticker: {ticker}
+- Action: {action} {qty} shares
+- Entry Price: ${entry_price} on {created_at_str[:10]}
+- P&L: {pnl_str} ({outcome})
+- Confidence: {confidence}
+- Decision: {decision}
+- Profile: {profile_name}
+
+INFERENCE CHAIN (tumbler-by-tumbler reasoning):
+{chain_text}
+
+SIGNAL SCORES:
+{signal_text}
+
+CATALYSTS (48h before entry):
+{catalyst_text}
+
+Explain in plain language:
+1. What was the primary thesis for this trade?
+2. Which catalysts and signals were most influential?
+3. How did each tumbler contribute to the final decision?
+4. Was the reasoning sound given the available data?
+5. If the trade lost money, what went wrong? If profitable, was it for the right reasons?"""
+
+    # 6. Call Claude (non-streaming, single shot)
+    _record_reasoning_call()
+    try:
+        claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = claude.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        reasoning_text = message.content[0].text if message.content else "No reasoning generated."
+    except anthropic.APIError as e:
+        return JSONResponse({"error": f"Claude API error: {e}"}, status_code=502)
+    except Exception:
+        return JSONResponse({"error": "Failed to generate reasoning"}, status_code=500)
+
+    # 7. Cache result in trade_decisions.metadata
+    updated_metadata = dict(metadata)
+    updated_metadata["ai_reasoning"] = reasoning_text
+
+    try:
+        await client.patch(
+            f"{SUPABASE_URL}/rest/v1/trade_decisions",
+            headers={**sb_headers(), "Content-Type": "application/json"},
+            params={"id": f"eq.{trade_id}"},
+            json={"metadata": updated_metadata},
+        )
+    except Exception:
+        # Cache failure is non-fatal — return the reasoning anyway
+        pass
+
+    return {"reasoning": reasoning_text, "cached": False}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8090)

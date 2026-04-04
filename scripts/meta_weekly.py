@@ -24,12 +24,13 @@ from common import (
     sb_get,
     slack_notify,
 )
-from tracer import PipelineTracer, _post_to_supabase
+from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced
 
 TODAY = date.today()  # Reassigned at the start of run()
 WEEK_START = ""  # Reassigned at the start of run()
 
 
+@traced("meta")
 def get_weekly_daily_reflections() -> list[dict]:
     """All daily reflections from this week."""
     return sb_get("meta_reflections", {
@@ -58,6 +59,7 @@ def get_previous_weekly_reflections() -> list[dict]:
     })
 
 
+@traced("meta")
 def get_week_trades() -> list[dict]:
     """All trades from this week."""
     return sb_get("trade_decisions", {
@@ -115,6 +117,7 @@ def get_week_inference_chains() -> list[dict]:
     })
 
 
+@traced("meta")
 def get_week_catalysts() -> list[dict]:
     """All catalyst events from this week."""
     return sb_get("catalyst_events", {
@@ -151,6 +154,7 @@ def get_tuning_performance() -> list[dict]:
     })
 
 
+@traced("meta")
 def cross_layer_analysis(chains: list[dict], trades: list[dict], catalysts: list[dict]) -> dict:
     """Analyze cross-layer patterns: catalyst-driven vs non-catalyst entries."""
     # Trades with catalyst support
@@ -195,6 +199,7 @@ def cross_layer_analysis(chains: list[dict], trades: list[dict], catalysts: list
     }
 
 
+@traced("meta")
 def discover_patterns(chains: list[dict], existing_patterns: list[dict]) -> list[dict]:
     """Discover new pattern templates by clustering similar chains.
 
@@ -287,6 +292,7 @@ Respond ONLY with valid JSON."""
     return []
 
 
+@traced("meta")
 def generate_weekly_reflection(context: dict) -> tuple[dict, float]:
     """Use Claude Sonnet for deeper weekly analysis. Returns (reflection, cost)."""
 
@@ -440,6 +446,7 @@ def run():
     WEEK_START = (TODAY - timedelta(days=TODAY.weekday())).isoformat()
 
     tracer = PipelineTracer("meta_weekly", metadata={"week_start": WEEK_START})
+    set_active_tracer(tracer)
 
     try:
         # Gather all existing data
