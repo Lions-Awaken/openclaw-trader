@@ -164,8 +164,10 @@ if not DASHBOARD_PASSWORD:
 
 PASSWORD_HASH = hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
 
-# Signing key for stateless session cookies (derived from password so it's stable across restarts)
-_SIGNING_KEY = hashlib.sha256(f"oc-session-{DASHBOARD_PASSWORD}".encode()).digest()
+# Signing key for session cookies — stable across password rotations.
+# Uses a fixed salt so sessions survive DASHBOARD_KEY changes.
+_SESSION_SIGNING_SALT = os.environ.get("SESSION_SIGNING_SALT", "oc-session-stable-v1")
+_SIGNING_KEY = hashlib.sha256(_SESSION_SIGNING_SALT.encode()).digest()
 
 SESSION_MAX_AGE = 86400 * 90  # 90 days
 
