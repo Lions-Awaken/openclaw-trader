@@ -5,117 +5,118 @@
 
 ---
 
-## In Progress
+## Audit Session: 2026-04-06 — Full Codebase Audit & Functionality Test
 
-_(none)_
+Context: CONGRESS_MIRROR profile went live today (first day, Sunday). yfinance + FRED data
+sources wired into catalyst_ingest. Both scanner runs failed (NULL congress fields — fixed
+in-session). This audit validates everything works. Monday 2026-04-07 runs are the live test;
+go/no-go for Tuesday 2026-04-08 market open.
 
 ---
 
-## Logging & Observability Dashboard
+## Wave 1 — Critical Schema Fixes (before market open)
 
-### TASK-OC01 · DATA · [DONE]
-**Goal:** Add `@traced("domain")` decorator and thread-local active tracer management to `scripts/tracer.py`. Hook into PipelineTracer lifecycle (set on init, clear on complete/fail).
-**Acceptance:** Self-test demonstrates decorator works within pipeline context and is a no-op without one. No new DB tables needed.
-**Output artifact:** Updated tracer.py with `traced()`, `set_active_tracer()`, `get_active_tracer()`, `clear_active_tracer()`.
+### TASK-A01 . DB-AGENT . [DONE]
+**Goal:** Fix `inference_chains.stopping_reason` CHECK constraint — add `congress_signal_stale` value. The CONGRESS_MIRROR profile's `check_stopping_rule()` (inference_engine.py:810) can return `"congress_signal_stale"`, but the DB constraint only allows 8 values. Any trigger of this path will crash the chain finalization with a CHECK violation.
+**Acceptance:** `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'inference_chains'::regclass AND conname LIKE '%stopping%'` returns constraint including `congress_signal_stale`. Migration file written to `supabase/migrations/`.
+**Output artifact:** Migration applied, constraint verified.
 **Depends on:** nothing
 
-### TASK-OC02 · GEORDI · [DONE]
-**Goal:** Instrument ~45 functions across 11 scripts with `@traced("domain")` decorators. Add `set_active_tracer(tracer)` to all `run()` functions. Add PipelineTracer to heartbeat.py.
-**Acceptance:** All scripts run without error. No duplicate tracing. `pipeline_runs` table gets domain-prefixed step entries on next cron cycle.
-**Depends on:** TASK-OC01
-
-### TASK-OC03 · GEORDI · [DONE]
-**Goal:** Add 3 API endpoints to `dashboard/server.py`: GET /api/logs/domains (24h summary), GET /api/logs/domain/{name} (per-function history), POST /api/trades/{id}/reasoning (AI analysis with caching).
-**Acceptance:** All endpoints return correct data. Reasoning endpoint caches in trade_decisions.metadata and rate-limits to 10/hour.
-**Depends on:** TASK-OC01
-
-### TASK-OC04 · GEORDI · [DONE]
-**Goal:** Add Logging dashboard page to `index.html` + `theme.css`. 8 domain cards with notification badges, click-to-expand modal with per-function run history, trade reasoning AI section.
-**Acceptance:** Cards render with real badge counts. Modal shows function-level data. Trade reasoning works end-to-end. Matches sci-fi theme. All text XSS-escaped.
-**Depends on:** TASK-OC03
+### TASK-A02 . DB-AGENT . [READY]
+**Goal:** Audit all CHECK constraints across all tables for code-vs-schema mismatches. The audit found `congress_signal_stale` missing — there may be others. Cross-reference every Python file that writes to Supabase against the CHECK constraint values. Specifically check: `cost_ledger.category` (does it cover all cost types?), `signal_evaluations.scan_type`, `signal_evaluations.decision`, `inference_chains.final_decision`.
+**Acceptance:** Report listing every constraint checked, any mismatches found, and fixes applied. Zero constraint violations possible from current codebase.
+**Output artifact:** Mismatch report in PROGRESS.md. Any new migration files if fixes needed.
+**Depends on:** nothing
 
 ---
 
-## Backlog
+## Wave 2 — Code Quality Fixes (parallel, no dependencies)
+
+### TASK-A03 . BACKEND-AGENT . [READY]
+**Goal:** Fix bare `except` clauses in `common.py` (lines ~87-88, ~101-102 in `sb_get()` and `sb_rpc()`). These silently swallow all errors including network failures, auth errors, and schema mismatches. Add `except Exception as e:` with `print(f"[common] {function_name} error: {e}")` logging. Do NOT change the return behavior (still return `[]` or `None`).
+**Acceptance:** `ruff check scripts/common.py` passes. No bare `except` clauses remain. Error messages are descriptive.
+**Output artifact:** Updated common.py.
+**Depends on:** nothing
+
+### TASK-A04 . BACKEND-AGENT . [READY]
+**Goal:** Add retry logic to `post_trade_analysis.py` `call_claude_postmortem()`. Currently a single Claude API failure means no post-trade analysis is generated. Match the retry pattern in `inference_engine.py` `call_claude()` — 2 attempts with ANTHROPIC_API_KEY, fallback to ANTHROPIC_API_KEY_2, log each attempt.
+**Acceptance:** `call_claude_postmortem()` retries at least once on API failure before giving up. Ruff clean.
+**Output artifact:** Updated post_trade_analysis.py.
+**Depends on:** nothing
+
+### TASK-A05 . BACKEND-AGENT . [READY]
+**Goal:** Fix `scanner.py` `compute_signals()` returning `None` when fewer than 20 bars are available (line ~106). The caller iterates the result without null-checking. Add a guard: if `compute_signals()` returns `None` or empty, skip that ticker with a log message.
+**Acceptance:** Scanner does not crash when a ticker has fewer than 20 bars. Ruff clean.
+**Output artifact:** Updated scanner.py.
+**Depends on:** nothing
+
+---
+
+## Wave 3 — Runtime Validation on Ridley (depends on Wave 1)
+
+### TASK-A06 . BACKEND-AGENT . [BLOCKED: TASK-A01]
+**Goal:** Dry-run `catalyst_ingest.py` on ridley to validate all 6 data sources work end-to-end. Run: `ssh ridley 'cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/catalyst_ingest.py'`. Verify: (1) yfinance source produces events, (2) FRED source produces events or gracefully skips (FRED data may not have changed today), (3) all 6 sources appear in Slack notification, (4) no errors in pipeline_runs.
+**Acceptance:** Catalyst ingest completes successfully. `pipeline_runs` shows all steps as `success`. Slack notification includes yfinance and fred counts. At least 1 yfinance event inserted into `catalyst_events` with `source='yfinance'`.
+**Output artifact:** Pipeline run ID and Slack notification screenshot/text in PROGRESS.md.
+**Depends on:** TASK-A01 (schema must be fixed before any pipeline runs)
+
+### TASK-A07 . BACKEND-AGENT . [BLOCKED: TASK-A01, TASK-A05]
+**Goal:** Validate CONGRESS_MIRROR scanner flow end-to-end. This is a Sunday (market closed), so scanner will exit at `market_hours_check`. Verify by checking: (1) `strategy_profiles` has CONGRESS_MIRROR active, (2) `inference_chains` from today's failed runs have the right shape despite errors, (3) the NULL field fix (inference_engine.py:795) is deployed on ridley, (4) `congress_clusters` and `catalyst_events` with `source='quiverquant'` exist from today's catalyst ingest. Don't run the scanner — just verify data state.
+**Acceptance:** Report confirming: active profile is CONGRESS_MIRROR, today's inference chains logged correctly (5 chains for PLTR/DELL/AVGO/NFLX/ARM), NULL fix is deployed, congress data pipeline is populated.
+**Output artifact:** Data state report in PROGRESS.md.
+**Depends on:** TASK-A01, TASK-A05
+
+---
+
+## Wave 4 — Security & Dashboard (parallel, no blockers)
+
+### TASK-A08 . SECURITY-REVIEWER . [READY]
+**Goal:** Full security scan of the openclaw-trader codebase. Check: (1) no secrets in tracked files (scan all .py, .html, .sh, .sql, .toml, .json), (2) no secrets in recent git commits (last 20 commits), (3) dependency CVE audit (`pip-audit` or manual check of pinned versions in dashboard/Dockerfile), (4) verify Supabase RLS policies are enforced (all tables have policies), (5) verify no direct SQL execution from user input paths, (6) check for command injection in any subprocess calls.
+**Acceptance:** Security report with severity ratings. Zero CRITICAL or HIGH findings, or findings with documented mitigations.
+**Output artifact:** Security audit report in PROGRESS.md.
+**Depends on:** nothing
+
+### TASK-A09 . FRONTEND-AGENT . [READY]
+**Goal:** Verify dashboard deployment on Fly.io is current and functional. Check: (1) is the deployed version current with main? (`fly status -a openclaw-trader-dash`), (2) does the dashboard load? (hit /healthz), (3) do all 10 tabs render? (verify in browser via chrome tools), (4) does the Congress tab show data?, (5) does the Logging tab show domain cards with today's pipeline_runs data?, (6) are security headers present? (check response headers for X-Frame-Options, X-Content-Type-Options, CSP).
+**Acceptance:** Dashboard is deployed, all tabs load, Congress + Logging tabs show real data, no JS console errors. Report any missing headers.
+**Output artifact:** Dashboard health report in PROGRESS.md. Screenshots if browser tools available.
+**Depends on:** nothing
+
+---
+
+## Wave 5 — Final Integration Verification (depends on all above)
+
+### TASK-A10 . PICARD . [BLOCKED: TASK-A01 through TASK-A09]
+**Goal:** Final integration review. Read all PROGRESS.md entries from this audit session. Verify: (1) all critical fixes are committed and deployed to ridley, (2) all schema changes are applied to live Supabase, (3) no failing pipeline_runs in last hour, (4) ridley crontab has correct schedule for Monday market open, (5) stash from ridley is applied or confirmed unnecessary. Monday's runs (2026-04-07) are the live validation — review those results and write a go/no-go assessment for Tuesday 2026-04-08 market open.
+**Acceptance:** Written go/no-go assessment with specific items checked. Monday's pipeline_runs reviewed. All blockers resolved or documented.
+**Output artifact:** Go/no-go assessment in PROGRESS.md.
+**Depends on:** TASK-A01 through TASK-A09
+
+---
+
+## Stale Backlog (carried forward — not part of this audit)
 
 ### TASK-S47855759 · PICARD · [READY]
-**Goal:** Urgent — rotate the DASHBOARD_KEY on <http://Fly.io|Fly.io> right now. Single task, nothing else. Run: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` to generate the key, then `fly secrets set DASHBOARD_KEY=&lt;key&gt; --app openclaw-trader-dash`. Post the new key in this thread immediately when done. Brian is locked out of the dashboard. *Sent using* Claude
-**Acceptance:** Task completed as described. Results posted to #all-lions-awaken thread.
-**Source:** [Slack dispatch — 2026-04-03 15:08 UTC](https://lions-awaken.slack.com/archives/C0ANK2A0M7G/p1775228847855759)
+**Goal:** Rotate DASHBOARD_KEY on Fly.io.
 **Depends on:** nothing
 
 ### TASK-S79014279 · PICARD · [READY]
-**Goal:** Rotate the DASHBOARD_KEY secret on <http://Fly.io|Fly.io> for the openclaw-trader-dash app. Generate a new secure random key with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`, set it with `fly secrets set DASHBOARD_KEY=&lt;new-key&gt; --app openclaw-trader-dash`, verify the redeploy completes cleanly, and post the new key back to this thread so Brian can log in. Thread only — do NOT post as a top-level message. *Sent using* Claude
-**Acceptance:** Task completed as described. Results posted to #all-lions-awaken thread.
-**Source:** [Slack dispatch — 2026-04-03 14:40 UTC](https://lions-awaken.slack.com/archives/C0ANK2A0M7G/p1775227179014279)
+**Goal:** Rotate DASHBOARD_KEY (duplicate of above).
 **Depends on:** nothing
 
 ### TASK-S52706489 · PICARD · [READY]
-**Goal:** Add a new dashboard panel for daily P&amp;L *Sent using* Claude
-**Acceptance:** Task completed as described. Results posted to #all-lions-awaken thread.
-**Source:** [Slack dispatch — 2026-04-03 05:51 UTC](https://lions-awaken.slack.com/archives/C0ANK2A0M7G/p1775195452706489)
+**Goal:** Add daily P&L dashboard panel.
 **Depends on:** nothing
-
-_(none)_
 
 ---
 
-## Completed
+## Completed (prior sessions)
 
-### TASK-10 · DB-AGENT · [DONE]
-**Goal:** Create migration for CONGRESS_MIRROR profile: 3 new tables, catalyst_events extension, strategy profile seed.
-**Output:** `/home/mother_brain/projects/openclaw-trader/supabase/migrations/20260401_congress_profile.sql`
-**Note:** Migration file written. Needs to be applied to live Supabase project vpollvsbtushbiapoflr.
+### TASK-OC01 through TASK-OC04 · [DONE]
+Logging & Observability Dashboard (2026-04-02)
 
-### TASK-11 · BACKEND-AGENT · [DONE]
-**Goal:** Create seed script for 10 high-signal congress members.
-**Output:** `/home/mother_brain/projects/openclaw-trader/scripts/seed_politician_intel.py`
-**Note:** 10 politicians seeded. Pelosi at 0.85. All scores >= 0.45.
+### TASK-10 through TASK-18 · [DONE]
+CONGRESS_MIRROR Profile Build (2026-04-01)
 
-### TASK-12 · BACKEND-AGENT · [DONE]
-**Goal:** Enhance catalyst_ingest.py with politician scoring, freshness scoring, cluster detection.
-**Output:** `/home/mother_brain/projects/openclaw-trader/scripts/catalyst_ingest.py`
-**Functions added:** `load_politician_scores()`, `score_disclosure_freshness()`, `detect_congress_clusters()`, `classify_ticker_sector()`, `TICKER_SECTOR_MAP`. Modified: `fetch_quiverquant_trades()` (enrichment), `run()` (cluster step).
-
-### TASK-13 · BACKEND-AGENT · [DONE]
-**Goal:** Create legislative calendar fetcher script.
-**Output:** `/home/mother_brain/projects/openclaw-trader/scripts/legislative_calendar.py`
-**Note:** Fetches from Congress.gov API + Perplexity. Handles missing API keys gracefully.
-
-### TASK-14 · BACKEND-AGENT · [DONE]
-**Goal:** Add congress-mode behavior to inference engine Tumbler 2.
-**Output:** `/home/mother_brain/projects/openclaw-trader/scripts/inference_engine.py`
-**Functions added:** `get_legislative_context()`, `get_congress_cluster_context()`. Modified: `tumbler_2_fundamental()` (congress boost), `check_stopping_rule()` (congress_signal_stale + ticker param).
-
-### TASK-15 · BACKEND-AGENT · [DONE]
-**Goal:** Add congress watchlist branch to scanner.
-**Output:** `/home/mother_brain/projects/openclaw-trader/scripts/scanner.py`
-**Functions added:** `build_congress_watchlist()`. Modified: `run()` step 4 build_watchlist (congress branch with fallback).
-
-### TASK-16 · BACKEND-AGENT · [DONE]
-**Goal:** Add 4 congress API endpoints to dashboard server.
-**Output:** `/home/mother_brain/projects/openclaw-trader/dashboard/server.py`
-**Endpoints:** GET /api/congress/politicians, /api/congress/signals, /api/congress/clusters, /api/congress/calendar.
-
-### TASK-17 · FRONTEND-AGENT · [DONE]
-**Goal:** Add Congress tab to dashboard UI.
-**Output:** `/home/mother_brain/projects/openclaw-trader/dashboard/index.html`
-**Added:** Nav pill, section-congress div (4 cards), 5 JS functions (loadCongressTab, loadCongressLeaderboard, loadCongressSignals, loadCongressClusters, loadCongressCalendar).
-
-### TASK-18 · BACKEND-AGENT · [DONE]
-**Goal:** Document crontab additions.
-**Output:** `/home/mother_brain/projects/openclaw-trader/docs/congress-crontab-additions.md`
-
-### TASK-01 · BACKEND · [DONE]
-**Root cause:** poll_for_fill 60s timeout too short for Alpaca paper. Else branch didn't log anything.
-**Fix:** Timeout bumped to 120s, else branch logs poll_timeout event.
-
-### TASK-02 · BACKEND · [DONE]
-**Root cause:** SSL handshake timeout killed root pipeline_run row. All FK-dependent writes cascaded to failure. Scanner ran but was invisible in DB.
-**Bonus:** Found trade_decisions schema mismatch (12 missing columns) and order_events CHECK blocking poll_timeout/partially_filled.
-
-### TASK-03a · DB · [DONE]
-**Fix:** order_events CHECK expanded (3 new event types). trade_decisions got 12 missing columns + legacy NOT NULL defaults. Migration file written.
-
-### TASK-03b · BACKEND · [DONE]
-**Fix:** Tracer retry loop (3 attempts, 2s delay) for root pipeline_run creation. All code verified, committed (966aff1), pushed, deployed to ridley.
+### TASK-01 through TASK-03b · [DONE]
+Pipeline reliability fixes (2026-03-30)

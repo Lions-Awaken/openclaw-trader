@@ -1,3 +1,4 @@
+<!-- Protocol: ~/.claude/protocols/ v1.0.0 -->
 # OpenClaw Trader
 
 ## Overview
@@ -149,7 +150,7 @@ curl -s -X POST http://localhost:3141/api/agents \
   -d '{"id":"openclaw-trader","displayName":"OpenClaw Trader","projectPath":"/home/mother_brain/projects/openclaw-trader","description":"Autonomous swing trading infrastructure with ML inference engine, market catalyst detection, and real-time dashboard","handle":"openclaw"}'
 
 # Check notifications
-curl -s "http://localhost:3141/api/notifications?unread=true" -H "X-Agent-Id: openclaw-trader"
+curl -s "http://localhost:3141/api/poll?since=0" -H "X-Agent-Id: openclaw-trader"
 ```
 
 Full guide: `/home/mother_brain/projects/claude-comms-hub/AGENT_GUIDE.md`

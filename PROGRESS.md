@@ -5,6 +5,42 @@
 
 ---
 
+## TASK-A01 · DB-AGENT · [DONE] — 2026-04-06
+
+### Summary
+Fixed `inference_chains.stopping_reason` CHECK constraint on live Supabase project `vpollvsbtushbiapoflr`. The CONGRESS_MIRROR profile's `check_stopping_rule()` can return `'congress_signal_stale'` but the constraint only allowed 8 values. Added `congress_signal_stale` as the 9th value.
+
+### Migration File
+`/home/mother_brain/projects/openclaw-trader/supabase/migrations/20260406_fix_stopping_reason_constraint.sql`
+
+### What Changed
+- Dropped: `inference_chains_stopping_reason_check` (8-value inline IN list)
+- Added: `inference_chains_stopping_reason_check` using `= ANY (ARRAY[...])` pattern (9 values)
+
+### New Constraint Definition (verified via pg_constraint)
+```sql
+CHECK (((stopping_reason IS NULL) OR (stopping_reason = ANY (ARRAY[
+  'all_tumblers_clear'::text,
+  'confidence_floor'::text,
+  'forced_connection'::text,
+  'conflicting_signals'::text,
+  'veto_signal'::text,
+  'insufficient_data'::text,
+  'resource_limit'::text,
+  'time_limit'::text,
+  'congress_signal_stale'::text
+]))))
+```
+
+### Verification
+- Before: constraint returned 8-value ARRAY, `congress_signal_stale` absent
+- After: `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'inference_chains_stopping_reason_check'` returns all 9 values including `congress_signal_stale`
+- Smoke test: `'congress_signal_stale' = ANY (ARRAY[...9 values...])` returns 1
+
+### No other tables affected. No RLS changes. No indexes added.
+
+---
+
 ## TASK-OC04 · GEORDI · [DONE] — 2026-04-02
 
 ### Summary

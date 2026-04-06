@@ -565,7 +565,10 @@ def run():
                     continue
 
                 sig = compute_signals(ticker, bars, spy_bars)
-                if sig and sig["total_score"] >= min_signal:
+                if not sig:
+                    print(f"[scanner] {ticker}: insufficient bars, skipping")
+                    continue
+                if sig["total_score"] >= min_signal:
                     candidates.append(sig)
                     print(f"[scanner]   {ticker}: score={sig['total_score']}/6, "
                           f"price=${sig['price']:.2f}, atr=${sig['atr']:.2f}")

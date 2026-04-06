@@ -84,7 +84,8 @@ def sb_get(table: str, params: dict | None = None) -> list:
             params=params or {},
         )
         return resp.json() if resp.status_code == 200 else []
-    except Exception:
+    except Exception as e:
+        print(f"[common] sb_get error for {table}: {e}")
         return []
 
 
@@ -98,8 +99,8 @@ def sb_rpc(fn_name: str, params: dict) -> list:
         )
         if resp.status_code == 200:
             return resp.json()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[common] sb_rpc error for {fn_name}: {e}")
     return []
 
 
@@ -309,8 +310,8 @@ def generate_embedding(text: str) -> list[float] | None:
         )
         if resp.status_code == 200:
             return resp.json().get("embedding")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[common] generate_embedding error: {e}")
     return None
 
 
