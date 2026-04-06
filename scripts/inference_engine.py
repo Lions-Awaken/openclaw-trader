@@ -801,10 +801,10 @@ def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time
             })
             if congress_events:
                 freshness = float(
-                    congress_events[0].get("disclosure_freshness_score", 0.5),
+                    congress_events[0].get("disclosure_freshness_score") or 0.5,
                 )
                 days = int(
-                    congress_events[0].get("disclosure_days_since_trade", 20),
+                    congress_events[0].get("disclosure_days_since_trade") or 20,
                 )
                 if freshness < 0.2 and days > 40:
                     return "congress_signal_stale"

@@ -43,6 +43,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_API_KEY_2 = os.environ.get("ANTHROPIC_API_KEY_2", "")
 PERPLEXITY_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
 FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
+FRED_KEY = os.environ.get("FRED_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")

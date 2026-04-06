@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Catalyst Ingest — polls 4 data sources for market-moving events.
+Catalyst Ingest — polls 6 data sources for market-moving events.
 
 Sources:
   1. Finnhub company_news + insider_transactions (per watchlist ticker)
   2. SEC EDGAR RSS feed (8-K filings, insider forms)
   3. QuiverQuant congressional trades (STOCK Act disclosures)
   4. Perplexity deep search (breaking news for top movers)
+  5. Yahoo Finance fundamentals + analyst data (yfinance)
+  6. FRED macro indicators (Fed funds, yield curve, CPI, unemployment)
 
 Runs 3x daily on weekdays: 8:30 AM, 12:15 PM, 3:50 PM ET.
 
@@ -24,12 +26,18 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 from common import (
     FINNHUB_KEY,
+    FRED_KEY,
     PERPLEXITY_KEY,
     _client,
     generate_embedding,
     sb_get,
     slack_notify,
 )
+
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
 from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced
 
 # Lookback window for news (12 hours)
@@ -597,6 +605,196 @@ def fetch_perplexity_search(tickers: list[str]) -> list[dict]:
     return events
 
 
+# FRED series we track: (series_id, display_name, threshold_pct for "significant change")
+FRED_SERIES = [
+    ("FEDFUNDS", "Fed Funds Rate", 0.0),       # Any change is significant
+    ("T10Y2Y", "10Y-2Y Yield Spread", 0.0),    # Inversion signal — any flip matters
+    ("CPIAUCSL", "CPI (All Urban)", 0.15),      # >0.15% MoM is notable
+    ("UNRATE", "Unemployment Rate", 0.1),        # >0.1pp change
+    ("DGS10", "10-Year Treasury Yield", 0.05),  # >5bp move
+    ("BAMLH0A0HYM2", "High Yield Spread", 0.1), # Credit stress indicator
+]
+
+
+@traced("catalysts")
+def fetch_yfinance_signals(tickers: list[str]) -> list[dict]:
+    """Fetch analyst recs, earnings dates, and fundamental flags from Yahoo Finance."""
+    if yf is None:
+        print("[catalyst_ingest] yfinance not installed, skipping")
+        return []
+
+    events = []
+    now = datetime.now(timezone.utc)
+
+    for ticker in tickers:
+        try:
+            info = yf.Ticker(ticker).info
+            if not info or info.get("trailingPegRatio") is None and info.get("forwardPE") is None:
+                continue
+
+            # --- Analyst target vs current price ---
+            target = info.get("targetMeanPrice")
+            price = info.get("currentPrice") or info.get("regularMarketPrice")
+            if target and price and price > 0:
+                upside_pct = ((target - price) / price) * 100
+                if abs(upside_pct) >= 15:
+                    direction = "bullish" if upside_pct > 0 else "bearish"
+                    events.append({
+                        "ticker": ticker,
+                        "headline": f"{ticker}: analyst target ${target:.0f} vs price ${price:.0f} ({upside_pct:+.1f}%)",
+                        "content": (
+                            f"Analyst consensus target ${target:.2f} implies {upside_pct:+.1f}% "
+                            f"from current ${price:.2f}. Recommendations: "
+                            f"{info.get('recommendationKey', 'n/a')} "
+                            f"({info.get('numberOfAnalystOpinions', 0)} analysts)."
+                        ),
+                        "source": "yfinance",
+                        "catalyst_type": "analyst_action",
+                        "direction": direction,
+                        "event_time": now.isoformat(),
+                        "metadata": {
+                            "target_mean": target,
+                            "target_low": info.get("targetLowPrice"),
+                            "target_high": info.get("targetHighPrice"),
+                            "current_price": price,
+                            "upside_pct": round(upside_pct, 2),
+                            "recommendation": info.get("recommendationKey"),
+                            "num_analysts": info.get("numberOfAnalystOpinions"),
+                        },
+                    })
+
+            # --- Fundamental flags ---
+            forward_pe = info.get("forwardPE")
+            trailing_pe = info.get("trailingPE")
+            debt_equity = info.get("debtToEquity")
+            peg = info.get("trailingPegRatio")
+
+            flags = []
+            if forward_pe and forward_pe > 50:
+                flags.append(f"high forward P/E ({forward_pe:.1f})")
+            if trailing_pe and forward_pe and trailing_pe > 0:
+                pe_change = ((forward_pe - trailing_pe) / trailing_pe) * 100
+                if abs(pe_change) > 20:
+                    flags.append(f"P/E shift {pe_change:+.0f}% (trailing {trailing_pe:.1f} → forward {forward_pe:.1f})")
+            if debt_equity and debt_equity > 200:
+                flags.append(f"high debt/equity ({debt_equity:.0f}%)")
+            if peg and peg < 0.5:
+                flags.append(f"low PEG ratio ({peg:.2f})")
+
+            if flags:
+                events.append({
+                    "ticker": ticker,
+                    "headline": f"{ticker}: fundamental signals — {'; '.join(flags)}",
+                    "content": (
+                        f"Fundamental snapshot for {ticker}: "
+                        f"P/E {trailing_pe or 'n/a'} trailing / {forward_pe or 'n/a'} forward, "
+                        f"PEG {peg or 'n/a'}, debt/equity {debt_equity or 'n/a'}%, "
+                        f"market cap ${info.get('marketCap', 0) / 1e9:.1f}B. "
+                        f"Flags: {'; '.join(flags)}."
+                    ),
+                    "source": "yfinance",
+                    "catalyst_type": "fundamental_shift",
+                    "direction": "bearish" if any("high" in f for f in flags) else "neutral",
+                    "event_time": now.isoformat(),
+                    "metadata": {
+                        "forward_pe": forward_pe,
+                        "trailing_pe": trailing_pe,
+                        "peg_ratio": peg,
+                        "debt_to_equity": debt_equity,
+                        "market_cap": info.get("marketCap"),
+                        "flags": flags,
+                    },
+                })
+
+            time.sleep(0.3)  # Rate-limit Yahoo Finance
+
+        except Exception as e:
+            print(f"[catalyst_ingest] yfinance error for {ticker}: {e}")
+
+    return events
+
+
+@traced("catalysts")
+def fetch_fred_macro() -> list[dict]:
+    """Fetch key macro indicators from FRED and generate events on significant changes."""
+    if not FRED_KEY:
+        print("[catalyst_ingest] FRED_API_KEY not set, skipping")
+        return []
+
+    events = []
+
+    for series_id, name, threshold in FRED_SERIES:
+        try:
+            resp = _client.get(
+                "https://api.stlouisfed.org/fred/series/observations",
+                params={
+                    "series_id": series_id,
+                    "api_key": FRED_KEY,
+                    "file_type": "json",
+                    "sort_order": "desc",
+                    "limit": 2,
+                },
+            )
+            if resp.status_code != 200:
+                continue
+
+            obs = resp.json().get("observations", [])
+            if len(obs) < 2:
+                continue
+
+            latest_val = obs[0].get("value", ".")
+            prev_val = obs[1].get("value", ".")
+            latest_date = obs[0].get("date", "")
+
+            # Skip missing values (FRED uses "." for missing)
+            if latest_val == "." or prev_val == ".":
+                continue
+
+            latest = float(latest_val)
+            prev = float(prev_val)
+            change = latest - prev
+
+            if abs(change) < threshold:
+                continue
+
+            # Determine direction based on series meaning
+            if series_id in ("FEDFUNDS", "DGS10", "UNRATE", "BAMLH0A0HYM2"):
+                direction = "bearish" if change > 0 else "bullish"
+            elif series_id == "T10Y2Y":
+                direction = "bearish" if latest < 0 else "bullish"
+            else:
+                direction = "bearish" if change > 0 else "bullish"  # CPI up = bearish
+
+            events.append({
+                "ticker": None,  # Macro events are market-wide
+                "headline": f"FRED {name}: {latest:.3f} ({change:+.3f} from {prev:.3f})",
+                "content": (
+                    f"{name} ({series_id}) updated to {latest:.4f} on {latest_date}, "
+                    f"previous {prev:.4f} (change: {change:+.4f}). "
+                    f"{'Yield curve inverted — recession signal.' if series_id == 'T10Y2Y' and latest < 0 else ''}"
+                    f"{'Credit spreads widening — risk-off signal.' if series_id == 'BAMLH0A0HYM2' and change > 0 else ''}"
+                    f"{'Rate hike environment.' if series_id == 'FEDFUNDS' and change > 0 else ''}"
+                ),
+                "source": "fred",
+                "catalyst_type": "macro_event",
+                "direction": direction,
+                "event_time": f"{latest_date}T00:00:00+00:00",
+                "metadata": {
+                    "series_id": series_id,
+                    "series_name": name,
+                    "latest_value": latest,
+                    "previous_value": prev,
+                    "change": round(change, 4),
+                    "observation_date": latest_date,
+                },
+            })
+
+        except Exception as e:
+            print(f"[catalyst_ingest] FRED error for {series_id}: {e}")
+
+    return events
+
+
 def run():
     tracer = PipelineTracer("catalyst_ingest", metadata={"time": datetime.now(timezone.utc).isoformat()})
     set_active_tracer(tracer)
@@ -612,6 +810,8 @@ def run():
         sec_count = 0
         qq_count = 0
         ppx_count = 0
+        yf_count = 0
+        fred_count = 0
 
         # Step 2: Finnhub news + insiders per ticker
         with tracer.step("fetch_finnhub", input_snapshot={"tickers": watchlist}) as result:
@@ -651,9 +851,23 @@ def run():
             ppx_count = len(ppx_events)
             result.set({"perplexity_events": ppx_count})
 
+        # Step 6: Yahoo Finance fundamentals + analyst data
+        with tracer.step("fetch_yfinance", input_snapshot={"tickers": watchlist}) as result:
+            yf_events = fetch_yfinance_signals(watchlist)
+            all_raw_events.extend(yf_events)
+            yf_count = len(yf_events)
+            result.set({"yfinance_events": yf_count})
+
+        # Step 7: FRED macro indicators
+        with tracer.step("fetch_fred") as result:
+            fred_events = fetch_fred_macro()
+            all_raw_events.extend(fred_events)
+            fred_count = len(fred_events)
+            result.set({"fred_events": fred_count})
+
         print(f"[catalyst_ingest] Raw events collected: {len(all_raw_events)}")
 
-        # Step 6: Classify, embed, deduplicate, insert
+        # Step 8: Classify, embed, deduplicate, insert
         with tracer.step("classify_embed_insert", input_snapshot={"raw_count": len(all_raw_events)}) as result:
             recent_embeddings = []
             inserted = 0
@@ -724,7 +938,7 @@ def run():
 
             result.set({"inserted": inserted, "duplicates": duplicates, "total_raw": len(all_raw_events)})
 
-        # Step 7: Detect congress clusters
+        # Step 9: Detect congress clusters
         with tracer.step("detect_congress_clusters") as result:
             congress_events = [
                 e for e in all_raw_events
@@ -742,7 +956,7 @@ def run():
         print(f"[catalyst_ingest] Complete. Inserted: {inserted}, Duplicates: {duplicates}")
         slack_notify(
             f"*Catalyst Ingest complete* — `{inserted}` events inserted, `{duplicates}` dupes skipped\n"
-            f"Sources: finnhub `{finnhub_count}` · sec `{sec_count}` · quiverquant `{qq_count}` · perplexity `{ppx_count}`"
+            f"Sources: finnhub `{finnhub_count}` · sec `{sec_count}` · quiverquant `{qq_count}` · perplexity `{ppx_count}` · yfinance `{yf_count}` · fred `{fred_count}`"
         )
 
     except Exception as e:
