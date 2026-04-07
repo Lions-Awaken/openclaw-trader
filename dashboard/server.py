@@ -1023,15 +1023,18 @@ async def _fetch_system_data(client: httpx.AsyncClient) -> dict:
             return []
 
     async def _get_cron_rows() -> list[dict]:
+        """Get latest root run per pipeline. Use 7-day window + high limit to catch weekly jobs."""
         try:
+            cutoff_7d = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
             r = await client.get(
                 f"{SUPABASE_URL}/rest/v1/pipeline_runs",
                 headers=sb_headers(),
                 params={
                     "select": "pipeline_name,status,started_at",
                     "step_name": "eq.root",
+                    "started_at": f"gte.{cutoff_7d}",
                     "order": "started_at.desc",
-                    "limit": "50",
+                    "limit": "500",
                 },
             )
             return r.json() if r.status_code == 200 else []
@@ -1078,6 +1081,30 @@ async def _fetch_system_data(client: httpx.AsyncClient) -> dict:
         except Exception:
             return 9999.0
 
+    async def _get_stack_live() -> dict[str, bool]:
+        """Live-ping all 8 services for stack health."""
+        results: dict[str, bool] = {}
+        try:
+            r = await client.get(f"{SUPABASE_URL}/rest/v1/budget_config", headers=sb_headers(), params={"select": "id", "limit": "1"})
+            results["supabase"] = r.status_code == 200
+        except Exception:
+            results["supabase"] = False
+        try:
+            r = await client.get(f"{ALPACA_BASE}/v2/account", headers={"APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET})
+            results["alpaca"] = r.status_code == 200
+        except Exception:
+            results["alpaca"] = False
+        results["finnhub"] = bool(FINNHUB_KEY)
+        try:
+            r = await client.get(f"{SUPABASE_URL}/rest/v1/rpc/match_meta_reflections", headers=sb_headers(),
+                                 json={"query_embedding": [0.0] * 768, "match_threshold": 0.0, "match_count": 1})
+            results["pgvector"] = r.status_code in (200, 406)
+        except Exception:
+            results["pgvector"] = False
+        results["claude"] = bool(ANTHROPIC_API_KEY and len(ANTHROPIC_API_KEY) > 10)
+        results["sentry"] = bool(SENTRY_AUTH_TOKEN)
+        return results
+
     (stats_row, pipeline_runs, cron_rows, inference_rows, heartbeats, network_ms) = (
         await asyncio.gather(
             _get_stats(),
@@ -1089,8 +1116,8 @@ async def _fetch_system_data(client: httpx.AsyncClient) -> dict:
         )
     )
 
-    # Build stack_services and ollama_heartbeat from heartbeats
-    stack_services: dict[str, bool] = {}
+    # Build stack_services from live checks + heartbeats
+    stack_services = await _get_stack_live()
     ollama_heartbeat: dict | None = None
     stale_cutoff_str = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
     for hb in heartbeats:
@@ -1098,9 +1125,11 @@ async def _fetch_system_data(client: httpx.AsyncClient) -> dict:
         last_seen = hb.get("last_seen", "")
         alive = last_seen > stale_cutoff_str if last_seen else False
         meta = hb.get("metadata") or {}
-        stack_services[svc] = alive and meta.get("alive", False)
         if svc == "ollama":
+            stack_services["ollama"] = alive and meta.get("alive", False)
             ollama_heartbeat = hb if alive else None
+        elif svc == "tumbler":
+            stack_services["tumbler"] = alive and meta.get("alive", False)
 
     return {
         "stats_row": stats_row,
