@@ -1413,20 +1413,25 @@ async function loadCongressCalendar() {
 }
 
 async function loadDashboard() {
-  // Account
+  // Account + P&L from equity
+  let equity = 0;
   try {
     const acct = await fetch('/api/account').then(r => r.json());
-    document.getElementById('equity').textContent = fmt(acct.equity, '$');
+    equity = acct.equity || 0;
+    document.getElementById('equity').textContent = fmt(equity, '$');
     document.getElementById('cash').textContent = fmt(acct.cash, '$');
     if (acct.paper) document.getElementById('mode-badge').textContent = 'Paper Trading';
+    // Total P&L = current equity minus starting capital (Alpaca paper starts at $100K)
+    const startingCapital = 100000;
+    const totalPnl = equity - startingCapital;
+    const pnlEl = document.getElementById('total-pnl');
+    pnlEl.textContent = fmt(totalPnl, '$');
+    pnlEl.className = 'value ' + pnlClass(totalPnl);
   } catch(e) { console.error('Account fetch failed:', e); }
 
-  // Performance
+  // Performance (win rate, trade count)
   try {
     const perf = await fetch('/api/performance').then(r => r.json());
-    const pnlEl = document.getElementById('total-pnl');
-    pnlEl.textContent = fmt(perf.total_pnl || 0, '$');
-    pnlEl.className = 'value ' + pnlClass(perf.total_pnl || 0);
     document.getElementById('win-rate').textContent = (perf.win_rate_pct || 0) + '%';
     document.getElementById('total-trades').textContent = perf.total_trades || 0;
   } catch(e) { console.error('Performance fetch failed:', e); }
