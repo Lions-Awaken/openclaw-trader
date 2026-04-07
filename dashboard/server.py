@@ -1096,13 +1096,13 @@ async def _fetch_system_data(client: httpx.AsyncClient) -> dict:
             results["alpaca"] = False
         results["finnhub"] = bool(FINNHUB_KEY)
         try:
-            r = await client.get(f"{SUPABASE_URL}/rest/v1/rpc/match_meta_reflections", headers=sb_headers(),
-                                 json={"query_embedding": [0.0] * 768, "match_threshold": 0.0, "match_count": 1})
+            r = await client.post(f"{SUPABASE_URL}/rest/v1/rpc/match_meta_reflections", headers=sb_headers(),
+                                  json={"query_embedding": [0.0] * 768, "match_threshold": 0.0, "match_count": 1})
             results["pgvector"] = r.status_code in (200, 406)
         except Exception:
             results["pgvector"] = False
         results["claude"] = bool(ANTHROPIC_API_KEY and len(ANTHROPIC_API_KEY) > 10)
-        results["sentry"] = bool(SENTRY_AUTH_TOKEN)
+        results["sentry"] = bool(SENTRY_AUTH_TOKEN or os.environ.get("SENTRY_DSN", ""))
         return results
 
     (stats_row, pipeline_runs, cron_rows, inference_rows, heartbeats, network_ms) = (
