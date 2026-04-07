@@ -3810,6 +3810,113 @@ Explain in plain language:
     return {"reasoning": reasoning_text, "cached": False}
 
 
+# ============================================================================
+# Shadow Intelligence Routes
+# ============================================================================
+
+
+@app.get("/api/shadow/profiles")
+async def get_shadow_profiles(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers=sb_headers(),
+        params={
+            "select": "profile_name,shadow_type,fitness_score,dwm_weight,"
+                      "conditional_brier,times_correct,times_dissented,"
+                      "divergence_rate,last_graded_at",
+            "is_shadow": "eq.true",
+            "order": "fitness_score.desc",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/shadow/divergences")
+async def get_shadow_divergences(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 30,
+):
+    _require_auth(request, oc_session)
+    days = min(days, 90)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/shadow_divergences",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,divergence_date,live_profile,live_decision,live_confidence,"
+                      "shadow_profile,shadow_type,shadow_decision,shadow_confidence,"
+                      "shadow_stopping_reason,first_diverged_at_tumbler,"
+                      "shadow_was_right,save_value,actual_outcome",
+            "divergence_date": f"gte.{cutoff}",
+            "order": "divergence_date.desc,created_at.desc",
+            "limit": "200",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/shadow/unanimous")
+async def get_shadow_unanimous(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 30,
+):
+    _require_auth(request, oc_session)
+    days = min(days, 90)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/shadow_divergences",
+        headers=sb_headers(),
+        params={
+            "select": "ticker,divergence_date,live_decision,live_confidence,"
+                      "shadow_profile,shadow_decision,shadow_confidence,"
+                      "shadow_stopping_reason,shadow_was_right,actual_outcome,save_value",
+            "divergence_date": f"gte.{cutoff}",
+            "order": "divergence_date.desc",
+            "limit": "500",
+        },
+    )
+    rows = resp.json() if resp.status_code == 200 else []
+    # Group by ticker+date, find where ALL shadows dissented
+    from collections import defaultdict
+
+    by_key: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for r in rows:
+        by_key[(r["ticker"], r["divergence_date"])].append(r)
+
+    unanimous = []
+    for (ticker, div_date), divs in by_key.items():
+        live_was_entry = any(d["live_decision"] in ("enter", "strong_enter") for d in divs)
+        all_shadows_dissented = all(
+            d["shadow_decision"] not in ("enter", "strong_enter") for d in divs
+        )
+        if live_was_entry and all_shadows_dissented and len(divs) >= 2:
+            unanimous.append(
+                {
+                    "ticker": ticker,
+                    "date": div_date,
+                    "live_confidence": max((d.get("live_confidence") or 0) for d in divs),
+                    "shadows": [
+                        {
+                            "profile": d["shadow_profile"],
+                            "decision": d["shadow_decision"],
+                            "confidence": d.get("shadow_confidence"),
+                            "reason": d.get("shadow_stopping_reason"),
+                        }
+                        for d in divs
+                    ],
+                    "outcome": divs[0].get("actual_outcome"),
+                    "save_value": sum(float(d.get("save_value") or 0) for d in divs),
+                }
+            )
+    return sorted(unanimous, key=lambda x: x["date"], reverse=True)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8090)

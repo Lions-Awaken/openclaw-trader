@@ -307,6 +307,22 @@ Total catalysts today: {cat_corr.get('total_catalysts', 0)}
         for adj in adj_impact:
             adj_section += f"- {adj['parameter']}: {adj['trades_since']} trades, ${adj['pnl_since']} P&L since applied\n"
 
+    # Build shadow divergence section
+    shadow_section = ""
+    shadow_divs = context.get("shadow_divergences", {})
+    if shadow_divs.get("count", 0) > 0:
+        unanimous = shadow_divs.get("unanimous_dissent", [])
+        shadow_section = f"""
+### Shadow Profile Divergences (adversarial ensemble)
+{json.dumps(shadow_divs, indent=2, default=str)[:800]}
+"""
+        if unanimous:
+            shadow_section += (
+                "\n**UNANIMOUS DISSENT DETECTED** — all shadow profiles disagreed with the live profile "
+                "on the following tickers. This is a HIGH PRIORITY signal — analyze what the shadows saw "
+                "that the live profile missed.\n"
+            )
+
     prompt = f"""You are a trading system meta-analyst. Analyze today's trading operations and generate insights.
 
 ## Today's Data ({TODAY})
@@ -328,7 +344,7 @@ Total catalysts today: {cat_corr.get('total_catalysts', 0)}
 
 ### Today's Catalysts
 {json.dumps(context.get('catalysts', []), indent=2)}
-{rag_section}{chain_section}{catalyst_section}{adj_section}
+{rag_section}{chain_section}{catalyst_section}{adj_section}{shadow_section}
 ## Instructions
 Respond with a JSON object containing these fields:
 - patterns_observed: Key patterns you see in today's operations, including cross-layer patterns between signals, catalysts, and inference chains (3-4 sentences)
@@ -381,6 +397,46 @@ Respond ONLY with valid JSON, no markdown formatting."""
         "catalyst_insights": "N/A",
         "adjustments": [],
     }, cost
+
+
+@traced("meta")
+def get_shadow_divergence_summary() -> dict:
+    """Get today's shadow divergences for meta-analysis context."""
+    today = date.today().isoformat()
+    divs = sb_get("shadow_divergences", {
+        "select": "ticker,live_decision,live_confidence,shadow_profile,shadow_type,"
+                  "shadow_decision,shadow_confidence,shadow_stopping_reason,"
+                  "first_diverged_at_tumbler,shadow_was_right,save_value",
+        "divergence_date": f"eq.{today}",
+    })
+
+    if not divs:
+        return {"count": 0, "divergences": [], "unanimous_dissent": []}
+
+    # Find unanimous dissent — all shadow profiles disagree with live on same ticker
+    live_entries = {d["ticker"] for d in divs if d["live_decision"] in ("enter", "strong_enter")}
+    all_shadow_profiles = {d["shadow_profile"] for d in divs}
+    unanimous_dissent = []
+
+    for ticker in live_entries:
+        ticker_divs = [d for d in divs if d["ticker"] == ticker]
+        dissenting_profiles = {d["shadow_profile"] for d in ticker_divs
+                               if d["shadow_decision"] not in ("enter", "strong_enter")}
+        if dissenting_profiles == all_shadow_profiles and len(dissenting_profiles) >= 2:
+            unanimous_dissent.append({
+                "ticker": ticker,
+                "live_confidence": max(d["live_confidence"] for d in ticker_divs if d.get("live_confidence")),
+                "shadow_reasons": [
+                    f"{d['shadow_profile']}: {d['shadow_decision']} ({d.get('shadow_stopping_reason', '?')})"
+                    for d in ticker_divs
+                ],
+            })
+
+    return {
+        "count": len(divs),
+        "divergences": divs[:20],  # Cap for prompt length
+        "unanimous_dissent": unanimous_dissent,
+    }
 
 
 def get_active_profile() -> dict:
@@ -469,6 +525,10 @@ def run():
             adjustment_impact = update_adjustment_impact()
             result.set({"updated": len(adjustment_impact)})
 
+        with tracer.step("gather_shadow_divergences") as result:
+            shadow_data = get_shadow_divergence_summary()
+            result.set({"divergences": shadow_data["count"], "unanimous": len(shadow_data.get("unanimous_dissent", []))})
+
         # Step 3: RAG retrieval
         with tracer.step("rag_retrieve") as result:
             embed_text = (
@@ -496,6 +556,7 @@ def run():
             "catalyst_correlation": catalyst_correlation,
             "adjustment_impact": adjustment_impact,
             "rag_context": rag_context,
+            "shadow_divergences": shadow_data,
         }
 
         # Step 4: Generate reflection

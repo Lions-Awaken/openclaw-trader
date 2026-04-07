@@ -336,12 +336,18 @@ def tumbler_1_technical(ticker: str, signals: dict, total_score: int) -> dict:
 
 
 @traced("predictions")
-def tumbler_2_fundamental(ticker: str, confidence: float) -> dict:
+def tumbler_2_fundamental(
+    ticker: str,
+    confidence: float,
+    active_profile: dict | None = None,
+) -> dict:
     """Tumbler 2: Fundamental + Sentiment Context.
 
     RAG: retrieve recent catalyst events for this ticker.
     LLM: Perplexity only if catalyst data is stale (>4 hours).
     """
+    if active_profile is None:
+        active_profile = _active_profile
     # RAG: find recent catalyst events
     embed_text = f"Recent catalysts and news for {ticker} stock. Earnings, analyst actions, insider trades, sentiment."
     embedding = generate_embedding(embed_text)
@@ -385,7 +391,7 @@ def tumbler_2_fundamental(ticker: str, confidence: float) -> dict:
     congress_boost = 0.0
     congress_context = ""
 
-    if _active_profile and _active_profile.get("profile_name") == "CONGRESS_MIRROR":
+    if active_profile and active_profile.get("profile_name") == "CONGRESS_MIRROR":
         # Get legislative calendar context
         leg_context = get_legislative_context(ticker)
         if leg_context["count"] > 0:
@@ -763,8 +769,21 @@ Respond with JSON:
 
 
 @traced("predictions")
-def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time: float, has_veto: bool = False, ticker: str = "") -> str | None:
+def check_stopping_rule(
+    tumbler_result: dict,
+    prev_confidence: float,
+    start_time: float,
+    has_veto: bool = False,
+    ticker: str = "",
+    active_profile: dict | None = None,
+    local_confidence_thresholds: dict | None = None,
+) -> str | None:
     """Evaluate stopping rules after a tumbler. Returns reason or None to continue."""
+    if active_profile is None:
+        active_profile = _active_profile
+    if local_confidence_thresholds is None:
+        local_confidence_thresholds = CONFIDENCE_THRESHOLDS
+
     depth = tumbler_result["depth"]
     confidence = tumbler_result["confidence_after"]
     delta = abs(confidence - prev_confidence)
@@ -779,7 +798,7 @@ def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time
         return "veto_signal"
 
     # Confidence floor
-    threshold = CONFIDENCE_THRESHOLDS.get(depth, 0)
+    threshold = local_confidence_thresholds.get(depth, 0)
     if confidence < threshold:
         return "confidence_floor"
 
@@ -790,7 +809,7 @@ def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time
         return "forced_connection"
 
     # Congress signal stale (CONGRESS_MIRROR only)
-    if _active_profile and _active_profile.get("profile_name") == "CONGRESS_MIRROR":
+    if active_profile and active_profile.get("profile_name") == "CONGRESS_MIRROR":
         if ticker:
             congress_events = sb_get("catalyst_events", {
                 "select": "disclosure_freshness_score,disclosure_days_since_trade",
@@ -812,15 +831,16 @@ def check_stopping_rule(tumbler_result: dict, prev_confidence: float, start_time
     return None
 
 
-def decide(confidence: float) -> str:
+def decide(confidence: float, local_decision_thresholds: dict | None = None) -> str:
     """Map final confidence to decision."""
-    if confidence >= DECISION_THRESHOLDS["strong_enter"]:
+    thresholds = local_decision_thresholds if local_decision_thresholds is not None else DECISION_THRESHOLDS
+    if confidence >= thresholds["strong_enter"]:
         return "strong_enter"
-    if confidence >= DECISION_THRESHOLDS["enter"]:
+    if confidence >= thresholds["enter"]:
         return "enter"
-    if confidence >= DECISION_THRESHOLDS["watch"]:
+    if confidence >= thresholds["watch"]:
         return "watch"
-    if confidence >= DECISION_THRESHOLDS["skip"]:
+    if confidence >= thresholds["skip"]:
         return "skip"
     return "veto"
 
@@ -833,22 +853,54 @@ def run_inference(
     scan_type: str = "pre_market",
     signal_evaluation_id: str | None = None,
     pipeline_run_id: str | None = None,
+    profile_override: dict | None = None,
 ) -> dict:
     """Execute the full tumbler chain for a ticker.
 
     Returns dict with: inference_chain_id, final_confidence, final_decision,
     max_depth_reached, stopping_reason, patterns_matched, tumblers
+
+    When profile_override is provided the override dict is used as the active
+    profile WITHOUT mutating module-level globals (_active_profile,
+    DECISION_THRESHOLDS, CONFIDENCE_THRESHOLDS).  This is the shadow-run path.
     """
     global TODAY
     TODAY = date.today().isoformat()
 
-    # Load active strategy profile
-    profile = load_active_profile()
-    min_score = get_min_signal_score()
+    if profile_override is not None:
+        active_profile = profile_override
+        # Build LOCAL threshold copies — do NOT mutate module-level dicts
+        min_conf = float(active_profile.get("min_confidence", 0.60))
+        local_decision_thresholds = {
+            "strong_enter": min(1.0, min_conf + 0.15),
+            "enter": min_conf,
+            "watch": max(0.10, min_conf - 0.15),
+            "skip": max(0.05, min_conf - 0.40),
+        }
+        min_depth = int(active_profile.get("min_tumbler_depth", 3))
+        local_confidence_thresholds = {
+            d: max(0.10, min_conf * (d / 5) * (0.6 if d < min_depth else 1.0))
+            for d in range(1, 6)
+        }
+        # Cap tumbler depth for shadow profiles (REGIME_WATCHER stops at T3)
+        from shadow_profiles import get_max_tumbler_depth  # noqa: PLC0415
+        max_depth_cap = get_max_tumbler_depth(active_profile.get("shadow_type", ""))
+    else:
+        # Normal path — load from DB, mutate globals as before
+        active_profile = load_active_profile()
+        local_decision_thresholds = DECISION_THRESHOLDS
+        local_confidence_thresholds = CONFIDENCE_THRESHOLDS
+        max_depth_cap = 5
+
+    min_score = (
+        int(active_profile.get("min_signal_score", 4))
+        if active_profile
+        else 4
+    )
 
     # Check if this ticker meets the profile's minimum signal threshold
     if total_score < min_score:
-        print(f"[inference_engine] {ticker}: score {total_score} < min {min_score} for profile {profile.get('profile_name', '?')}, skipping")
+        print(f"[inference_engine] {ticker}: score {total_score} < min {min_score} for profile {active_profile.get('profile_name', '?')}, skipping")
         return {
             "inference_chain_id": None,
             "ticker": ticker,
@@ -858,7 +910,7 @@ def run_inference(
             "stopping_reason": "confidence_floor",
             "patterns_matched": [],
             "tumblers": [],
-            "profile": profile.get("profile_name", "DEFAULT"),
+            "profile": active_profile.get("profile_name", "DEFAULT"),
         }
 
     start_time = time.time()
@@ -874,6 +926,27 @@ def run_inference(
     claude_spent = get_todays_claude_spend()
     claude_available = claude_budget - claude_spent > 0.01
 
+    # Helper: pass local copies to check_stopping_rule on every call
+    def _stop(tumbler_result: dict, prev_conf: float, veto: bool = False) -> str | None:
+        return check_stopping_rule(
+            tumbler_result,
+            prev_conf,
+            start_time,
+            has_veto=veto,
+            ticker=ticker,
+            active_profile=active_profile,
+            local_confidence_thresholds=local_confidence_thresholds,
+        )
+
+    def _finalize(reason: str) -> dict:
+        return _finalize_chain(
+            ticker, scan_type, tumblers, confidence, reason,
+            signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
+            pipeline_run_id, t1.get("embedding") if tumblers else None,
+            active_profile=active_profile,
+            local_decision_thresholds=local_decision_thresholds,
+        )
+
     # === TUMBLER 1: Technical Foundation ===
     t1 = tumbler_1_technical(ticker, signals, total_score)
     prev_confidence = confidence
@@ -883,15 +956,16 @@ def run_inference(
     t1["duration_ms"] = int((time.time() - start_time) * 1000)
     tumblers.append(t1)
 
-    stopping_reason = check_stopping_rule(t1, prev_confidence, start_time, ticker=ticker)
+    stopping_reason = _stop(t1, prev_confidence)
     if stopping_reason:
-        return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
-                               signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
-                               pipeline_run_id, t1.get("embedding"))
+        return _finalize(stopping_reason)
+
+    if max_depth_cap < 2:
+        return _finalize("all_tumblers_clear")
 
     # === TUMBLER 2: Fundamental + Sentiment ===
     t2_start = time.time()
-    t2 = tumbler_2_fundamental(ticker, confidence)
+    t2 = tumbler_2_fundamental(ticker, confidence, active_profile=active_profile)
     prev_confidence = confidence
     confidence = t2["confidence_after"]
     t2["confidence_before"] = prev_confidence
@@ -900,11 +974,12 @@ def run_inference(
     tumblers.append(t2)
     has_veto = t2.get("veto", False)
 
-    stopping_reason = check_stopping_rule(t2, prev_confidence, start_time, has_veto, ticker=ticker)
+    stopping_reason = _stop(t2, prev_confidence, veto=has_veto)
     if stopping_reason:
-        return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
-                               signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
-                               pipeline_run_id, t1.get("embedding"))
+        return _finalize(stopping_reason)
+
+    if max_depth_cap < 3:
+        return _finalize("all_tumblers_clear")
 
     # === TUMBLER 3: Flow + Cross-Asset ===
     t3_start = time.time()
@@ -916,18 +991,16 @@ def run_inference(
     t3["duration_ms"] = int((time.time() - t3_start) * 1000)
     tumblers.append(t3)
 
-    stopping_reason = check_stopping_rule(t3, prev_confidence, start_time, ticker=ticker)
+    stopping_reason = _stop(t3, prev_confidence)
     if stopping_reason:
-        return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
-                               signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
-                               pipeline_run_id, t1.get("embedding"))
+        return _finalize(stopping_reason)
+
+    if max_depth_cap < 4:
+        return _finalize("all_tumblers_clear")
 
     # === TUMBLER 4: Pattern Template Matching ===
     if not claude_available:
-        stopping_reason = "resource_limit"
-        return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
-                               signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
-                               pipeline_run_id, t1.get("embedding"))
+        return _finalize("resource_limit")
 
     t4_start = time.time()
     t4 = tumbler_4_pattern(ticker, confidence, tumblers, start_time=start_time)
@@ -943,18 +1016,16 @@ def run_inference(
     claude_spent = get_todays_claude_spend()
     claude_available = claude_budget - claude_spent > 0.01
 
-    stopping_reason = check_stopping_rule(t4, prev_confidence, start_time, ticker=ticker)
+    stopping_reason = _stop(t4, prev_confidence)
     if stopping_reason:
-        return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
-                               signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
-                               pipeline_run_id, t1.get("embedding"))
+        return _finalize(stopping_reason)
+
+    if max_depth_cap < 5:
+        return _finalize("all_tumblers_clear")
 
     # === TUMBLER 5: Counterfactual + Final Synthesis ===
     if not claude_available:
-        stopping_reason = "resource_limit"
-        return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
-                               signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
-                               pipeline_run_id, t1.get("embedding"))
+        return _finalize("resource_limit")
 
     t5_start = time.time()
     t5 = tumbler_5_counterfactual(ticker, confidence, tumblers, start_time=start_time)
@@ -965,10 +1036,7 @@ def run_inference(
     t5["duration_ms"] = int((time.time() - t5_start) * 1000)
     tumblers.append(t5)
 
-    stopping_reason = "all_tumblers_clear"
-    return _finalize_chain(ticker, scan_type, tumblers, confidence, stopping_reason,
-                           signal_evaluation_id, catalyst_event_ids, pattern_template_ids,
-                           pipeline_run_id, t1.get("embedding"))
+    return _finalize("all_tumblers_clear")
 
 
 def _finalize_chain(
@@ -982,10 +1050,14 @@ def _finalize_chain(
     pattern_template_ids: list[str],
     pipeline_run_id: str | None,
     embedding: list[float] | None,
+    active_profile: dict | None = None,
+    local_decision_thresholds: dict | None = None,
 ) -> dict:
     """Store the inference chain and return result."""
+    if active_profile is None:
+        active_profile = _active_profile
     max_depth = max(t.get("depth", 0) for t in tumblers) if tumblers else 0
-    decision = decide(confidence)
+    decision = decide(confidence, local_decision_thresholds)
 
     # Build reasoning summary
     reasoning_parts = [t.get("key_finding", "") for t in tumblers if t.get("key_finding")]
@@ -997,6 +1069,7 @@ def _finalize_chain(
         stored = {k: v for k, v in t.items() if k not in ("embedding", "veto", "avg_sentiment", "claude_cost", "matched_pattern_ids", "calibration_factor")}
         stored_tumblers.append(stored)
 
+    profile_name = active_profile.get("profile_name", "DEFAULT") if active_profile else "DEFAULT"
     chain_data = {
         "ticker": ticker,
         "chain_date": TODAY,
@@ -1011,6 +1084,7 @@ def _finalize_chain(
         "pattern_template_ids": [pid for pid in pattern_template_ids if pid],
         "reasoning_summary": reasoning_summary,
         "pipeline_run_id": pipeline_run_id,
+        "profile_name": profile_name,
     }
     if embedding:
         chain_data["embedding"] = embedding
@@ -1018,7 +1092,6 @@ def _finalize_chain(
     stored = _post_to_supabase("inference_chains", chain_data)
     chain_id = stored.get("id") if stored else None
 
-    profile_name = _active_profile.get("profile_name", "DEFAULT") if _active_profile else "DEFAULT"
     print(
         f"[inference_engine] [{profile_name}] {ticker}: depth={max_depth}, "
         f"confidence={confidence:.3f}, decision={decision}, "

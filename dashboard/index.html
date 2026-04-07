@@ -685,6 +685,7 @@
         <button class="nav-pill" onclick="showSection('buildlog')">Build Log</button>
         <button class="nav-pill" onclick="showSection('about')">How It Works</button>
         <button class="nav-pill" onclick="showSection('logging')">LOGGING</button>
+        <button class="nav-pill" onclick="showSection('shadow')">Shadow</button>
       </div>
     </div>
   </div>
@@ -1261,6 +1262,36 @@
     </div>
   </div>
 
+  <!-- SHADOW INTELLIGENCE -->
+  <div id="section-shadow" class="section">
+    <!-- Profile Scoreboard -->
+    <div class="card">
+      <h2>SHADOW PROFILE SCOREBOARD</h2>
+      <p style="color: var(--cyan); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 1rem;">
+        Adversarial ensemble performance — fitness scores drive DWM weight allocation
+      </p>
+      <div id="shadow-profiles">Loading profiles...</div>
+    </div>
+
+    <!-- Unanimous Dissent Alerts -->
+    <div class="card">
+      <h2>UNANIMOUS DISSENT ALERTS</h2>
+      <p style="color: var(--red); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 1rem;">
+        Tickers where ALL shadow profiles disagreed with the live entry decision
+      </p>
+      <div id="shadow-unanimous">Loading...</div>
+    </div>
+
+    <!-- Divergence History -->
+    <div class="card">
+      <h2>DIVERGENCE HISTORY</h2>
+      <p style="color: var(--cyan); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 1rem;">
+        Per-scan divergence events between live and shadow profiles — last 30 days
+      </p>
+      <div id="shadow-divergences">Loading divergences...</div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -1695,6 +1726,7 @@ showSection = function(name) {
   if (name === 'economics') loadEconomicsTab();
   if (name === 'buildlog') loadBuildLog();
   if (name === 'sitrep') loadSitRep();
+  if (name === 'shadow') loadShadowTab();
 };
 
 // === SYSTEM MONITOR ===
@@ -3862,6 +3894,117 @@ async function analyzeTradeReasoning(tradeId) {
       '</div>';
   } catch(e) {
     outputEl.innerHTML = '<div class="empty-state" style="color: var(--red);">Error: ' + esc(String(e)) + '</div>';
+  }
+}
+
+// ============================================================================
+// Shadow Intelligence Tab
+// ============================================================================
+
+async function loadShadowTab() {
+  loadShadowProfiles();
+  loadShadowUnanimous();
+  loadShadowDivergences();
+}
+
+async function loadShadowProfiles() {
+  const el = document.getElementById('shadow-profiles');
+  try {
+    const profiles = await fetch('/api/shadow/profiles', {credentials: 'include'}).then(r => r.json());
+    if (!profiles.length) {
+      el.innerHTML = '<div class="empty-state">No shadow profiles configured</div>';
+      return;
+    }
+    let html = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;">';
+    for (const p of profiles) {
+      const fitness = parseFloat(p.fitness_score || 0);
+      const weight = parseFloat(p.dwm_weight || 1);
+      const brier = p.conditional_brier != null ? parseFloat(p.conditional_brier).toFixed(3) : '--';
+      const correct = p.times_correct || 0;
+      const dissented = p.times_dissented || 0;
+      const pct = dissented > 0 ? Math.round(correct / dissented * 100) : 0;
+      const typeColor = p.shadow_type === 'SKEPTIC' ? 'var(--red)' : p.shadow_type === 'CONTRARIAN' ? 'var(--orange)' : 'var(--cyan)';
+
+      html += '<div class="card" style="border-color:' + typeColor + ';text-align:center;">';
+      html += '<div style="font-size:1.3rem;font-weight:900;color:' + typeColor + ';letter-spacing:2px;">' + esc(p.profile_name) + '</div>';
+      html += '<div style="font-size:0.85rem;color:var(--dim);margin:0.5rem 0;">' + esc(p.shadow_type) + '</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-top:1rem;font-size:0.95rem;">';
+      html += '<div><span style="color:var(--green);">' + fitness.toFixed(3) + '</span><br><span style="color:var(--dim);font-size:0.75rem;">FITNESS</span></div>';
+      html += '<div><span style="color:var(--cyan);">' + weight.toFixed(2) + 'x</span><br><span style="color:var(--dim);font-size:0.75rem;">DWM WEIGHT</span></div>';
+      html += '<div><span style="color:var(--purple);">' + brier + '</span><br><span style="color:var(--dim);font-size:0.75rem;">BRIER</span></div>';
+      html += '<div><span style="color:' + (pct >= 50 ? 'var(--green)' : 'var(--red)') + ';">' + correct + '/' + dissented + ' (' + pct + '%)</span><br><span style="color:var(--dim);font-size:0.75rem;">CORRECT</span></div>';
+      html += '</div>';
+      if (p.last_graded_at) {
+        html += '<div style="font-size:0.75rem;color:var(--dim);margin-top:0.8rem;">Graded: ' + new Date(p.last_graded_at).toLocaleDateString() + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+  }
+}
+
+async function loadShadowUnanimous() {
+  const el = document.getElementById('shadow-unanimous');
+  try {
+    const events = await fetch('/api/shadow/unanimous?days=30', {credentials: 'include'}).then(r => r.json());
+    if (!events.length) {
+      el.innerHTML = '<div class="empty-state" style="color:var(--green);">No unanimous dissent events — shadows and live profile are aligned</div>';
+      return;
+    }
+    let html = '';
+    for (const evt of events) {
+      html += '<div class="card" style="border-color:var(--red);margin-bottom:1rem;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+      html += '<span style="font-size:1.2rem;font-weight:900;color:var(--red);">' + esc(evt.ticker) + '</span>';
+      html += '<span style="color:var(--dim);">' + esc(evt.date) + '</span>';
+      html += '</div>';
+      html += '<div style="margin-top:0.5rem;font-size:0.9rem;color:var(--cyan);">Live confidence: ' + esc(evt.live_confidence || '--') + '</div>';
+      if (evt.outcome) {
+        html += '<div style="margin-top:0.3rem;color:' + (evt.outcome.includes('LOSS') ? 'var(--red)' : 'var(--green)') + ';">Outcome: ' + esc(evt.outcome) + (evt.save_value > 0 ? ' (saved $' + evt.save_value.toFixed(0) + ')' : '') + '</div>';
+      }
+      html += '<div style="margin-top:0.5rem;">';
+      for (const s of evt.shadows) {
+        html += '<div style="font-size:0.85rem;color:var(--orange);margin-top:0.3rem;">' + esc(s.profile) + ': ' + esc(s.decision) + ' (' + esc(s.reason || '?') + ')</div>';
+      }
+      html += '</div></div>';
+    }
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+  }
+}
+
+async function loadShadowDivergences() {
+  const el = document.getElementById('shadow-divergences');
+  try {
+    const divs = await fetch('/api/shadow/divergences?days=30', {credentials: 'include'}).then(r => r.json());
+    if (!divs.length) {
+      el.innerHTML = '<div class="empty-state">No divergences recorded yet — shadow inference runs during market hours</div>';
+      return;
+    }
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.9rem;">';
+    html += '<tr style="color:var(--cyan);border-bottom:1px solid var(--border);">';
+    html += '<th style="text-align:left;padding:0.5rem;">DATE</th><th>TICKER</th><th>LIVE</th><th>SHADOW</th><th>TYPE</th><th>TUMBLER</th><th>RIGHT?</th></tr>';
+    for (const d of divs) {
+      const rightColor = d.shadow_was_right === true ? 'var(--green)' : d.shadow_was_right === false ? 'var(--red)' : 'var(--dim)';
+      const rightText = d.shadow_was_right === true ? 'YES' : d.shadow_was_right === false ? 'NO' : '--';
+      html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);color:var(--text);">';
+      html += '<td style="padding:0.4rem 0.5rem;">' + esc(d.divergence_date) + '</td>';
+      html += '<td style="text-align:center;font-weight:700;color:var(--cyan);">' + esc(d.ticker) + '</td>';
+      html += '<td style="text-align:center;color:' + (d.live_decision === 'enter' ? 'var(--green)' : 'var(--dim)') + ';">' + esc(d.live_decision) + '</td>';
+      html += '<td style="text-align:center;color:' + (d.shadow_decision === 'enter' ? 'var(--green)' : 'var(--orange)') + ';">' + esc(d.shadow_decision) + '</td>';
+      html += '<td style="text-align:center;">' + esc(d.shadow_type) + '</td>';
+      html += '<td style="text-align:center;">T' + esc(d.first_diverged_at_tumbler || '?') + '</td>';
+      html += '<td style="text-align:center;color:' + rightColor + ';font-weight:700;">' + rightText + '</td>';
+      html += '</tr>';
+    }
+    html += '</table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
   }
 }
 </script>

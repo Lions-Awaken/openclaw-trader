@@ -39,7 +39,12 @@ from common import (
     slack_notify,
     submit_order,
 )
-from inference_engine import load_active_profile, run_inference
+from inference_engine import (
+    get_claude_budget,
+    get_todays_claude_spend,
+    load_active_profile,
+    run_inference,
+)
 from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced
 
 TODAY = date.today().isoformat()
@@ -447,6 +452,76 @@ def execute_trade(
 
 
 # ---------------------------------------------------------------------------
+# Shadow inference helpers
+# ---------------------------------------------------------------------------
+def _load_shadow_profiles() -> list[dict]:
+    """Load all active shadow profiles from Supabase."""
+    rows = sb_get("strategy_profiles", {
+        "select": "profile_name,shadow_type,min_signal_score,min_tumbler_depth,"
+                  "min_confidence,max_hold_days,trade_style,dwm_weight,is_shadow",
+        "is_shadow": "eq.true",
+    })
+    return [r for r in rows if float(r.get("dwm_weight", 0)) > 0.05]
+
+
+def _find_first_diverged_tumbler(live_tumblers: list, shadow_tumblers: list) -> int | None:
+    """Find the first tumbler depth where confidence diverged > 0.10."""
+    for i, (lt, st) in enumerate(zip(live_tumblers, shadow_tumblers)):
+        live_conf = lt.get("confidence_after", 0)
+        shadow_conf = st.get("confidence_after", 0)
+        if abs(live_conf - shadow_conf) > 0.10:
+            return lt.get("depth", i + 1)
+    return len(live_tumblers)
+
+
+def _record_divergence(
+    ticker: str,
+    live_result: dict,
+    shadow_result_data: dict,
+    shadow_profile: dict,
+    live_profile: dict,
+) -> None:
+    """Record a divergence event between live and shadow profile."""
+    from datetime import date as date_cls
+
+    live_dec = live_result.get("final_decision", "skip")
+    shadow_dec = shadow_result_data.get("final_decision", "skip")
+
+    live_is_entry = live_dec in ("enter", "strong_enter")
+    shadow_is_entry = shadow_dec in ("enter", "strong_enter")
+
+    if live_is_entry == shadow_is_entry:
+        return  # Agreement — no divergence
+
+    first_diverged = _find_first_diverged_tumbler(
+        live_result.get("tumblers", []),
+        shadow_result_data.get("tumblers", []),
+    )
+
+    divergence = {
+        "ticker": ticker,
+        "divergence_date": date_cls.today().isoformat(),
+        "live_profile": live_profile.get("profile_name", "UNKNOWN"),
+        "live_decision": live_dec,
+        "live_confidence": live_result.get("final_confidence"),
+        "live_chain_id": live_result.get("inference_chain_id"),
+        "shadow_profile": shadow_profile.get("profile_name", "UNKNOWN"),
+        "shadow_type": shadow_profile.get("shadow_type", "SKEPTIC"),
+        "shadow_decision": shadow_dec,
+        "shadow_confidence": shadow_result_data.get("final_confidence"),
+        "shadow_stopping_reason": shadow_result_data.get("stopping_reason"),
+        "shadow_chain_id": shadow_result_data.get("inference_chain_id"),
+        "first_diverged_at_tumbler": first_diverged,
+        "trade_executed": False,
+    }
+    _post_to_supabase("shadow_divergences", divergence)
+    print(
+        f"[scanner] Divergence: {ticker} — live={live_dec} vs "
+        f"{shadow_profile.get('profile_name')}={shadow_dec} (tumbler {first_diverged})"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main scanner run
 # ---------------------------------------------------------------------------
 def run():
@@ -622,6 +697,84 @@ def run():
             })
             print(f"\n[scanner] Inference complete: {len(actionable)} actionable / {len(inference_results)} total")
 
+        # === Shadow Inference (adversarial ensemble) ===
+        shadow_summary: dict = {}
+        with tracer.step("shadow_inference") as shadow_result:
+            shadow_profiles = _load_shadow_profiles()
+
+            if not shadow_profiles:
+                print("[scanner] No shadow profiles found — skipping")
+                shadow_result.set({"shadow_profiles": 0})
+            elif not candidates:
+                print("[scanner] No candidates — skipping shadow inference")
+                shadow_result.set({"shadow_profiles": len(shadow_profiles), "skipped": "no_candidates"})
+            else:
+                # Budget gate: only run shadows when >40% Claude budget remains
+                claude_budget = get_claude_budget()
+                claude_spent = get_todays_claude_spend()
+                budget_remaining_pct = (
+                    (claude_budget - claude_spent) / claude_budget if claude_budget > 0 else 0
+                )
+
+                if budget_remaining_pct < 0.40:
+                    print(f"[scanner] Shadow budget gate: {budget_remaining_pct:.1%} < 40% — skipping")
+                    shadow_result.set({"skipped": "budget_gate", "remaining_pct": budget_remaining_pct})
+                else:
+                    for shadow_profile in shadow_profiles:
+                        pname = shadow_profile.get("profile_name", "?")
+                        print(f"\n[scanner] Shadow inference: {pname}")
+                        shadow_results_for_profile: list[dict] = []
+
+                        for cand in candidates:
+                            ticker = cand["ticker"]
+                            try:
+                                shadow_inf = run_inference(
+                                    ticker=ticker,
+                                    signals=cand["signals"],
+                                    total_score=cand["total_score"],
+                                    scan_type=f"shadow_{pname.lower()}",
+                                    pipeline_run_id=tracer.root_id,
+                                    profile_override=shadow_profile,
+                                )
+                                shadow_results_for_profile.append(shadow_inf)
+
+                                live_result = next(
+                                    (r for r in inference_results if r["ticker"] == ticker),
+                                    None,
+                                )
+                                if live_result:
+                                    _record_divergence(
+                                        ticker=ticker,
+                                        live_result=live_result,
+                                        shadow_result_data=shadow_inf,
+                                        shadow_profile=shadow_profile,
+                                        live_profile=profile,
+                                    )
+
+                                time.sleep(0.5)  # Thermal courtesy
+                            except Exception as e:
+                                print(f"[scanner] Shadow error ({pname}/{ticker}): {e}")
+                                continue
+
+                        shadow_summary[pname] = {
+                            "candidates": len(shadow_results_for_profile),
+                            "enters": sum(
+                                1 for r in shadow_results_for_profile
+                                if r["final_decision"] in ("enter", "strong_enter")
+                            ),
+                            "skips": sum(
+                                1 for r in shadow_results_for_profile
+                                if r["final_decision"] in ("skip", "veto")
+                            ),
+                        }
+                        print(f"[scanner] {pname}: {shadow_summary[pname]}")
+
+                    shadow_result.set({
+                        "shadow_profiles_run": len(shadow_profiles),
+                        "summary": shadow_summary,
+                        "budget_remaining_pct": round(budget_remaining_pct, 3),
+                    })
+
         # === Step 7: Execute trades ===
         trades_placed = []
         with tracer.step("execution") as result:
@@ -700,6 +853,15 @@ def run():
         else:
             actionable_count = len([r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")])
             lines.append(f"No trades placed ({actionable_count} actionable, {len(inference_results)} inferred)")
+        if shadow_summary:
+            shadow_lines = [
+                f"  `{pname}`: {s['enters']} enters / {s['skips']} skips / {s['candidates']} checked"
+                for pname, s in shadow_summary.items()
+            ]
+            lines.append("Shadow profiles: " + " | ".join(
+                f"{pname} {s['enters']}E/{s['skips']}S" for pname, s in shadow_summary.items()
+            ))
+            lines.extend(shadow_lines)
         slack_notify("\n".join(lines))
 
     except Exception as e:

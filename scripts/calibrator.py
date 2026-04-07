@@ -27,9 +27,13 @@ from common import (
     slack_notify,
 )
 from tracer import (
+    SUPABASE_KEY,
+    SUPABASE_URL,
     PipelineTracer,
     _patch_supabase,
     _post_to_supabase,
+    _sb_client,
+    _sb_headers,
     set_active_tracer,
     traced,
 )
@@ -287,6 +291,21 @@ def fill_catalyst_prices() -> int:
     return updated
 
 
+def _patch_supabase_by_name(table: str, profile_name: str, data: dict) -> bool:
+    """PATCH a strategy_profiles row by profile_name instead of id."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+    try:
+        resp = _sb_client.patch(
+            f"{SUPABASE_URL}/rest/v1/{table}?profile_name=eq.{profile_name}",
+            headers=_sb_headers(),
+            json=data,
+        )
+        return resp.status_code in (200, 204)
+    except Exception:
+        return False
+
+
 def _get_price_history(ticker: str, event_date: datetime) -> dict:
     """Fetch historical prices around event date from Alpaca."""
     if not ALPACA_KEY or not ALPACA_SECRET:
@@ -377,6 +396,119 @@ def update_pattern_templates() -> int:
     return updated
 
 
+@traced("meta")
+def grade_shadow_profiles() -> dict:
+    """Grade shadow profile performance using type-specific scoring.
+
+    SKEPTIC → Conditional Brier Score (how well it predicts losses when dissenting)
+    CONTRARIAN → Regime-Conditional IC (useful during transitions, expected wrong in trends)
+    REGIME_WATCHER → Detection Latency (days to correctly identify regime change)
+
+    Updates strategy_profiles: fitness_score, dwm_weight, conditional_brier,
+    times_correct, times_dissented, last_graded_at.
+    Updates shadow_divergences: shadow_was_right, save_value.
+    """
+    cutoff = (date.today() - timedelta(days=30)).isoformat()
+
+    # Get ungraded divergences that have known outcomes
+    ungraded = sb_get("shadow_divergences", {
+        "select": "id,ticker,divergence_date,live_profile,live_decision,live_confidence,"
+                  "shadow_profile,shadow_type,shadow_decision,shadow_confidence,"
+                  "shadow_stopping_reason,first_diverged_at_tumbler,live_chain_id",
+        "shadow_was_right": "is.null",
+        "divergence_date": f"gte.{cutoff}",
+    })
+
+    graded_count = 0
+    profile_stats: dict[str, dict] = {}  # {profile_name: {correct, dissented, brier_sum, count}}
+
+    for div in ungraded:
+        # Look up actual outcome from inference_chains
+        live_chain_id = div.get("live_chain_id")
+        if not live_chain_id:
+            continue
+        chains = sb_get("inference_chains", {
+            "select": "actual_outcome,actual_pnl",
+            "id": f"eq.{live_chain_id}",
+        })
+        if not chains or not chains[0].get("actual_outcome"):
+            continue  # Not yet graded by main calibrator
+
+        outcome = chains[0]["actual_outcome"]
+        pnl = float(chains[0].get("actual_pnl") or 0)
+
+        # Determine if shadow was right
+        live_was_entry = div["live_decision"] in ("enter", "strong_enter")
+        shadow_was_entry = div["shadow_decision"] in ("enter", "strong_enter")
+        trade_lost = outcome in ("LOSS", "STRONG_LOSS")
+
+        # Shadow dissented from entry → shadow right if trade lost
+        # Shadow wanted entry but live skipped → shadow right if trade would have won
+        if live_was_entry and not shadow_was_entry:
+            shadow_right = trade_lost  # Shadow correctly blocked a loser
+        elif not live_was_entry and shadow_was_entry:
+            shadow_right = not trade_lost  # Shadow correctly wanted a winner
+        else:
+            shadow_right = False
+
+        save_value = abs(pnl) if shadow_right and trade_lost else 0
+
+        # Update the divergence record
+        _patch_supabase("shadow_divergences", div["id"], {
+            "shadow_was_right": shadow_right,
+            "actual_outcome": outcome,
+            "actual_pnl": pnl,
+            "trade_executed": live_was_entry,
+            "save_value": round(save_value, 2),
+        })
+
+        # Accumulate per-profile stats
+        pname = div["shadow_profile"]
+        if pname not in profile_stats:
+            profile_stats[pname] = {"correct": 0, "dissented": 0, "brier_sum": 0.0, "count": 0}
+        profile_stats[pname]["dissented"] += 1
+        profile_stats[pname]["count"] += 1
+        if shadow_right:
+            profile_stats[pname]["correct"] += 1
+
+        # Conditional Brier contribution
+        shadow_conf = float(div.get("shadow_confidence") or 0.5)
+        actual = 1.0 if shadow_right else 0.0
+        brier = (shadow_conf - actual) ** 2
+        profile_stats[pname]["brier_sum"] += brier
+
+        graded_count += 1
+
+    # Update strategy_profiles with new fitness scores and DWM weights
+    fitness_values: list[float] = []
+    for pname, stats in profile_stats.items():
+        cond_brier = stats["brier_sum"] / max(stats["count"], 1)
+        fitness = stats["correct"] / max(stats["dissented"], 1)
+        fitness_values.append(fitness)
+
+        _patch_supabase_by_name("strategy_profiles", pname, {
+            "fitness_score": round(fitness, 4),
+            "conditional_brier": round(cond_brier, 4),
+            "times_correct": stats["correct"],
+            "times_dissented": stats["dissented"],
+            "last_graded_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    # DWM weight update: new_weight = base * (1 + alpha * (fitness - median_fitness))
+    if fitness_values:
+        median_fitness = sorted(fitness_values)[len(fitness_values) // 2]
+        alpha = 0.5
+        for pname, stats in profile_stats.items():
+            fitness = stats["correct"] / max(stats["dissented"], 1)
+            new_weight = 1.0 * (1 + alpha * (fitness - median_fitness))
+            new_weight = max(0.05, min(3.0, new_weight))  # Clamp [0.05, 3.0]
+            _patch_supabase_by_name("strategy_profiles", pname, {
+                "dwm_weight": round(new_weight, 4),
+            })
+
+    return {"graded": graded_count, "profiles_updated": len(profile_stats)}
+
+
 def run():
     global TODAY, WEEK_START
     TODAY = date.today()
@@ -439,6 +571,11 @@ def run():
             updated_patterns = update_pattern_templates()
             result.set({"updated": updated_patterns})
 
+        # Step 8: Grade shadow profiles
+        with tracer.step("grade_shadows") as result:
+            shadow_result = grade_shadow_profiles()
+            result.set(shadow_result)
+
         tracer.complete({
             "graded": graded,
             "brier_score": brier,
@@ -446,15 +583,19 @@ def run():
             "overconfidence_bias": overconfidence,
             "catalysts_updated": updated_catalysts,
             "patterns_updated": updated_patterns,
+            "shadow_divergences_graded": shadow_result["graded"],
+            "shadow_profiles_updated": shadow_result["profiles_updated"],
         })
         print(
             f"[calibrator] Complete. Graded: {graded}/{total}. "
             f"Brier: {brier:.4f}. Cal error: {cal_error:.4f}. "
-            f"Overconfidence: {overconfidence:.4f}"
+            f"Overconfidence: {overconfidence:.4f}. "
+            f"Shadow divergences graded: {shadow_result['graded']}."
         )
         slack_notify(
             f"*Calibrator complete* — `{graded}/{total}` chains graded · `{updated_patterns}` pattern templates updated\n"
-            f"Brier `{brier:.4f}` · cal error `{cal_error:.4f}` · overconfidence `{overconfidence:+.4f}`"
+            f"Brier `{brier:.4f}` · cal error `{cal_error:.4f}` · overconfidence `{overconfidence:+.4f}`\n"
+            f"Shadow: `{shadow_result['graded']}` divergences graded · `{shadow_result['profiles_updated']}` profiles updated"
         )
 
     except Exception as e:
