@@ -368,24 +368,38 @@ body {
 }
 
 /* Active profile indicator badge */
-.logging-hammer-btn {
+.header-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 34px;
-  width: 34px;
+  height: 48px;
+  width: 48px;
   box-sizing: border-box;
-  border: 2px solid rgba(34,211,238,0.4);
+  border: 3px solid;
   border-radius: 50%;
-  background: rgba(34,211,238,0.06);
-  color: var(--cyan);
   cursor: pointer;
   transition: all 0.2s;
+  text-decoration: none;
 }
-.logging-hammer-btn:hover {
-  border-color: var(--cyan);
+.header-icon-purple {
+  border-color: rgba(168,85,247,0.5);
+  background: rgba(168,85,247,0.08);
+  color: var(--purple, #a855f7);
+}
+.header-icon-purple:hover {
+  border-color: var(--purple, #a855f7);
+  box-shadow: 0 0 12px rgba(168,85,247,0.5);
+  background: rgba(168,85,247,0.2);
+}
+.header-icon-cyan {
+  border-color: rgba(34,211,238,0.5);
+  background: rgba(34,211,238,0.08);
+  color: var(--cyan, #22d3ee);
+}
+.header-icon-cyan:hover {
+  border-color: var(--cyan, #22d3ee);
   box-shadow: var(--glow-cyan);
-  background: rgba(34,211,238,0.15);
+  background: rgba(34,211,238,0.2);
 }
 
 .active-profile-badge {
