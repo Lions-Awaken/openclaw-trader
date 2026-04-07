@@ -1240,7 +1240,7 @@
     <!-- System Observability Card -->
     <div class="card">
       <h2>SYSTEM OBSERVABILITY</h2>
-      <p style="color: var(--text-dim); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 0.85rem;">
+      <p style="color: var(--cyan, #22d3ee); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 1.1rem;">
         Function-level health across all trading domains — last 24 hours
       </p>
       <div id="logging-domains" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
@@ -1251,7 +1251,7 @@
     <!-- Trade Reasoning Card -->
     <div class="card">
       <h2>TRADE REASONING ANALYSIS</h2>
-      <p style="color: var(--text-dim); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 0.85rem;">
+      <p style="color: var(--cyan, #22d3ee); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 1.1rem;">
         AI-powered explanation of why each trade was made — click Analyze to reveal the thinking
       </p>
       <div id="trade-reasoning-list">
@@ -3715,7 +3715,7 @@ async function loadLoggingTab() {
       html += '</div>';
       if (d.last_run) {
         const ago = timeAgo(d.last_run);
-        html += '<div style="font-size:0.65rem; color: var(--text-dim); margin-top:0.5rem; font-family: Inter, monospace; text-transform: none; font-weight: 400;">' + ago + '</div>';
+        html += '<div style="font-size:0.95rem; color: var(--cyan, #22d3ee); margin-top:0.5rem; font-family: Inter, monospace; text-transform: none; font-weight: 400;">' + ago + '</div>';
       }
       html += '</div>';
     }
