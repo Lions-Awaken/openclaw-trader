@@ -964,26 +964,51 @@ async def system_metric_history(
 
 @app.get("/api/llm/stats")
 async def get_llm_stats(request: Request, oc_session: str | None = Cookie(None)):
-    """LLM inference statistics."""
+    """LLM inference statistics derived from pipeline_runs."""
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
-        return {}
+        return {"models": [], "recent": []}
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     client = get_http()
     resp = await client.get(
-        f"{SUPABASE_URL}/rest/v1/llm_stats",
+        f"{SUPABASE_URL}/rest/v1/pipeline_runs",
         headers=sb_headers(),
+        params={
+            "select": "id,step_name,status,duration_ms,started_at,input_snapshot,output_snapshot",
+            "or": "step_name.like.*call_ollama*,step_name.like.*call_claude*",
+            "started_at": f"gte.{cutoff}",
+            "order": "started_at.desc",
+            "limit": "200",
+        },
     )
-    stats = resp.json() if resp.status_code == 200 else []
+    rows: list[dict] = resp.json() if resp.status_code == 200 else []
 
-    # Also get recent inferences
-    resp2 = await client.get(
-        f"{SUPABASE_URL}/rest/v1/llm_inferences",
-        headers=sb_headers(),
-        params={"order": "created_at.desc", "limit": "20"},
-    )
-    recent = resp2.json() if resp2.status_code == 200 else []
+    # Group by model — extract model name from step_name
+    model_stats: dict[str, dict] = {}
+    for row in rows:
+        step = row.get("step_name", "")
+        if "call_claude" in step:
+            model = "claude"
+        elif "call_ollama" in step:
+            # e.g. "predictions:call_ollama_qwen" → "qwen2.5:3b"
+            model = "qwen2.5:3b"
+        else:
+            model = step
+        entry = model_stats.setdefault(
+            model,
+            {"model": model, "total_calls": 0, "total_duration_ms": 0, "avg_duration_ms": 0},
+        )
+        entry["total_calls"] += 1
+        entry["total_duration_ms"] += int(row.get("duration_ms") or 0)
 
-    return {"models": stats, "recent": recent}
+    for entry in model_stats.values():
+        calls = entry["total_calls"]
+        entry["avg_duration_ms"] = round(entry["total_duration_ms"] / calls) if calls else 0
+
+    # Recent: top 20 rows already sorted by started_at desc
+    recent = rows[:20]
+
+    return {"models": list(model_stats.values()), "recent": recent}
 
 
 # ============================================================================
