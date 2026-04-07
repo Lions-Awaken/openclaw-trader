@@ -40,6 +40,7 @@ from common import (
     sb_get,
     sb_rpc,
 )
+from shadow_profiles import get_shadow_context
 from tracer import _post_to_supabase, traced
 
 # Default confidence thresholds (overridden by active strategy profile)
@@ -348,6 +349,8 @@ def tumbler_2_fundamental(
     """
     if active_profile is None:
         active_profile = _active_profile
+    if active_profile and active_profile.get("is_shadow"):
+        print(f"[inference_engine] Shadow context injected at T2 for {active_profile.get('shadow_type')}")
     # RAG: find recent catalyst events
     embed_text = f"Recent catalysts and news for {ticker} stock. Earnings, analyst actions, insider trades, sentiment."
     embedding = generate_embedding(embed_text)
@@ -449,12 +452,19 @@ def tumbler_2_fundamental(
 
 
 @traced("predictions")
-def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> dict:
+def tumbler_3_flow_crossasset(
+    ticker: str,
+    confidence: float,
+    context: dict,
+    active_profile: dict | None = None,
+) -> dict:
     """Tumbler 3: Flow + Cross-Asset Analysis.
 
     RAG: retrieve similar inference chains + past trade learnings.
     LLM: Ollama qwen2.5:3b (local, free) for cross-asset analysis.
     """
+    if active_profile is None:
+        active_profile = _active_profile
     # RAG: find similar past inference chains
     embed_text = f"Inference chain for {ticker}. Confidence: {confidence:.2f}. {context.get('key_finding', '')}"
     embedding = generate_embedding(embed_text)
@@ -499,7 +509,15 @@ def tumbler_3_flow_crossasset(ticker: str, confidence: float, context: dict) -> 
             f"lesson={lr.get('key_lesson', '')[:80]}\n"
         )
 
-    qwen_prompt = f"""Analyze this trade setup for {ticker}:
+    shadow_prefix = ""
+    if active_profile and active_profile.get("is_shadow"):
+        shadow_type = active_profile.get("shadow_type", "")
+        shadow_prefix = get_shadow_context(shadow_type)
+        if shadow_prefix:
+            shadow_prefix = shadow_prefix.strip() + "\n\n"
+        print(f"[inference_engine] Shadow context injected at T3 for {shadow_type}")
+
+    qwen_prompt = f"""{shadow_prefix}Analyze this trade setup for {ticker}:
 Current confidence: {confidence:.2f}
 Context: {context.get('key_finding', 'No prior context.')}
 
@@ -563,12 +581,20 @@ Respond with a JSON object: {{"adjustment": float between -0.1 and +0.1, "reason
 
 
 @traced("predictions")
-def tumbler_4_pattern(ticker: str, confidence: float, chain_context: list[dict], start_time: float = 0.0) -> dict:
+def tumbler_4_pattern(
+    ticker: str,
+    confidence: float,
+    chain_context: list[dict],
+    start_time: float = 0.0,
+    active_profile: dict | None = None,
+) -> dict:
     """Tumbler 4: Pattern Template Matching.
 
     RAG: match against pattern_templates.
     LLM: Claude Sonnet (only if high-conviction candidate).
     """
+    if active_profile is None:
+        active_profile = _active_profile
     # RAG: find matching pattern templates
     context_text = " ".join(t.get("key_finding", "") for t in chain_context)
     embed_text = f"Pattern match for {ticker}. {context_text[:300]}"
@@ -600,7 +626,15 @@ def tumbler_4_pattern(ticker: str, confidence: float, chain_context: list[dict],
             for p in matched_patterns[:3]
         )
 
-        claude_prompt = f"""You are a pattern recognition analyst. Evaluate if these known patterns match the current setup.
+        shadow_prefix = ""
+        if active_profile and active_profile.get("is_shadow"):
+            shadow_type = active_profile.get("shadow_type", "")
+            shadow_prefix = get_shadow_context(shadow_type)
+            if shadow_prefix:
+                shadow_prefix = shadow_prefix.strip() + "\n\n"
+            print(f"[inference_engine] Shadow context injected at T4 for {shadow_type}")
+
+        claude_prompt = f"""{shadow_prefix}You are a pattern recognition analyst. Evaluate if these known patterns match the current setup.
 
 Ticker: {ticker}
 Current confidence: {confidence:.2f}
@@ -611,9 +645,10 @@ Matched patterns:
 
 Respond with JSON: {{"adjustment": float between -0.1 and +0.1, "best_pattern": "pattern name or null", "reasoning": "1-2 sentences"}}"""
 
+        profile_name = active_profile.get("profile_name", "UNKNOWN") if active_profile else "UNKNOWN"
         claude_response, claude_cost = call_claude(claude_prompt, max_tokens=256, start_time=start_time)
         if claude_cost > 0:
-            log_cost("claude_api", f"inference_engine_tumbler4_{ticker}", claude_cost,
+            log_cost("claude_api", f"inference_engine_tumbler4_{profile_name}_{ticker}", claude_cost,
                      f"Pattern matching for {ticker}", {"model": "claude-sonnet-4-6", "ticker": ticker})
 
         if claude_response:
@@ -647,13 +682,21 @@ Respond with JSON: {{"adjustment": float between -0.1 and +0.1, "best_pattern": 
 
 
 @traced("predictions")
-def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list[dict], start_time: float = 0.0) -> dict:
+def tumbler_5_counterfactual(
+    ticker: str,
+    confidence: float,
+    chain_context: list[dict],
+    start_time: float = 0.0,
+    active_profile: dict | None = None,
+) -> dict:
     """Tumbler 5: Counterfactual + Final Synthesis.
 
     RAG: retrieve meta_reflections + past trade learnings (especially losses).
     LLM: Claude Sonnet as devil's advocate.
     Apply calibration factor for final adjusted confidence.
     """
+    if active_profile is None:
+        active_profile = _active_profile
     # RAG: retrieve similar meta reflections
     context_text = " ".join(t.get("key_finding", "") for t in chain_context)
     embed_text = f"Trade decision analysis for {ticker}. {context_text[:300]}"
@@ -705,7 +748,15 @@ def tumbler_5_counterfactual(ticker: str, confidence: float, chain_context: list
             )
 
     # Claude as devil's advocate
-    claude_prompt = f"""You are a risk analyst playing devil's advocate. Your job is to find reasons NOT to take this trade.
+    shadow_prefix = ""
+    if active_profile and active_profile.get("is_shadow"):
+        shadow_type = active_profile.get("shadow_type", "")
+        shadow_prefix = get_shadow_context(shadow_type)
+        if shadow_prefix:
+            shadow_prefix = shadow_prefix.strip() + "\n\n"
+        print(f"[inference_engine] Shadow context injected at T5 for {shadow_type}")
+
+    claude_prompt = f"""{shadow_prefix}You are a risk analyst playing devil's advocate. Your job is to find reasons NOT to take this trade.
 
 Ticker: {ticker}
 Current confidence: {confidence:.2f}
@@ -724,9 +775,10 @@ Be critical. What could go wrong? What are we missing? What patterns have failed
 Respond with JSON:
 {{"adjustment": float between -0.15 and +0.05, "risk_factors": ["string", ...], "reasoning": "2-3 sentences"}}"""
 
+    profile_name = active_profile.get("profile_name", "UNKNOWN") if active_profile else "UNKNOWN"
     claude_response, claude_cost = call_claude(claude_prompt, max_tokens=512, start_time=start_time)
     if claude_cost > 0:
-        log_cost("claude_api", f"inference_engine_tumbler5_{ticker}", claude_cost,
+        log_cost("claude_api", f"inference_engine_tumbler5_{profile_name}_{ticker}", claude_cost,
                  f"Counterfactual analysis for {ticker}", {"model": "claude-sonnet-4-6", "ticker": ticker})
 
     adjustment = 0.0
@@ -983,7 +1035,7 @@ def run_inference(
 
     # === TUMBLER 3: Flow + Cross-Asset ===
     t3_start = time.time()
-    t3 = tumbler_3_flow_crossasset(ticker, confidence, {"key_finding": t2.get("key_finding", "")})
+    t3 = tumbler_3_flow_crossasset(ticker, confidence, {"key_finding": t2.get("key_finding", "")}, active_profile=active_profile)
     prev_confidence = confidence
     confidence = t3["confidence_after"]
     t3["confidence_before"] = prev_confidence
@@ -1003,7 +1055,7 @@ def run_inference(
         return _finalize("resource_limit")
 
     t4_start = time.time()
-    t4 = tumbler_4_pattern(ticker, confidence, tumblers, start_time=start_time)
+    t4 = tumbler_4_pattern(ticker, confidence, tumblers, start_time=start_time, active_profile=active_profile)
     prev_confidence = confidence
     confidence = t4["confidence_after"]
     t4["confidence_before"] = prev_confidence
@@ -1028,7 +1080,7 @@ def run_inference(
         return _finalize("resource_limit")
 
     t5_start = time.time()
-    t5 = tumbler_5_counterfactual(ticker, confidence, tumblers, start_time=start_time)
+    t5 = tumbler_5_counterfactual(ticker, confidence, tumblers, start_time=start_time, active_profile=active_profile)
     prev_confidence = confidence
     confidence = t5["confidence_after"]
     t5["confidence_before"] = prev_confidence
