@@ -368,6 +368,26 @@ body {
 }
 
 /* Active profile indicator badge */
+.logging-hammer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  width: 34px;
+  box-sizing: border-box;
+  border: 2px solid rgba(34,211,238,0.4);
+  border-radius: 50%;
+  background: rgba(34,211,238,0.06);
+  color: var(--cyan);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.logging-hammer-btn:hover {
+  border-color: var(--cyan);
+  box-shadow: var(--glow-cyan);
+  background: rgba(34,211,238,0.15);
+}
+
 .active-profile-badge {
   display: inline-flex;
   align-items: center;
