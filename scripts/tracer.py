@@ -41,8 +41,23 @@ atexit.register(_sb_client.close)
 TUNING_PROFILE_PATH = Path.home() / ".openclaw/workspace/active_tuning_profile.json"
 BUFFER_PATH = Path.home() / ".openclaw/workspace/tracer_buffer.jsonl"
 
+# Map pipeline_name → domain prefix for step_names that aren't inside an @traced function
+_PIPELINE_TO_DOMAIN: dict[str, str] = {
+    "scanner": "pipeline",
+    "catalyst_ingest": "catalysts",
+    "meta_daily": "meta",
+    "meta_weekly": "meta",
+    "calibrator": "meta",
+    "heartbeat": "sitrep",
+    "position_manager": "positions",
+    "post_trade_analysis": "economics",
+    "legislative_calendar": "catalysts",
+    "health_check": "pipeline",
+    "ingest": "catalysts",
+    "simulator": "pipeline",
+}
 
-# Thread-local active tracer for @traced() decorator support
+# Thread-local active tracer + category for @traced() decorator support
 _active_tracer = threading.local()
 
 
@@ -68,6 +83,9 @@ def traced(domain: str):
     creates a child step named '{domain}:{function_name}'.
     When no tracer is active, the function runs untraced (zero overhead).
 
+    Also sets a thread-local category so that any bare tracer.step() calls
+    made from within this function receive the same domain prefix.
+
     Usage:
         @traced("catalysts")
         def fetch_finnhub_news(ticker, lookback_hours=24):
@@ -84,11 +102,16 @@ def traced(domain: str):
             input_snap = {}
             if args and isinstance(args[0], str):
                 input_snap["arg0"] = args[0]
-            with tracer.step(step_name, input_snapshot=input_snap) as result:
-                ret = fn(*args, **kwargs)
-                if isinstance(ret, dict):
-                    result.set(ret)
-                return ret
+            prev_category = getattr(_active_tracer, 'category', None)
+            _active_tracer.category = domain
+            try:
+                with tracer.step(step_name, input_snapshot=input_snap) as result:
+                    ret = fn(*args, **kwargs)
+                    if isinstance(ret, dict):
+                        result.set(ret)
+                    return ret
+            finally:
+                _active_tracer.category = prev_category
         return wrapper
     return decorator
 
@@ -415,7 +438,20 @@ class PipelineTracer:
         step_name: str,
         input_snapshot: dict | None = None,
     ):
-        """Context manager for a pipeline step. Automatically records timing and errors."""
+        """Context manager for a pipeline step. Automatically records timing and errors.
+
+        If step_name doesn't already contain a colon and isn't "root", a domain
+        prefix is prepended automatically:
+          1. If a @traced category is active on this thread, use that.
+          2. Otherwise look up the pipeline_name in _PIPELINE_TO_DOMAIN.
+          3. Final fallback: use the pipeline_name itself as the prefix.
+        """
+        if ":" not in step_name and step_name != "root":
+            category = getattr(_active_tracer, 'category', None)
+            if not category:
+                category = _PIPELINE_TO_DOMAIN.get(self.pipeline_name, self.pipeline_name)
+            step_name = f"{category}:{step_name}"
+
         step_id = str(uuid.uuid4())
         start_time = datetime.now(timezone.utc)
 
