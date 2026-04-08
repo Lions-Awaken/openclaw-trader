@@ -32,10 +32,8 @@ import httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
 from common import (
-    ANTHROPIC_API_KEY,
-    ANTHROPIC_API_KEY_2,
     OLLAMA_URL,
-    _claude_client,
+    call_claude,
     generate_embedding,
     sb_get,
     sb_rpc,
@@ -174,65 +172,45 @@ def call_ollama_qwen(prompt: str) -> str | None:
     return None
 
 
+_CLAUDE_MODEL_PRICING: dict[str, tuple[float, float]] = {
+    # (input_price_per_mtok, output_price_per_mtok)
+    "claude-sonnet-4-6-20250514": (3.0, 15.0),
+    "claude-haiku-4-5-20251001": (0.8, 4.0),
+}
+
+_CLAUDE_SONNET = "claude-sonnet-4-6-20250514"
+_CLAUDE_HAIKU = "claude-haiku-4-5-20251001"
+
+
 @traced("predictions")
-def call_claude(
+def _call_claude_tumbler(
     prompt: str,
     max_tokens: int = 1024,
     start_time: float | None = None,
+    model: str = _CLAUDE_SONNET,
 ) -> tuple[str | None, float]:
-    """Call Claude Sonnet with retry + key fallback. Returns (response, cost)."""
-    keys_to_try = [k for k in [ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2] if k]
-    if not keys_to_try:
+    """Thin tumbler wrapper around common.call_claude.
+
+    Adds time-budget guard (TIME_LIMIT).  Returns (content_str, cost_float).
+    model defaults to Sonnet; pass _CLAUDE_HAIKU for classification-only tumblers (T4).
+    """
+    if start_time is not None and (time.time() - start_time) > TIME_LIMIT - 5:
+        print("[inference_engine] _call_claude_tumbler: time budget exhausted, aborting")
         return None, 0.0
 
-    RETRYABLE = {429, 529}
+    data = call_claude(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=max_tokens,
+    )
+    if data is None:
+        return None, 0.0
 
-    for key_index, api_key in enumerate(keys_to_try):
-        backoff = 2.0
-        for attempt in range(3):
-            if start_time is not None and (time.time() - start_time) > TIME_LIMIT - 5:
-                print("[inference_engine] call_claude: time budget exhausted, aborting")
-                return None, 0.0
-            try:
-                resp = _claude_client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": "claude-sonnet-4-6-20250514",
-                        "max_tokens": max_tokens,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    content = data["content"][0]["text"]
-                    usage = data.get("usage", {})
-                    cost = (usage.get("input_tokens", 0) * 3 + usage.get("output_tokens", 0) * 15) / 1_000_000
-                    return content, cost
-                if resp.status_code in RETRYABLE:
-                    wait = min(float(resp.headers.get("retry-after", backoff)), 16.0)
-                    key_label = f"key{'2' if key_index else '1'}"
-                    print(f"[inference_engine] call_claude: {resp.status_code} attempt {attempt + 1}/3 ({key_label}), waiting {wait:.1f}s")
-                    if attempt == 2 and key_index == 0 and ANTHROPIC_API_KEY_2:
-                        print("[inference_engine] call_claude: switching to fallback key")
-                        break
-                    time.sleep(wait)
-                    backoff = min(backoff * 2, 16.0)
-                    continue
-                print(f"[inference_engine] call_claude: non-retryable {resp.status_code}")
-                return None, 0.0
-            except httpx.TimeoutException:
-                print(f"[inference_engine] call_claude: timeout attempt {attempt + 1}")
-                time.sleep(backoff)
-                backoff = min(backoff * 2, 16.0)
-            except Exception as e:
-                print(f"[inference_engine] call_claude: error: {e}")
-                return None, 0.0
-    return None, 0.0
+    content = data["content"][0]["text"]
+    usage = data.get("usage", {})
+    input_price, output_price = _CLAUDE_MODEL_PRICING.get(model, (3.0, 15.0))
+    cost = (usage.get("input_tokens", 0) * input_price + usage.get("output_tokens", 0) * output_price) / 1_000_000
+    return content, cost
 
 
 def log_cost(category: str, subcategory: str, amount: float, description: str, metadata: dict | None = None, pipeline_run_id: str | None = None):
@@ -591,7 +569,7 @@ def tumbler_4_pattern(
     """Tumbler 4: Pattern Template Matching.
 
     RAG: match against pattern_templates.
-    LLM: Claude Sonnet (only if high-conviction candidate).
+    LLM: Claude Haiku (classification/matching task — Sonnet not needed here).
     """
     if active_profile is None:
         active_profile = _active_profile
@@ -646,10 +624,12 @@ Matched patterns:
 Respond with JSON: {{"adjustment": float between -0.1 and +0.1, "best_pattern": "pattern name or null", "reasoning": "1-2 sentences"}}"""
 
         profile_name = active_profile.get("profile_name", "UNKNOWN") if active_profile else "UNKNOWN"
-        claude_response, claude_cost = call_claude(claude_prompt, max_tokens=256, start_time=start_time)
+        claude_response, claude_cost = _call_claude_tumbler(
+            claude_prompt, max_tokens=256, start_time=start_time, model=_CLAUDE_HAIKU
+        )
         if claude_cost > 0:
             log_cost("claude_api", f"inference_engine_tumbler4_{profile_name}_{ticker}", claude_cost,
-                     f"Pattern matching for {ticker}", {"model": "claude-sonnet-4-6", "ticker": ticker})
+                     f"Pattern matching for {ticker}", {"model": "claude-haiku-4-5", "ticker": ticker})
 
         if claude_response:
             try:
@@ -675,7 +655,7 @@ Respond with JSON: {{"adjustment": float between -0.1 and +0.1, "best_pattern": 
         "rag_contexts_retrieved": len(rag_results),
         "rag_similarity_avg": round(rag_similarity_avg, 3),
         "key_finding": key_finding,
-        "data_sources": ["pattern_templates_rag"] + (["claude_sonnet"] if claude_response else []),
+        "data_sources": ["pattern_templates_rag"] + (["claude_haiku"] if claude_response else []),
         "claude_cost": claude_cost,
         "matched_pattern_ids": [p.get("id") for p in matched_patterns],
     }
@@ -776,7 +756,7 @@ Respond with JSON:
 {{"adjustment": float between -0.15 and +0.05, "risk_factors": ["string", ...], "reasoning": "2-3 sentences"}}"""
 
     profile_name = active_profile.get("profile_name", "UNKNOWN") if active_profile else "UNKNOWN"
-    claude_response, claude_cost = call_claude(claude_prompt, max_tokens=512, start_time=start_time)
+    claude_response, claude_cost = _call_claude_tumbler(claude_prompt, max_tokens=512, start_time=start_time)
     if claude_cost > 0:
         log_cost("claude_api", f"inference_engine_tumbler5_{profile_name}_{ticker}", claude_cost,
                  f"Counterfactual analysis for {ticker}", {"model": "claude-sonnet-4-6", "ticker": ticker})

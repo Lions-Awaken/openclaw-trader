@@ -36,11 +36,9 @@ from datetime import date, datetime, timedelta
 sys.path.insert(0, os.path.dirname(__file__))
 from common import (
     ALPACA_DATA,
-    ANTHROPIC_API_KEY,
-    ANTHROPIC_API_KEY_2,
-    _claude_client,
     _client,
     alpaca_headers,
+    call_claude,
     generate_embedding,
     sb_get,
 )
@@ -128,61 +126,22 @@ def fetch_active_catalysts(ticker: str, entry_date: str, exit_date: str) -> list
 
 @traced("economics")
 def call_claude_postmortem(prompt: str) -> tuple[str | None, float]:
-    """Call Claude Sonnet for post-mortem analysis with retry + key fallback.
+    """Call Claude Sonnet for post-mortem analysis via common.call_claude.
 
-    Tries ANTHROPIC_API_KEY first; on failure falls back to ANTHROPIC_API_KEY_2.
-    Returns (response, cost).
+    Returns (content_str, cost_float).
     """
-    keys_to_try = [k for k in [ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2] if k]
-    if not keys_to_try:
+    data = call_claude(
+        model="claude-sonnet-4-6-20250514",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1024,
+    )
+    if data is None:
         return None, 0.0
 
-    RETRYABLE = {429, 529}
-
-    for key_index, api_key in enumerate(keys_to_try):
-        backoff = 2.0
-        for attempt in range(3):
-            try:
-                resp = _claude_client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": "claude-sonnet-4-6-20250514",
-                        "max_tokens": 1024,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    content = data["content"][0]["text"]
-                    usage = data.get("usage", {})
-                    cost = (usage.get("input_tokens", 0) * 3 + usage.get("output_tokens", 0) * 15) / 1_000_000
-                    return content, cost
-                if resp.status_code in RETRYABLE:
-                    wait = min(float(resp.headers.get("retry-after", backoff)), 16.0)
-                    key_label = f"key{'2' if key_index else '1'}"
-                    print(
-                        f"[post_trade_analysis] Claude attempt {attempt + 1} failed: "
-                        f"{resp.status_code} ({key_label}), waiting {wait:.1f}s"
-                    )
-                    if attempt == 2 and key_index == 0 and ANTHROPIC_API_KEY_2:
-                        print("[post_trade_analysis] switching to fallback key")
-                        break
-                    time.sleep(wait)
-                    backoff = min(backoff * 2, 16.0)
-                    continue
-                print(f"[post_trade_analysis] Claude attempt {attempt + 1} failed: non-retryable {resp.status_code}")
-                return None, 0.0
-            except Exception as e:
-                print(f"[post_trade_analysis] Claude attempt {attempt + 1} failed: {e}")
-                if attempt < 2:
-                    time.sleep(backoff)
-                    backoff = min(backoff * 2, 16.0)
-    return None, 0.0
+    content = data["content"][0]["text"]
+    usage = data.get("usage", {})
+    cost = (usage.get("input_tokens", 0) * 3 + usage.get("output_tokens", 0) * 15) / 1_000_000
+    return content, cost
 
 
 def log_cost(amount: float, ticker: str, description: str, metadata: dict):

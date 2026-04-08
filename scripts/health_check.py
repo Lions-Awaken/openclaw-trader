@@ -38,7 +38,6 @@ from common import (  # noqa: E402
     ALPACA_PAPER,
     ANTHROPIC_API_KEY,
     OLLAMA_URL,
-    PERPLEXITY_KEY,
     SLACK_BOT_TOKEN,
     SUPABASE_URL,
     _client,
@@ -197,13 +196,12 @@ def check_105_env_vars():
         "ALPACA_API_KEY": os.environ.get("ALPACA_API_KEY", ""),
         "ALPACA_SECRET_KEY": os.environ.get("ALPACA_SECRET_KEY", ""),
         "CLAUDE_API_KEY": ANTHROPIC_API_KEY,  # mapped name in task spec
-        "PERPLEXITY_API_KEY": PERPLEXITY_KEY,
         "SLACK_BOT_TOKEN": SLACK_BOT_TOKEN,
     }
     missing = [k for k, v in required.items() if not v]
     if missing:
-        return "fail", f"missing: {', '.join(missing)}", "7 vars set", f"Missing env vars: {', '.join(missing)}"
-    return "pass", "7/7 set", "7 vars set", ""
+        return "fail", f"missing: {', '.join(missing)}", "6 vars set", f"Missing env vars: {', '.join(missing)}"
+    return "pass", "6/6 set", "6 vars set", ""
 
 
 def check_106_disk_space():
@@ -380,19 +378,19 @@ def _get_crontab() -> str:
 
 def check_301_crontab_entries():
     cron = _get_crontab()
-    required = ["scanner", "calibrator", "meta_daily"]
+    required = ["scanner", "calibrator", "meta_analysis"]
     missing = [k for k in required if k not in cron]
     if not cron:
-        return "warn", "crontab empty or inaccessible", "scanner+calibrator+meta_daily", "Could not read crontab"
+        return "warn", "crontab empty or inaccessible", "scanner+calibrator+meta_analysis", "Could not read crontab"
     if missing:
-        return "fail", f"missing: {', '.join(missing)}", "scanner+calibrator+meta_daily", f"Crontab missing entries: {missing}"
-    return "pass", "scanner+calibrator+meta_daily found", "scanner+calibrator+meta_daily", ""
+        return "fail", f"missing: {', '.join(missing)}", "scanner+calibrator+meta_analysis", f"Crontab missing entries: {missing}"
+    return "pass", "scanner+calibrator+meta_analysis found", "scanner+calibrator+meta_analysis", ""
 
 
 def check_302_script_files_exist():
     script_dir = os.path.dirname(__file__)
     required_scripts = [
-        "scanner.py", "inference_engine.py", "calibrator.py", "meta_daily.py",
+        "scanner.py", "inference_engine.py", "calibrator.py", "meta_analysis.py",
         "common.py", "tracer.py", "shadow_profiles.py", "health_check.py",
     ]
     missing = [s for s in required_scripts if not os.path.isfile(os.path.join(script_dir, s))]
@@ -628,7 +626,7 @@ def check_604_record_divergence_callable():
 
 def check_605_shadow_divergence_summary_structure():
     try:
-        from meta_daily import get_shadow_divergence_summary
+        from meta_analysis import get_shadow_divergence_summary
         result = get_shadow_divergence_summary()
         if not isinstance(result, dict):
             return "fail", str(type(result)), "dict with count/divergences/unanimous_dissent", "get_shadow_divergence_summary() did not return dict"
@@ -979,7 +977,7 @@ def check_1103_catalyst_source_diversity():
         return "skip", "no catalyst_ingest root run found", ">=3 sources active", ""
     snap = rows[0].get("output_snapshot") or {}
     # Look for per-source counts: keys like fetch_finnhub, fetch_sec_edgar, etc.
-    source_keys = [k for k in snap if k.startswith("fetch_") or k in ("finnhub", "sec_edgar", "quiverquant", "perplexity", "yfinance", "fred")]
+    source_keys = [k for k in snap if k.startswith("fetch_") or k in ("finnhub", "sec_edgar", "quiverquant", "yfinance", "fred")]
     # Also try total_inserted breakdown if it's a nested dict
     active_sources = 0
     if source_keys:

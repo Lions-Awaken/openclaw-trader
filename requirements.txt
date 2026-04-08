@@ -1,0 +1,58 @@
+# OpenClaw Trader — Python dependencies (ridley / Jetson Orin Nano)
+# Generated 2026-04-06 from ridley's pip3 list + import audit of all scripts.
+# Pin to ridley's installed versions. Run: pip install -r requirements.txt
+#
+# Install:  pip3 install -r requirements.txt
+# Update:   pip3 install --upgrade <package> then re-pin here
+
+# --------------------------------------------------------------------------
+# Core HTTP client — used by every script via common.py and tracer.py
+# --------------------------------------------------------------------------
+httpx==0.28.1
+
+# --------------------------------------------------------------------------
+# Error tracking — common.py conditional import (requires SENTRY_DSN env var)
+# --------------------------------------------------------------------------
+sentry-sdk==2.56.0
+
+# --------------------------------------------------------------------------
+# Terminal colors — health_check.py
+# --------------------------------------------------------------------------
+colorama==0.4.4
+
+# --------------------------------------------------------------------------
+# System monitoring — health_check.py (conditional import for RAM checks)
+# --------------------------------------------------------------------------
+psutil==7.2.2
+
+# --------------------------------------------------------------------------
+# Market data — catalyst_ingest.py (conditional import for yfinance source)
+# --------------------------------------------------------------------------
+yfinance==1.2.0
+
+# --------------------------------------------------------------------------
+# Brokerage / market data clients — scanner_unleashed.py
+# --------------------------------------------------------------------------
+alpaca-py==0.43.2
+finnhub-python==2.4.27
+
+# --------------------------------------------------------------------------
+# Data manipulation — scanner_unleashed.py + transitive dep of yfinance
+# --------------------------------------------------------------------------
+pandas==2.3.3
+numpy==2.2.6
+
+# --------------------------------------------------------------------------
+# Dashboard API server — dashboard/server.py (runs on Fly.io via Docker,
+# also present on ridley for local testing)
+# --------------------------------------------------------------------------
+fastapi==0.128.6
+uvicorn==0.40.0
+starlette==0.52.1
+
+# --------------------------------------------------------------------------
+# Claude API client — dashboard/server.py
+# NOTE: not yet installed on ridley (dashboard runs on Fly.io).
+# Include here so a clean ridley setup has everything for local testing.
+# --------------------------------------------------------------------------
+anthropic==0.91.0

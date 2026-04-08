@@ -171,7 +171,7 @@ def _test_a1() -> tuple[str, str, str | None]:
 def _test_a2() -> tuple[str, str, str | None]:
     """Key functions callable."""
     import inference_engine
-    import meta_daily
+    import meta_analysis
     import scanner
     from calibrator import grade_shadow_profiles
     from common import check_market_open, load_strategy_profile, sb_get, slack_notify
@@ -197,7 +197,7 @@ def _test_a2() -> tuple[str, str, str | None]:
         "log_cost": log_cost,
         "_load_shadow_profiles": scanner._load_shadow_profiles,
         "_record_divergence": scanner._record_divergence,
-        "get_shadow_divergence_summary": meta_daily.get_shadow_divergence_summary,
+        "get_shadow_divergence_summary": meta_analysis.get_shadow_divergence_summary,
     }
     failures = [name for name, fn in targets.items() if not callable(fn)]
     if failures:
@@ -672,8 +672,8 @@ def _test_f3() -> tuple[str, str, str | None]:
 
 
 def _test_f4() -> tuple[str, str, str | None]:
-    """Divergence summary from meta_daily."""
-    from meta_daily import get_shadow_divergence_summary
+    """Divergence summary from meta_analysis."""
+    from meta_analysis import get_shadow_divergence_summary
     result = get_shadow_divergence_summary()
     if not isinstance(result, dict):
         return ("NO-GO", "not a dict", f"Expected dict, got {type(result).__name__}")

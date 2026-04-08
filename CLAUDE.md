@@ -24,12 +24,10 @@ openclaw-trader/
 │   ├── scanner.py            # Autonomous trading orchestrator — scan → enrich → infer → shadow → execute (2x daily)
 │   ├── position_manager.py   # Position lifecycle — trailing stops, time stops, EOD flatten (every 30m)
 │   ├── health_check.py       # 44-check pre-market system health (8 groups, writes system_health table)
-│   ├── ingest_form4.py       # SEC EDGAR Form 4 insider filing ingest (weekday 6AM)
-│   ├── ingest_options_flow.py # Options flow signal ingest — CSV + Unusual Whales stub (weekday 7AM)
+│   ├── ingest_signals.py     # Consolidated Form 4 + options flow ingest (form4 @ 6AM, options @ 7AM weekdays)
 │   ├── calibrator.py         # Weekly calibration + outcome grading + shadow profile DWM weighting
 │   ├── post_trade_analysis.py # Post-trade RAG ingestion — triggered on every trade close
-│   ├── meta_daily.py         # Daily meta-analysis with RAG + chain + shadow divergence context
-│   └── meta_weekly.py        # Weekly strategy review + pattern discovery (cron Sunday 4 PM PDT)
+│   └── meta_analysis.py      # Daily + weekly meta-analysis with RAG + chain + shadow divergence context
 ├── dashboard/
 │   ├── server.py             # FastAPI backend with trading + pipeline + meta + tumbler APIs
 │   ├── index.html            # Dashboard UI (10 tabs)
@@ -123,13 +121,13 @@ Ridley is in **PDT (America/Los_Angeles)**. Crontab uses `SHELL=/bin/bash` (dash
 | Script | PDT on ridley | pipeline_name | LLM | RAM Peak |
 |--------|--------------|---------------|-----|----------|
 | health_check.py | 5:00 M-F | health_check (writes system_health) | None | ~2GB |
-| catalyst_ingest.py | 5:30, 9:15, 12:50 M-F | catalyst_ingest | Ollama embed | ~3.2GB |
-| ingest_form4.py | 6:00 M-F | ingest | None | ~1.5GB |
+| catalyst_ingest.py | 5:30, 9:00, 12:50 M-F | catalyst_ingest | Ollama embed | ~3.2GB |
+| ingest_signals.py form4 | 6:00 M-F | ingest | None | ~1.5GB |
 | scanner.py | 6:35, 9:30 M-F | scanner | qwen + Claude | ~3.5GB |
-| ingest_options_flow.py | 7:00 M-F | ingest | None | ~1.5GB |
+| ingest_signals.py options | 7:00 M-F | ingest | None | ~1.5GB |
 | position_manager.py | every 30m 6:00–12:45 M-F | position_manager | None | ~1.5GB |
-| meta_daily.py | 13:30 M-F | meta_daily | Claude + embed | ~3.5GB |
-| meta_weekly.py | 16:00 Sun | meta_weekly | Claude + embed | ~3.5GB |
+| meta_analysis.py daily | 13:30 M-F | meta_daily | Claude + embed | ~3.5GB |
+| meta_analysis.py weekly | 16:00 Sun | meta_weekly | Claude + embed | ~3.5GB |
 | calibrator.py | 16:30 Sun | calibrator | None | ~2.6GB |
 | heartbeat.py | every 5m | heartbeat | None | ~0.5GB |
 

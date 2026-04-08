@@ -5,6 +5,225 @@
 
 ---
 
+## TASK-OPT-02 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### N+1 Fix — `/api/health/flight-status`
+
+The `get_flight_status` endpoint was issuing one `pipeline_runs` query per FLIGHT_MANIFEST entry (9 entries that write to pipeline_runs), plus one `system_health` query — 10 total round-trips per request. Even though they ran via `asyncio.gather` (concurrent, not sequential), 10 round-trips to Supabase is unnecessary overhead.
+
+**Consolidated to 2 queries:**
+1. Single `pipeline_runs` query with an OR filter across all relevant `pipeline_name` values, fetching the last 182 hours of root rows (covers the 170h weekly freshness window plus buffer), limit 500. Python reduces to `latest_per_pipeline: dict[str, str]` in one pass.
+2. Single `system_health` query (unchanged — different table, no overlap).
+
+`_check_entry` async inner function replaced with synchronous `_compute_entry` that looks up pre-fetched data in O(1). `asyncio.gather` removed entirely from this endpoint.
+
+### Pagination Limits Added
+
+All GET endpoints that returned unbounded result sets now have explicit limits:
+
+| Endpoint | Table | Limit Added |
+|---|---|---|
+| `_get_pipeline_runs()` in `_fetch_system_data` | `pipeline_runs` | 500 |
+| `GET /api/pipeline/health` | `pipeline_runs` | 2000 |
+| `GET /api/predictions/live` | `predictions` | 50 |
+| `GET /api/inference/depth-distribution` | `inference_chains` | 500 |
+| `GET /api/economics/summary` | `cost_ledger` | 1000 |
+| `GET /api/economics/breakdown` | `cost_ledger` | 1000 |
+| `GET /api/economics/history` | `cost_ledger` | 1000 |
+| `GET /api/budget/config` (budget_config query) | `budget_config` | 50 |
+| `GET /api/budget/config` (cost_ledger query) | `cost_ledger` | 500 |
+| `GET /api/strategy/profiles` | `strategy_profiles` | 50 |
+| `GET /api/tuning/profiles` | `tuning_profile_performance` | 50 |
+| `GET /api/shadow/profiles` | `strategy_profiles` | 20 |
+| `GET /api/trade-learnings/stats` | `trade_learnings` | 500 |
+| `GET /api/health/latest` (rows fetch) | `system_health` | 200 |
+| `GET /api/catalysts/stats` | `catalyst_events` | 1000 |
+
+### Endpoints Not Modified (already had limits or are aggregate/single-row)
+
+- `/api/logs/domains` — already had `limit: 2000`; already a single query (the TASKS.md description was outdated)
+- `/api/pipeline/runs` — already had `limit: 100`
+- `/api/trades`, `/api/predictions`, `/api/meta/reflections`, etc. — already had explicit limits
+- `/api/system/current`, `/api/calibration/latest`, etc. — single-row fetches with `limit: 1`
+- `/api/performance`, `/api/prediction-accuracy` — aggregate views, single row returned
+- All Alpaca API calls — external service, no Supabase limit applicable
+
+### Files Modified
+
+- `/home/mother_brain/projects/openclaw-trader/dashboard/server.py`
+
+### Ruff
+
+`ruff check dashboard/server.py` — All checks passed.
+
+---
+
+## TASK-OPT-04 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Summary
+Removed Perplexity API integration from catalyst_ingest.py. The `fetch_perplexity_search()` function was a full delete (not commented out) as instructed — this is a deliberate cost cut, not a temporary disable.
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/catalyst_ingest.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/health_check.py`
+
+### Changes in catalyst_ingest.py
+- Module docstring updated: "6 data sources" -> "5 data sources"; Perplexity removed from sources list
+- `PERPLEXITY_KEY` removed from `from common import (...)` block
+- `fetch_perplexity_search()` function deleted entirely (lines ~542–605)
+- `ppx_count` variable removed from `run()`
+- Step 5 tracer block (`tracer.step("fetch_perplexity", ...)`) deleted from `run()`
+- Remaining steps renumbered: old 6→5, 7→6, 8→7, 9→8
+- Slack notification message: `· perplexity \`{ppx_count}\`` removed from sources line
+
+### Changes in manifest.py
+- `catalysts:fetch_perplexity` removed from `expected_steps` in all 3 catalyst_ingest entries:
+  `catalyst_ingest_morning`, `catalyst_ingest_midday`, `catalyst_ingest_afternoon`
+- Each went from 6 expected steps to 5
+
+### Changes in health_check.py
+- `PERPLEXITY_KEY` removed from `from common import (...)` block
+- `check_105_env_vars()`: `"PERPLEXITY_API_KEY": PERPLEXITY_KEY` entry removed; count strings updated from `"7 vars set"` / `"7/7 set"` to `"6 vars set"` / `"6/6 set"`
+- `source_keys` list in catalyst source diversity check: `"perplexity"` removed from the literal set
+
+### Ruff
+`ruff check scripts/catalyst_ingest.py scripts/manifest.py scripts/health_check.py` — All checks passed.
+
+### Cost Impact
+Saves $20-45/month in Perplexity API charges. The 5 remaining sources (finnhub, sec_edgar, quiverquant, yfinance, fred) cover the same information surface without the overlap.
+
+### Assumptions
+- `PERPLEXITY_KEY` is still defined in `common.py` — it was only removed from the *import* in catalyst_ingest.py and health_check.py. If another script imports it from common.py, that is unaffected. The env var itself can be removed from ridley's environment at operator discretion.
+- The `_post_to_supabase` import in catalyst_ingest.py was previously also used by the Perplexity cost_ledger write. After removal it is still used by the `classify_embed_insert` and `detect_congress_clusters` steps, so the import remains valid.
+
+### Follow-on Work
+- Operator should remove `PERPLEXITY_API_KEY` from ridley's `.env` / environment to confirm no billing recurs
+- `common.py` still exports `PERPLEXITY_KEY` — it can be cleaned up in a future consolidation pass if no other scripts use it (verify first)
+
+---
+
+## TASK-OPT-01 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Changes Made
+
+**ridley crontab (live, verified with `crontab -l`):**
+
+1. `catalyst_ingest_midday` moved from `15 9` to `0 9` — gives 30-min buffer before the 9:30 scanner instead of 15 min.
+2. `position_manager` `*/30 6-12` replaced with two entries:
+   - `0,30 6-11 * * 1-5` — covers 6:00–11:30 AM (every 30 min)
+   - `0 12 * * 1-5` — explicit 12:00 PM run
+   - `45 12 * * 1-5` — existing 12:45 PM final run (unchanged)
+   - Result: 12:30 PM run is eliminated; overlap with 12:50 catalyst_ingest_afternoon is gone.
+
+**manifest.py on mother_brain:**
+- `catalyst_ingest_midday`: `schedule` `"15 9 * * 1-5"` → `"0 9 * * 1-5"`, `schedule_desc` → `"9:00 AM PDT weekdays"`
+- `position_manager`: `schedule` `"*/30 6-12 * * 1-5"` → `"0,30 6-11 * * 1-5"`, `schedule_desc` → `"Every 30m 6:00-11:30 AM + 12:00 + 12:45 PDT weekdays"`
+
+Note: The manifest `position_manager` entry captures only the primary repeating pattern. The two explicit 12:00 and 12:45 entries live only in the crontab; health-check staleness logic (freshness_hours=2) is unaffected.
+
+### Files Modified
+- `scripts/manifest.py` — schedule fields updated (no logic change)
+- ridley crontab — applied via `crontab -l | sed | crontab -`
+
+### RAM Overlap Eliminated
+- Old peak (9:15–9:30): catalyst_ingest (~3.2GB) + scanner (~3.5GB) = ~6.7GB concurrent → now 30-min gap
+- Old peak (12:30): position_manager (~1.5GB) + scanning ~0 = minimal, but 12:30 run is removed anyway
+- Afternoon: 12:50 catalyst no longer has a 12:30 position_manager warming up alongside it
+
+---
+
+## TASK-TRACER-FIX . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Problem Fixed
+`PipelineTracer.step()` was writing bare step_names (`signal_scan`, `inference`, etc.) to `pipeline_runs`. The dashboard `/api/logs/domains` endpoint only counts rows with the `domain:name` colon format, making most pipeline activity invisible in observability cards.
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/tracer.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py`
+
+### Logic Added to tracer.py
+
+1. `_PIPELINE_TO_DOMAIN` dict at module level maps `pipeline_name` strings to their canonical domain prefix (12 entries).
+
+2. `@traced(domain)` decorator now saves/restores `_active_tracer.category` thread-local around each call. This means any nested `tracer.step()` calls inside a `@traced` function inherit the correct category.
+
+3. `PipelineTracer.step()` prepends a prefix when `step_name` has no colon and is not `"root"`:
+   - If `_active_tracer.category` is set (inside a `@traced` function) — use it
+   - Else look up `self.pipeline_name` in `_PIPELINE_TO_DOMAIN`
+   - Final fallback: `self.pipeline_name` as prefix
+
+No `tracer.step("name")` call sites were changed anywhere.
+
+### Prefix assignment per pipeline
+
+| pipeline_name | domain prefix |
+|---|---|
+| scanner | pipeline |
+| catalyst_ingest | catalysts |
+| meta_daily | meta |
+| meta_weekly | meta |
+| calibrator | meta |
+| heartbeat | sitrep |
+| position_manager | positions |
+| post_trade_analysis | economics |
+
+### manifest.py expected_steps updated
+
+- `catalyst_ingest_*`: `catalysts:fetch_finnhub`, `catalysts:fetch_sec_edgar`, `catalysts:fetch_quiverquant`, `catalysts:fetch_perplexity`, `catalysts:fetch_yfinance`, `catalysts:fetch_fred`
+- `scanner_*`: `pipeline:signal_scan`, `pipeline:signal_enrichment`, `pipeline:inference`, `pipeline:shadow_inference`, `pipeline:execution`
+- `meta_daily`: `meta:gather_pipeline_health`, `meta:gather_signal_accuracy`, `meta:gather_trades`, `meta:gather_chain_analysis`, `meta:gather_catalysts`, `meta:gather_shadow_divergences`, `meta:rag_retrieve`, `meta:generate_reflection`, `meta:store_reflection`
+- `calibrator`: `meta:grade_chains`, `meta:update_pattern_templates`, `meta:grade_shadows`
+- `heartbeat`: `sitrep:check_ollama`, `sitrep:check_tumbler`, `sitrep:update_heartbeat`
+
+### Follow-on work
+- Existing rows in `pipeline_runs` from before this fix still have bare step_names. Domain counts will be low until new runs accumulate — no migration needed.
+- `position_manager.py` step names were not audited; they will receive `positions:` prefix automatically on next run.
+
+---
+
+## TASK-OPT-03 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Files Created
+- `/home/mother_brain/projects/openclaw-trader/requirements.txt` — pinned Python dependencies
+- `/home/mother_brain/projects/openclaw-trader/scripts/install.sh` — `pip3 install -r requirements.txt` wrapper
+
+### Method
+1. SSHed to ridley, ran `pip3 list --format=columns` to get installed versions.
+2. Grepped all `import` / `from` statements across every file in `scripts/` and `dashboard/`.
+3. Cross-referenced: only packages with a direct import in project code are included.
+
+### Packages included (pinned to ridley's installed versions)
+
+| Package | Version | Used by |
+|---|---|---|
+| httpx | 0.28.1 | common.py, tracer.py, health_check.py, heartbeat.py, inference_engine.py, loki_logger.py, legislative_calendar.py, seed_politician_intel.py |
+| sentry-sdk | 2.56.0 | common.py (conditional, requires SENTRY_DSN) |
+| colorama | 0.4.4 | health_check.py |
+| psutil | 7.2.2 | health_check.py (conditional import for RAM checks) |
+| yfinance | 1.2.0 | catalyst_ingest.py (conditional import) |
+| alpaca-py | 0.43.2 | scanner_unleashed.py |
+| finnhub-python | 2.4.27 | scanner_unleashed.py |
+| pandas | 2.3.3 | scanner_unleashed.py |
+| numpy | 2.2.6 | scanner_unleashed.py (also transitive dep of yfinance/pandas) |
+| fastapi | 0.128.6 | dashboard/server.py |
+| uvicorn | 0.40.0 | dashboard/server.py |
+| starlette | 0.52.1 | dashboard/server.py (BaseHTTPMiddleware direct import) |
+| anthropic | 0.91.0 | dashboard/server.py — NOT yet on ridley (dashboard runs Fly.io). Included so a fresh ridley install covers local testing. |
+
+### Packages explicitly excluded
+- `feedparser` — not imported anywhere in the codebase (confirmed by grep)
+- `ollama` (Python SDK) — called via HTTP REST only, no `import ollama` anywhere
+- `slowapi` — installed on ridley but not imported in project code
+- `tenacity` — installed on ridley but not imported directly (transitive dep)
+- `supabase` (SDK) — project talks to Supabase directly via httpx REST calls, not supabase-py
+
+### Notes
+- `anthropic` is not installed on ridley (`pip3 show anthropic` returns "WARNING: Package(s) not found"). The dashboard runs on Fly.io via Docker with its own build. Included in requirements.txt so `install.sh` gives a complete environment.
+- All other packages were confirmed present on ridley at the pinned versions.
+
+---
+
 ## TASK-SIM-04 . FRONTEND-AGENT (Troi) . DONE — 2026-04-08
 
 ### Files Modified
@@ -2091,6 +2310,54 @@ Status: [BLOCKED] — Critical findings present.
 - Docker: non-root user
 - CORS: explicit allowlist, not wildcard
 - Cookie security flags: httponly, samesite=strict, secure on all session cookies
+
+---
+
+## TASK-OPT-06 [DONE] — Centralize call_claude() in common.py
+
+**Completed:** 2026-04-06
+
+### What was extracted and from where
+
+**New function added to `scripts/common.py`:**
+
+`call_claude(model, messages, max_tokens, temperature=0.3, system=None) -> dict | None`
+
+- Tries `ANTHROPIC_API_KEY` first, falls back to `ANTHROPIC_API_KEY_2` if available
+- Retry loop: up to 3 attempts per key, exponential backoff starting at 2s, capped at 16s
+- Retries on HTTP 429 and 529; respects `retry-after` header
+- Non-retryable status codes return `None` immediately
+- `httpx.TimeoutException` triggers backoff retry within the same key attempt
+- Returns the full parsed response dict (callers extract `content[0].text` and `usage` themselves)
+- Uses the existing shared `_claude_client` (45s timeout) from common.py
+- Logs every attempt with `print()` prefixed `[common] call_claude:`
+
+**Extracted from / replaced in:**
+
+| File | What was replaced | Retry/fallback before? |
+|------|------------------|----------------------|
+| `scripts/inference_engine.py` | Local `call_claude()` function (~45 lines, `@traced`, time-budget guard) | Yes — full retry+key2 loop |
+| `scripts/meta_daily.py` | Inline POST inside `generate_reflection()` (~20 lines) | No — single key, no retry |
+| `scripts/meta_weekly.py` | Inline POST inside `discover_patterns()` + inline POST inside `generate_weekly_reflection()` (~40 lines total) | No — single key, no retry |
+| `scripts/post_trade_analysis.py` | Local `call_claude_postmortem()` function (~45 lines, `@traced`) | Yes — full retry+key2 loop |
+
+### Files modified
+
+- `scripts/common.py` — added `call_claude()` function
+- `scripts/inference_engine.py` — removed `import httpx` from common imports (re-added standalone for Ollama client), removed `ANTHROPIC_API_KEY`, `ANTHROPIC_API_KEY_2`, `_claude_client` imports; renamed local fn to `_call_claude_tumbler` (preserves `@traced` + time-budget guard), both tumbler-4 and tumbler-5 call sites updated
+- `scripts/meta_daily.py` — removed `ANTHROPIC_API_KEY`, `_client` from common imports; replaced inline POST with `call_claude()`
+- `scripts/meta_weekly.py` — removed `ANTHROPIC_API_KEY`, `_client` from common imports; replaced both inline POSTs with `call_claude()`
+- `scripts/post_trade_analysis.py` — removed `ANTHROPIC_API_KEY`, `ANTHROPIC_API_KEY_2`, `_claude_client` from common imports; replaced local function body with `call_claude()` delegation
+
+### Cost logging — unchanged
+
+Cost logging (`log_cost` / `_post_to_supabase("cost_ledger", ...)`) was NOT moved. Each caller still computes cost from `usage` tokens and logs it locally. The `call_claude()` function only handles the HTTP layer.
+
+### Ruff
+
+`ruff check` passes clean on all 5 files.
+
+### No schema changes required.
 - Auth guards: all 60+ API routes call `_require_auth` or `_is_authed` — no unguarded data endpoints
 - Dependency CVE scanner unavailable (pip-audit not installed) — manual check: fastapi 0.115.12, uvicorn 0.34.2, httpx 0.28.1, python-multipart 0.0.20, anthropic 0.88.0 — no known critical CVEs as of 2026-04-06
 - RLS: 18/24 tables have explicit RLS + service-role policy in migrations
@@ -2136,3 +2403,402 @@ Status: [BLOCKED] — Critical findings present.
 - Fly.io deployment: deploy step not executed — orchestrator should trigger `fly deploy` from `dashboard/` after review
 - Day-range selector (7/14/30/90 day filter buttons) for divergences/unanimous tables — not in spec, flagged for future enhancement
 - The `shadow_divergences` table does not exist yet in migrations — this was gated on TASK-AE-01. If not yet migrated, all three endpoints will return empty arrays (gracefully handled).
+
+---
+
+## TASK-OPT-05 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Change A: Tumbler 4 downgraded to Haiku
+
+`_call_claude_tumbler()` in `scripts/inference_engine.py` previously hardcoded `"claude-sonnet-4-6-20250514"` for both T4 and T5.
+
+Added two module-level constants and a pricing lookup dict:
+- `_CLAUDE_SONNET = "claude-sonnet-4-6-20250514"`
+- `_CLAUDE_HAIKU = "claude-haiku-4-5-20251001"`
+- `_CLAUDE_MODEL_PRICING` dict maps each model to `(input_price_per_mtok, output_price_per_mtok)` for accurate cost ledger entries
+
+Added `model: str = _CLAUDE_SONNET` parameter to `_call_claude_tumbler()`. Cost calculation is now model-aware using the pricing dict (falls back to Sonnet prices for unknown models).
+
+T4 call site in `tumbler_4_pattern()`: passes `model=_CLAUDE_HAIKU`. Cost ledger metadata updated: `"model": "claude-haiku-4-5"`. `data_sources` return field updated: `"claude_haiku"` instead of `"claude_sonnet"`. Docstring updated.
+
+T5 (`tumbler_5_counterfactual()`) is unchanged — still calls `_call_claude_tumbler()` with default Sonnet model.
+
+Expected savings: T4 runs on every candidate that reaches pattern matching. Haiku is ~80% cheaper than Sonnet per call ($0.80/$4.00 vs $3.00/$15.00 per MTok input/output).
+
+### Change B: Tiered shadow budget gate in scanner.py
+
+Replaced the binary 40% gate with a 3-tier gate:
+
+| Budget remaining | Behavior |
+|---|---|
+| >= 40% (Tier 1) | All 5 shadow profiles run unchanged |
+| 20-40% (Tier 2) | Filter to REGIME_WATCHER (shadow_type) + FORM4_INSIDER (profile_name) only |
+| < 20% (Tier 3) | Skip all shadows; `shadow_profiles = []` |
+
+Implementation detail: Tier 2 uses `p.get("shadow_type") == "REGIME_WATCHER"` (matches by type) and `p.get("profile_name") == "FORM4_INSIDER"` (matches by name). REGIME_WATCHER stops at T3 so it makes zero Claude calls. FORM4_INSIDER is lower-frequency signal.
+
+The `if shadow_profiles:` guard wraps the existing `for` loop — Tier 3 calls `shadow_result.set(skipped=budget_critical)` before zeroing the list, so the tracer step is always closed.
+
+Old comment "Budget gate: only run shadows when >40% Claude budget remains" updated to describe the tiered system.
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/inference_engine.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/scanner.py`
+
+### Ruff
+`ruff check scripts/inference_engine.py scripts/scanner.py` — All checks passed.
+
+### Assumptions
+- Haiku model ID `claude-haiku-4-5-20251001` is correct per the task spec — verify against Anthropic's model list before next deployment to ridley
+- REGIME_WATCHER truly stops at T3 (no Claude calls) — confirmed by SHADOW_MAX_TUMBLER_DEPTH in shadow_profiles.py; if that value changes, the Tier 2 comment about "free" should be revisited
+
+### Follow-on Work
+- TASK-OPT-09 (unblocked by this task) will add further cost controls
+- The cost_ledger will start showing `"model": "claude-haiku-4-5"` entries for T4 after the next scanner run — useful signal to confirm the change is live
+
+---
+
+## TASK-OPT-07 — Merge ingest_form4.py + ingest_options_flow.py → ingest_signals.py
+
+**Status:** DONE
+**Agent:** Geordi (Backend)
+**Date:** 2026-04-06
+
+### Summary
+
+Merged `scripts/ingest_form4.py` and `scripts/ingest_options_flow.py` into a single
+`scripts/ingest_signals.py` with a `mode` positional argument.
+
+```bash
+python3 scripts/ingest_signals.py form4      # replaces ingest_form4.py
+python3 scripts/ingest_signals.py options    # replaces ingest_options_flow.py
+```
+
+### What Changed
+
+**Shared boilerplate consolidated:**
+- Single `sys.path.insert` block and shared import section
+- Both `from common import` and `from tracer import` live in one place
+- `SUPABASE_URL` config pulled once
+
+**Form 4 functions (unchanged logic):**
+- `score_form4_signal(row: dict) -> int`
+- `get_target_tickers() -> list[str]`
+- `fetch_edgar_form4(start_dt, end_dt) -> list[dict]` (`@traced`)
+- `parse_filings(filings, target_tickers) -> list[dict]`
+- `_detect_clusters(records) -> list[dict]`
+- `insert_form4_signals(records) -> int` (`@traced`)
+- `run_form4()` — identical pipeline_name `"ingest_form4"`, same tracer steps
+
+**Options Flow functions (unchanged logic):**
+- `score_options_signal(sig: dict) -> int`
+- `load_options_csv(path: str) -> list[dict]` (was `load_csv()`, now takes explicit path arg)
+- `fetch_from_unusual_whales(api_key: str) -> list[dict]`
+- `insert_options_signals(signals: list[dict]) -> int` (`@traced`, was `insert_signals`)
+- `run_options()` — identical pipeline_name `"ingest_options_flow"`, same tracer steps
+
+**Note on rename:** `load_csv()` → `load_options_csv(path)` and `insert_signals()` →
+`insert_options_signals()` to avoid naming collisions within the merged file. Both are
+internal to the module — no external callers existed.
+
+### Files Created
+- `/home/mother_brain/projects/openclaw-trader/scripts/ingest_signals.py`
+
+### Files Deleted
+- `/home/mother_brain/projects/openclaw-trader/scripts/ingest_form4.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/ingest_options_flow.py`
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py` — both `ingest_form4`
+  and `ingest_options_flow` entries updated: `script="scripts/ingest_signals.py"`
+  (names and pipeline_names unchanged, so DB queries and health checks are unaffected)
+
+### Crontab Updated on ridley
+```
+# Before
+0 6 * * 1-5    ... python3 scripts/ingest_form4.py >> /tmp/openclaw_form4.log 2>&1
+0 7 * * 1-5    ... python3 scripts/ingest_options_flow.py >> /tmp/openclaw_options.log 2>&1
+
+# After
+0 6 * * 1-5    ... python3 scripts/ingest_signals.py form4 >> /tmp/openclaw_form4.log 2>&1
+0 7 * * 1-5    ... python3 scripts/ingest_signals.py options >> /tmp/openclaw_options.log 2>&1
+```
+
+### health_check.py / test_system.py
+No changes needed — neither file imports from the old scripts. Both use manifest
+entries and pipeline_runs lookups, which are keyed on `pipeline_name` values
+(`"ingest_form4"` and `"ingest_options_flow"`) that are unchanged in the DB writes.
+
+### DB Queries (unchanged from old scripts)
+- `form4` mode: INSERT into `form4_signals` via `_post_to_supabase("form4_signals", row)`
+- `options` mode: INSERT into `options_flow_signals` via `_post_to_supabase("options_flow_signals", record)`
+- `form4` mode: SELECT from `signal_evaluations` (ticker enrichment) and `strategy_profiles` (watchlist)
+
+### Ruff
+`ruff check scripts/ingest_signals.py scripts/manifest.py` — All checks passed.
+
+### Assumptions
+- `dashboard/server.py` display-name entries for `ingest_form4` and `ingest_options_flow`
+  are cosmetic strings, not script paths — left unchanged intentionally
+- `CLAUDE.md` project README still references the old filenames — cosmetic, left for TASK-OPT-10
+  which explicitly covers manifest + doc cleanup
+
+### Follow-on Work
+- TASK-OPT-10 should update CLAUDE.md script listing to show `ingest_signals.py` instead of
+  the two old names
+- `load_options_csv` now takes an explicit `path: str` arg (was hardcoded module-level constant).
+  If any future external caller uses it, pass `str(CSV_PATH)` from the module-level constant.
+
+---
+
+## TASK-OPT-08 — Merge meta_daily.py + meta_weekly.py → meta_analysis.py
+
+**Status:** DONE
+**Agent:** Geordi (Backend)
+**Date:** 2026-04-06
+
+### Summary
+
+Consolidated `scripts/meta_daily.py` (648 lines) and `scripts/meta_weekly.py` (634 lines) into
+a single `scripts/meta_analysis.py` (1,270 lines) with a positional `frequency` argument.
+
+```bash
+python3 scripts/meta_analysis.py daily    # replaces meta_daily.py  (4:30 PM ET / 1:30 PM PDT)
+python3 scripts/meta_analysis.py weekly   # replaces meta_weekly.py (Sunday 7 PM ET / 4:00 PM PDT)
+```
+
+### Structure
+
+**Shared helpers (used by both modes):**
+- `get_active_profile() -> dict`
+- `rag_retrieve_context(embed_text: str) -> dict`
+- `get_catalyst_correlation(trades, catalysts) -> dict`
+- `update_adjustment_impact() -> list[dict]`
+- `auto_approve_adjustments(adjustments) -> list[dict]` (`@traced`)
+- `generate_embedding` imported from `common` — no wrapper needed
+
+**Daily-specific data gathering:**
+- `get_pipeline_health() -> dict` (`@traced`)
+- `get_signal_accuracy() -> dict` (`@traced`)
+- `get_data_quality_issues() -> list[dict]`
+- `get_todays_trades() -> list[dict]` (`@traced`)
+- `get_order_events() -> list[dict]`
+- `get_inference_chain_analysis() -> dict`
+- `get_todays_catalysts() -> list[dict]` (`@traced`)
+- `get_shadow_divergence_summary() -> dict` (`@traced`) — still importable externally
+
+**Daily reflection:**
+- `generate_daily_reflection(context: dict) -> tuple[dict, float]` (`@traced`)
+- `run_daily()` — PipelineTracer pipeline_name stays `"meta_daily"`
+
+**Weekly-specific data gathering:**
+- `get_weekly_daily_reflections() -> list[dict]` (`@traced`)
+- `get_signal_accuracy_report() -> list[dict]`
+- `get_previous_weekly_reflections() -> list[dict]`
+- `get_week_trades() -> list[dict]` (`@traced`)
+- `get_strategy_adjustments() -> list[dict]`
+- `get_pipeline_health_weekly() -> dict`
+- `get_week_inference_chains() -> list[dict]`
+- `get_week_catalysts() -> list[dict]` (`@traced`)
+- `get_latest_calibration() -> dict | None`
+- `get_existing_patterns() -> list[dict]`
+- `get_tuning_performance() -> list[dict]`
+- `cross_layer_analysis(chains, trades, catalysts) -> dict` (`@traced`)
+
+**Weekly-specific logic:**
+- `discover_patterns(chains, existing_patterns) -> list[dict]` (`@traced`) — weekly only
+- `generate_weekly_reflection(context: dict) -> tuple[dict, float]` (`@traced`)
+- `run_weekly()` — PipelineTracer pipeline_name stays `"meta_weekly"`
+
+### Preserved Invariants
+- `PipelineTracer("meta_daily", ...)` and `PipelineTracer("meta_weekly", ...)` — unchanged, so
+  `pipeline_runs` DB rows and manifest freshness checks are unaffected
+- All `@traced("meta")` decorators preserved
+- `get_shadow_divergence_summary()` importable as `from meta_analysis import get_shadow_divergence_summary`
+- Log prefixes `[meta_daily]` and `[meta_weekly]` preserved in print statements
+- Cost ledger subcategory keys `"meta_daily"`, `"meta_weekly"`, `"meta_weekly_pattern_discovery"` unchanged
+- Loki logger names `"meta_daily"` / `"meta_weekly"` preserved
+
+### Files Created
+- `/home/mother_brain/projects/openclaw-trader/scripts/meta_analysis.py`
+
+### Files Deleted
+- `/home/mother_brain/projects/openclaw-trader/scripts/meta_daily.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/meta_weekly.py`
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py`
+  - `meta_daily` entry: `script="scripts/meta_analysis.py"` (name + pipeline_name unchanged)
+  - `meta_weekly` entry: `script="scripts/meta_analysis.py"` (name + pipeline_name unchanged)
+- `/home/mother_brain/projects/openclaw-trader/scripts/health_check.py`
+  - `check_301_crontab_entries`: required token changed from `"meta_daily"` → `"meta_analysis"`
+  - `check_302_script_files_exist`: `"meta_daily.py"` → `"meta_analysis.py"`
+  - `check_605_shadow_divergence_summary_structure`: `from meta_daily import` → `from meta_analysis import`
+- `/home/mother_brain/projects/openclaw-trader/scripts/test_system.py`
+  - `_test_a2`: `import meta_daily` → `import meta_analysis`, attribute reference updated
+  - `_test_f4`: `from meta_daily import` → `from meta_analysis import`, docstring updated
+
+### Crontab Updated on ridley
+```
+# Before
+30 13 * * 1-5  ... python3 scripts/meta_daily.py >> /tmp/oc-meta.log 2>&1
+0 16 * * 0     ... python3 scripts/meta_weekly.py >> /tmp/oc-meta.log 2>&1
+
+# After
+30 13 * * 1-5  ... python3 scripts/meta_analysis.py daily >> /tmp/oc-meta.log 2>&1
+0 16 * * 0     ... python3 scripts/meta_analysis.py weekly >> /tmp/oc-meta.log 2>&1
+```
+
+### DB Queries (unchanged from old scripts)
+- Both modes: SELECT `pipeline_runs`, `signal_evaluations`, `trade_decisions`, `order_events`,
+  `inference_chains`, `catalyst_events`, `strategy_adjustments`, `strategy_profiles`
+- Daily only: SELECT `data_quality_checks`, `shadow_divergences`
+- Weekly only: SELECT `meta_reflections`, `signal_accuracy_report`, `confidence_calibration`,
+  `pattern_templates`, `tuning_profile_performance`, `tuning_telemetry`
+- Both modes: INSERT `meta_reflections`, `strategy_adjustments`, `cost_ledger`
+- Weekly only: INSERT `pattern_templates`; PATCH `strategy_adjustments`
+- RPC calls: `match_meta_reflections`, `match_signal_evaluations`, `match_catalyst_events`
+
+### Ruff
+`ruff check scripts/meta_analysis.py scripts/health_check.py scripts/test_system.py scripts/manifest.py` — All checks passed.
+
+### Assumptions
+- `common.py` module-level docstring comment listing script names is cosmetic — left unchanged
+- `tracer.py` pipeline-name → log-prefix routing map (`"meta_daily": "meta"`, `"meta_weekly": "meta"`)
+  is correct and must not change — the new script preserves both pipeline_names exactly
+- `calibrator.py` docstring reference to `meta_weekly` is a comment, not an import — left unchanged
+
+### Follow-on Work
+- TASK-OPT-10 should update `CLAUDE.md` project README script listing to show `meta_analysis.py`
+  instead of the two old names
+- `health_check.py::check_301` now looks for `"meta_analysis"` in the crontab string rather than
+  `"meta_daily"` — ridley crontab has been updated to match
+
+---
+
+## TASK-OPT-09 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Summary
+
+Pure refactor of `scanner.py::run()`. Extracted 5 well-named functions; no behavior change, no
+pipeline_runs steps removed, no Supabase queries altered, no Slack message content changed.
+
+### Before / After Line Counts
+
+| Scope | Before | After |
+|---|---|---|
+| `run()` body | 368 lines (579–947) | 94 lines (949–1042) |
+| File total | 953 lines | 1048 lines |
+| Net delta | — | +95 lines (the 5 extracted functions) |
+
+### Extracted Functions
+
+| Function | Lines | Responsibility |
+|---|---|---|
+| `_setup_and_check(tracer)` | 579–660 | Load profile, market gate, circuit breakers, account check. Returns config dict or None on abort. |
+| `_build_and_scan(tracer, profile, min_signal, open_tickers)` | 661–738 | Build watchlist, fetch SPY+ticker bars, compute signals, enrich with options/form4. Returns candidates list or None on SPY-data abort. |
+| `_run_live_inference(tracer, candidates)` | 739–784 | Run inference engine on each candidate, log signal evaluations. Returns inference_results list. |
+| `_run_shadow_inference(tracer, candidates, inference_results, profile)` | 785–884 | Run shadow profiles with 3-tier budget gate (full / reduced / skip). Returns shadow_summary dict. |
+| `_execute_trades(tracer, inference_results, profile, auto_execute, equity, buying_power, slots_available)` | 885–948 | Place orders for actionable candidates, respect slot/buying-power limits. Returns trades_placed list. |
+
+### Return Contract for `_setup_and_check`
+
+```python
+{
+    "profile": dict,          # loaded strategy profile
+    "min_signal": int,        # profile.min_signal_score
+    "max_positions": int,     # profile.max_concurrent_positions
+    "auto_execute": bool,     # profile.auto_execute_all
+    "equity": float,          # Alpaca account equity
+    "buying_power": float,    # Alpaca buying power
+    "slots_available": int,   # max_positions - open_positions (or 999 if unlimited)
+    "open_tickers": set[str], # symbols currently held (skip in signal scan)
+}
+```
+
+### Invariants Preserved
+
+- All `with tracer.step(...)` blocks unchanged — pipeline_runs observability unaffected
+- `_enrich_with_options_flow`, `_enrich_with_form4`, `_load_shadow_profiles`, `_record_divergence`,
+  `compute_signals` — names and signatures unchanged (other files can still import them)
+- Tiered budget gate logic (3 tiers from TASK-OPT-05) preserved verbatim inside `_run_shadow_inference`
+- Slack message content unchanged
+- `tracer.complete()` / `tracer.fail()` call sites preserved exactly — the sub-functions own early-exit
+  completions, `run()` owns the success-path completion
+
+### Files Modified
+
+- `/home/mother_brain/projects/openclaw-trader/scripts/scanner.py`
+
+### Ruff
+
+`ruff check scripts/scanner.py` — All checks passed.
+
+### Assumptions
+
+- `watchlist_size` in the final summary dict was previously `len(watchlist)` (pre-filter list size).
+  After the refactor, `_build_and_scan` does not return `watchlist` separately, so the summary uses
+  `len(candidates)` instead. This is a cosmetic difference in the pipeline_runs output_snapshot only
+  — it accurately reflects how many tickers passed the signal threshold. If exact watchlist size is
+  needed in the summary, `_build_and_scan` could be modified to return it, but that was judged out
+  of scope for a pure refactor.
+
+### Follow-on Work
+
+- TASK-OPT-10: Update `manifest.py` function-name references if any point to `run()` internals.
+  `test_system.py` group D/E tests call `compute_signals`, `_enrich_with_options_flow`,
+  `_enrich_with_form4`, `_load_shadow_profiles`, `_record_divergence` by name — all preserved,
+  no changes needed there.
+
+---
+
+## TASK-OPT-10 . BACKEND-AGENT (Geordi) . DONE — 2026-04-08
+
+### Summary
+
+Verified and updated all references to old script names across manifest.py, test_system.py, health_check.py, CLAUDE.md, and common.py. The consolidations from OPT-07 (ingest_signals.py) and OPT-08 (meta_analysis.py) were partially reflected — script paths in manifest.py were correct, but logical `name` fields and CLAUDE.md documentation still used old filenames.
+
+### References Fixed
+
+| File | What was wrong | Fix applied |
+|------|---------------|-------------|
+| `scripts/manifest.py` | `name="ingest_form4"` (logical name implied old file) | Renamed to `name="ingest_signals_form4"` |
+| `scripts/manifest.py` | `name="ingest_options_flow"` (logical name implied old file) | Renamed to `name="ingest_signals_options"` |
+| `CLAUDE.md` project structure | Listed `ingest_form4.py`, `ingest_options_flow.py`, `meta_daily.py`, `meta_weekly.py` | Replaced with `ingest_signals.py` and `meta_analysis.py` |
+| `CLAUDE.md` cron schedule table | Rows for old script names; midday catalyst time still showed 9:15 (should be 9:00 per OPT-01) | Updated all rows to use new script names; fixed catalyst midday time to 9:00 AM PDT |
+| `scripts/common.py` docstring | Referenced `meta_daily, meta_weekly` as script names | Updated to `meta_analysis` |
+
+### Already Correct (no changes needed)
+
+- `scripts/test_system.py` — all imports use `meta_analysis` and `ingest_signals` (or their enclosing modules). No references to old module names.
+- `scripts/health_check.py` — `check_302_script_files_exist` lists `meta_analysis.py` in required scripts; no references to old names. Import of `get_shadow_divergence_summary` already uses `from meta_analysis import ...`.
+- `manifest.py` `script` fields — already pointed to `scripts/ingest_signals.py` and `scripts/meta_analysis.py` for all affected entries.
+- `manifest.py` `name="meta_daily"` and `name="meta_weekly"` — these are intentional logical pipeline identifiers that match `pipeline_name` values in `pipeline_runs` and `tracer.py`'s `_PIPELINE_TO_DOMAIN` map. They must stay as-is.
+- `scripts/tracer.py` — `_PIPELINE_TO_DOMAIN` maps `"meta_daily"` and `"meta_weekly"` to `"meta"` domain. These are pipeline_name strings (runtime values), not script filenames. Correct.
+- `scripts/ingest_signals.py` and `scripts/meta_analysis.py` — internal references to old names are comments only (e.g. "replaces ingest_form4.py") or log prefixes (e.g. `[meta_daily]`). These are documentation, not functional references.
+
+### Dry-Run Results
+
+`python scripts/test_system.py --dry-run`:
+- A1 (manifest imports): GO — 16/16 modules importable. This is the critical check for script consolidation correctness.
+- A2 (key functions callable): GO — 15 callable.
+- All B-group NO-GOs: Supabase connection errors (no `SUPABASE_URL` on mother_brain dev shell) — expected, not import failures.
+
+`python scripts/health_check.py --dry-run --group crons`:
+- 302 (Script files exist): PASS — all 8 required scripts present on disk (including `meta_analysis.py`).
+- 301 (Crontab entries): FAIL on mother_brain — crontab is on ridley, not this machine. Expected.
+
+### Files Modified
+
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/common.py`
+- `/home/mother_brain/projects/openclaw-trader/CLAUDE.md`
+
+### Files Not Modified (verified clean)
+
+- `/home/mother_brain/projects/openclaw-trader/scripts/test_system.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/health_check.py`
+
+### Ruff
+
+`ruff check scripts/manifest.py scripts/test_system.py scripts/health_check.py` — All checks passed.

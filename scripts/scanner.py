@@ -574,6 +574,376 @@ def _record_divergence(
 
 
 # ---------------------------------------------------------------------------
+# run() sub-functions
+# ---------------------------------------------------------------------------
+def _setup_and_check(tracer: PipelineTracer) -> dict | None:
+    """Load profile, check market hours, circuit breakers, verify account.
+
+    Returns a config dict on success, or None if the run should abort.
+    The caller is responsible for calling tracer.complete()/tracer.fail() on
+    abort — this function only logs the specific step that triggered the exit.
+    """
+    # Step 1: Load strategy profile
+    with tracer.step("load_profile") as result:
+        profile = load_strategy_profile()
+        load_active_profile()
+        result.set({"profile": profile.get("profile_name", "?")})
+
+    min_signal = int(profile.get("min_signal_score", 4))
+    max_positions = int(profile.get("max_concurrent_positions", 5))
+    auto_execute = profile.get("auto_execute_all", False)
+    circuit_breakers_on = profile.get("circuit_breakers_enabled", True)
+
+    # Step 1b: Market hours gate
+    with tracer.step("market_hours_check") as result:
+        is_open, reason = check_market_open()
+        result.set({"is_open": is_open, "reason": reason})
+        if not is_open:
+            print(f"[scanner] Market not open: {reason}. Exiting.")
+            tracer.complete({"stopped": reason, "trades_placed": 0})
+            return None
+
+    # Step 2: Circuit breaker check
+    with tracer.step("circuit_breaker_check") as result:
+        if circuit_breakers_on:
+            cb_ok, cb_reason = check_circuit_breakers()
+            result.set({"ok": cb_ok, "reason": cb_reason})
+            if not cb_ok:
+                print(f"[scanner] HALTED: {cb_reason}")
+                tracer.complete({"halted": cb_reason})
+                return None
+        else:
+            result.set({"ok": True, "reason": "circuit_breakers_disabled"})
+
+    # Step 3: Check Alpaca account
+    with tracer.step("account_check") as result:
+        account = get_account()
+        if not account:
+            print("[scanner] Cannot reach Alpaca API — aborting")
+            tracer.fail("alpaca_unreachable")
+            return None
+
+        equity = float(account.get("equity", 0))
+        buying_power = float(account.get("buying_power", 0))
+        open_positions = get_positions()
+        open_tickers = {p.get("symbol") for p in open_positions}
+
+        result.set({
+            "equity": equity,
+            "buying_power": buying_power,
+            "open_positions": len(open_positions),
+            "open_tickers": sorted(open_tickers),
+        })
+
+        if max_positions >= 999:
+            slots_available = 999  # Unlimited
+            print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
+                  f"positions={len(open_positions)} (unlimited mode)")
+        else:
+            slots_available = max_positions - len(open_positions)
+            if slots_available <= 0:
+                print(f"[scanner] Max positions reached ({len(open_positions)}/{max_positions}) — scan only, no new trades")
+            print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
+                  f"positions={len(open_positions)}/{max_positions}")
+
+    return {
+        "profile": profile,
+        "min_signal": min_signal,
+        "max_positions": max_positions,
+        "auto_execute": auto_execute,
+        "equity": equity,
+        "buying_power": buying_power,
+        "slots_available": slots_available,
+        "open_tickers": open_tickers,
+    }
+
+
+def _build_and_scan(tracer: PipelineTracer, profile: dict, min_signal: int, open_tickers: set) -> list[dict] | None:
+    """Build watchlist, fetch bars, compute signals, enrich with options/form4.
+
+    Returns the candidate list (may be empty), or None if the run should abort
+    due to insufficient SPY data.
+    """
+    # Step 4: Build watchlist and fetch SPY bars
+    with tracer.step("build_watchlist") as result:
+        watchlist_source = "technical"
+        profile_name = profile.get("profile_name", "")
+        if profile_name == "CONGRESS_MIRROR":
+            congress_wl = build_congress_watchlist()
+            if congress_wl:
+                watchlist = congress_wl
+                watchlist_source = "congress"
+            else:
+                print("[scanner] No high-signal congress buys in last 21 days. "
+                      "Falling back to technical watchlist.")
+                watchlist = build_watchlist()
+        else:
+            watchlist = build_watchlist()
+
+        spy_bars = get_bars("SPY", days=30)
+
+        if len(spy_bars) < 15:
+            print(f"[scanner] Only {len(spy_bars)} SPY bars available. Waiting 90s for data...")
+            time.sleep(90)
+            spy_bars = get_bars("SPY", days=30)
+            if len(spy_bars) < 15:
+                print(f"[scanner] Still only {len(spy_bars)} SPY bars after retry. Aborting.")
+                tracer.complete({"stopped": "insufficient_spy_data", "spy_bars": len(spy_bars)})
+                return None
+
+        result.set({"watchlist_size": len(watchlist), "watchlist_source": watchlist_source, "spy_bars": len(spy_bars)})
+        print(f"[scanner] Watchlist ({watchlist_source}): {len(watchlist)} tickers, SPY bars: {len(spy_bars)}")
+
+    # Step 5: Compute signals for all tickers
+    candidates: list[dict] = []
+    with tracer.step("signal_scan", input_snapshot={"tickers": watchlist}) as result:
+        for ticker in watchlist:
+            if ticker in open_tickers:
+                continue  # Skip tickers we already hold
+
+            bars = get_bars(ticker, days=60)
+            if not bars or len(bars) < 20:
+                continue
+
+            sig = compute_signals(ticker, bars, spy_bars)
+            if not sig:
+                print(f"[scanner] {ticker}: insufficient bars, skipping")
+                continue
+            if sig["total_score"] >= min_signal:
+                candidates.append(sig)
+                print(f"[scanner]   {ticker}: score={sig['total_score']}/6, "
+                      f"price=${sig['price']:.2f}, atr=${sig['atr']:.2f}")
+
+            time.sleep(0.15)  # Rate limit courtesy
+
+        candidates.sort(key=lambda x: x["total_score"], reverse=True)
+        result.set({
+            "scanned": len(watchlist),
+            "candidates": len(candidates),
+            "top": [{"ticker": c["ticker"], "score": c["total_score"]} for c in candidates[:5]],
+        })
+        print(f"[scanner] Candidates: {len(candidates)} tickers pass signal threshold ({min_signal}+)")
+
+    # Step 5b: Enrich with alternative signals
+    with tracer.step("signal_enrichment") as enrich_result:
+        candidates = _enrich_with_options_flow(candidates)
+        candidates = _enrich_with_form4(candidates)
+        enrich_result.complete(
+            options_flow_tickers=len([c for c in candidates if c["signals"].get("options_flow_net", 0) != 0]),
+            form4_tickers=len([c for c in candidates if c["signals"].get("form4_insider_score", 0) > 0]),
+        )
+
+    return candidates
+
+
+def _run_live_inference(
+    tracer: PipelineTracer,
+    candidates: list[dict],
+) -> list[dict]:
+    """Run the inference engine on each candidate. Returns inference result list."""
+    inference_results: list[dict] = []
+    with tracer.step("inference", input_snapshot={"candidates": [c["ticker"] for c in candidates]}) as result:
+        for cand in candidates:
+            ticker = cand["ticker"]
+            print(f"\n[scanner] Running inference on {ticker} (score={cand['total_score']})...")
+
+            inf_result = run_inference(
+                ticker=ticker,
+                signals=cand["signals"],
+                total_score=cand["total_score"],
+                scan_type="scanner",
+                pipeline_run_id=tracer.root_id,
+            )
+            inf_result["_price"] = cand["price"]
+            inf_result["_atr"] = cand["atr"]
+            inf_result["_score"] = cand["total_score"]
+            inference_results.append(inf_result)
+
+            # Log signal evaluation
+            tracer.log_signal_evaluation(
+                ticker=ticker,
+                signals=cand["signals"],
+                total_score=cand["total_score"],
+                decision=inf_result["final_decision"],
+                reasoning=f"confidence={inf_result['final_confidence']:.3f}, "
+                          f"depth={inf_result['max_depth_reached']}, "
+                          f"stop={inf_result.get('stopping_reason', '?')}",
+                scan_type="scanner",
+            )
+
+        actionable = [r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")]
+        result.set({
+            "total_inferred": len(inference_results),
+            "actionable": len(actionable),
+            "decisions": {r["ticker"]: r["final_decision"] for r in inference_results},
+        })
+        print(f"\n[scanner] Inference complete: {len(actionable)} actionable / {len(inference_results)} total")
+
+    return inference_results
+
+
+def _run_shadow_inference(
+    tracer: PipelineTracer,
+    candidates: list[dict],
+    inference_results: list[dict],
+    profile: dict,
+) -> dict:
+    """Run shadow profiles with tiered budget gate. Returns shadow_summary dict."""
+    shadow_summary: dict = {}
+    with tracer.step("shadow_inference") as shadow_result:
+        shadow_profiles = _load_shadow_profiles()
+
+        if not shadow_profiles:
+            print("[scanner] No shadow profiles found — skipping")
+            shadow_result.set({"shadow_profiles": 0})
+        elif not candidates:
+            print("[scanner] No candidates — skipping shadow inference")
+            shadow_result.set({"shadow_profiles": len(shadow_profiles), "skipped": "no_candidates"})
+        else:
+            # Tiered budget gate: full shadows >=40%, cheap-only 20-40%, skip all <20%
+            claude_budget = get_claude_budget()
+            claude_spent = get_todays_claude_spend()
+            budget_remaining_pct = (
+                (claude_budget - claude_spent) / claude_budget if claude_budget > 0 else 0
+            )
+
+            if budget_remaining_pct < 0.20:
+                # Tier 3: Budget critical — skip all shadows
+                print(f"[scanner] Budget critical ({budget_remaining_pct:.0%}) — skipping all shadows")
+                shadow_result.set({"skipped": "budget_critical", "remaining_pct": budget_remaining_pct})
+                shadow_profiles = []
+            elif budget_remaining_pct < 0.40:
+                # Tier 2: Budget tight — run only cheap shadows (no Claude at T4/T5)
+                # REGIME_WATCHER stops at T3 (no Claude calls). FORM4_INSIDER is low-frequency.
+                print(f"[scanner] Budget tight ({budget_remaining_pct:.0%}) — running REGIME_WATCHER + FORM4_INSIDER only")
+                shadow_profiles = [
+                    p for p in shadow_profiles
+                    if p.get("shadow_type") == "REGIME_WATCHER"
+                    or p.get("profile_name") == "FORM4_INSIDER"
+                ]
+            # else: Tier 1 — budget healthy, shadow_profiles unchanged
+
+            if shadow_profiles:
+                for shadow_profile in shadow_profiles:
+                    pname = shadow_profile.get("profile_name", "?")
+                    print(f"\n[scanner] Shadow inference: {pname}")
+                    shadow_results_for_profile: list[dict] = []
+
+                    for cand in candidates:
+                        ticker = cand["ticker"]
+                        try:
+                            shadow_inf = run_inference(
+                                ticker=ticker,
+                                signals=cand["signals"],
+                                total_score=cand["total_score"],
+                                scan_type=f"shadow_{pname.lower()}",
+                                pipeline_run_id=tracer.root_id,
+                                profile_override=shadow_profile,
+                            )
+                            shadow_results_for_profile.append(shadow_inf)
+
+                            live_result = next(
+                                (r for r in inference_results if r["ticker"] == ticker),
+                                None,
+                            )
+                            if live_result:
+                                _record_divergence(
+                                    ticker=ticker,
+                                    live_result=live_result,
+                                    shadow_result_data=shadow_inf,
+                                    shadow_profile=shadow_profile,
+                                    live_profile=profile,
+                                )
+
+                            time.sleep(0.5)  # Thermal courtesy
+                        except Exception as e:
+                            print(f"[scanner] Shadow error ({pname}/{ticker}): {e}")
+                            continue
+
+                    shadow_summary[pname] = {
+                        "candidates": len(shadow_results_for_profile),
+                        "enters": sum(
+                            1 for r in shadow_results_for_profile
+                            if r["final_decision"] in ("enter", "strong_enter")
+                        ),
+                        "skips": sum(
+                            1 for r in shadow_results_for_profile
+                            if r["final_decision"] in ("skip", "veto")
+                        ),
+                    }
+                    print(f"[scanner] {pname}: {shadow_summary[pname]}")
+
+                shadow_result.set({
+                    "shadow_profiles_run": len(shadow_profiles),
+                    "summary": shadow_summary,
+                    "budget_remaining_pct": round(budget_remaining_pct, 3),
+                })
+
+    return shadow_summary
+
+
+def _execute_trades(
+    tracer: PipelineTracer,
+    inference_results: list[dict],
+    profile: dict,
+    auto_execute: bool,
+    equity: float,
+    buying_power: float,
+    slots_available: int,
+) -> list[dict]:
+    """Place orders for actionable candidates. Returns list of trade result dicts."""
+    trades_placed: list[dict] = []
+    with tracer.step("execution") as result:
+        if not auto_execute:
+            print("[scanner] auto_execute_all is OFF — logging decisions only, no orders placed")
+            result.set({"auto_execute": False, "trades": 0})
+        else:
+            # Sort by confidence descending, take top N available slots
+            actionable = sorted(
+                [r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")],
+                key=lambda x: x["final_confidence"],
+                reverse=True,
+            )
+
+            for inf_result in actionable:
+                if slots_available <= 0:
+                    print("[scanner] No more position slots available")
+                    break
+                if buying_power < equity * 0.05:
+                    print(f"[scanner] Insufficient buying power (${buying_power:,.0f})")
+                    break
+
+                ticker = inf_result["ticker"]
+                quote = get_latest_quote(ticker)
+                price = quote["price"]
+                if price <= 0:
+                    print(f"[scanner] {ticker}: no valid quote, skipping")
+                    continue
+
+                trade = execute_trade(
+                    ticker=ticker,
+                    inference_result=inf_result,
+                    price=price,
+                    atr=inf_result["_atr"],
+                    equity=equity,
+                    profile=profile,
+                    tracer=tracer,
+                )
+                if trade:
+                    trades_placed.append(trade)
+                    slots_available -= 1
+                    buying_power -= price * trade["qty"]
+
+            result.set({
+                "auto_execute": True,
+                "trades_placed": len(trades_placed),
+                "tickers": [t["ticker"] for t in trades_placed],
+            })
+
+    return trades_placed
+
+
+# ---------------------------------------------------------------------------
 # Main scanner run
 # ---------------------------------------------------------------------------
 def run():
@@ -586,310 +956,49 @@ def run():
     set_active_tracer(tracer)
 
     try:
-        # === Step 1: Load strategy profile ===
-        with tracer.step("load_profile") as result:
-            profile = load_strategy_profile()
-            # Also load the inference engine's copy
-            load_active_profile()
-            result.set({"profile": profile.get("profile_name", "?")})
+        # Step 1: Setup — profile, market gate, circuit breakers, account
+        config = _setup_and_check(tracer)
+        if config is None:
+            return  # tracer already completed/failed inside _setup_and_check
 
-        min_signal = int(profile.get("min_signal_score", 4))
-        max_positions = int(profile.get("max_concurrent_positions", 5))
-        auto_execute = profile.get("auto_execute_all", False)
-        circuit_breakers_on = profile.get("circuit_breakers_enabled", True)
+        profile = config["profile"]
 
-        # === Step 1b: Market hours gate ===
-        with tracer.step("market_hours_check") as result:
-            is_open, reason = check_market_open()
-            result.set({"is_open": is_open, "reason": reason})
-            if not is_open:
-                print(f"[scanner] Market not open: {reason}. Exiting.")
-                tracer.complete({"stopped": reason, "trades_placed": 0})
-                return
+        # Step 2: Scan — watchlist, bars, signals, enrichment
+        candidates = _build_and_scan(
+            tracer,
+            profile,
+            config["min_signal"],
+            config["open_tickers"],
+        )
+        if candidates is None:
+            return  # tracer already completed inside _build_and_scan (SPY data abort)
 
-        # === Step 2: Circuit breaker check ===
-        with tracer.step("circuit_breaker_check") as result:
-            if circuit_breakers_on:
-                cb_ok, cb_reason = check_circuit_breakers()
-                result.set({"ok": cb_ok, "reason": cb_reason})
-                if not cb_ok:
-                    print(f"[scanner] HALTED: {cb_reason}")
-                    tracer.complete({"halted": cb_reason})
-                    return
-            else:
-                result.set({"ok": True, "reason": "circuit_breakers_disabled"})
+        if not candidates:
+            tracer.complete({"candidates": 0, "trades_placed": 0})
+            return
 
-        # === Step 3: Check Alpaca account ===
-        with tracer.step("account_check") as result:
-            account = get_account()
-            if not account:
-                print("[scanner] Cannot reach Alpaca API — aborting")
-                tracer.fail("alpaca_unreachable")
-                return
+        # Step 3: Live inference
+        inference_results = _run_live_inference(tracer, candidates)
 
-            equity = float(account.get("equity", 0))
-            buying_power = float(account.get("buying_power", 0))
-            open_positions = get_positions()
-            open_tickers = {p.get("symbol") for p in open_positions}
+        # Step 4: Shadow inference (adversarial ensemble)
+        shadow_summary = _run_shadow_inference(tracer, candidates, inference_results, profile)
 
-            result.set({
-                "equity": equity,
-                "buying_power": buying_power,
-                "open_positions": len(open_positions),
-                "open_tickers": sorted(open_tickers),
-            })
+        # Step 5: Execute trades
+        trades_placed = _execute_trades(
+            tracer,
+            inference_results,
+            profile,
+            config["auto_execute"],
+            config["equity"],
+            config["buying_power"],
+            config["slots_available"],
+        )
 
-            if max_positions >= 999:
-                slots_available = 999  # Unlimited
-                print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
-                      f"positions={len(open_positions)} (unlimited mode)")
-            else:
-                slots_available = max_positions - len(open_positions)
-                if slots_available <= 0:
-                    print(f"[scanner] Max positions reached ({len(open_positions)}/{max_positions}) — scan only, no new trades")
-                print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
-                      f"positions={len(open_positions)}/{max_positions}")
-
-        # === Step 4: Build watchlist and fetch SPY bars ===
-        with tracer.step("build_watchlist") as result:
-            watchlist_source = "technical"
-            profile_name = profile.get("profile_name", "")
-            if profile_name == "CONGRESS_MIRROR":
-                congress_wl = build_congress_watchlist()
-                if congress_wl:
-                    watchlist = congress_wl
-                    watchlist_source = "congress"
-                else:
-                    print("[scanner] No high-signal congress buys in last 21 days. "
-                          "Falling back to technical watchlist.")
-                    watchlist = build_watchlist()
-            else:
-                watchlist = build_watchlist()
-
-            spy_bars = get_bars("SPY", days=30)
-
-            if len(spy_bars) < 15:
-                print(f"[scanner] Only {len(spy_bars)} SPY bars available. Waiting 90s for data...")
-                time.sleep(90)
-                spy_bars = get_bars("SPY", days=30)
-                if len(spy_bars) < 15:
-                    print(f"[scanner] Still only {len(spy_bars)} SPY bars after retry. Aborting.")
-                    tracer.complete({"stopped": "insufficient_spy_data", "spy_bars": len(spy_bars)})
-                    return
-
-            result.set({"watchlist_size": len(watchlist), "watchlist_source": watchlist_source, "spy_bars": len(spy_bars)})
-            print(f"[scanner] Watchlist ({watchlist_source}): {len(watchlist)} tickers, SPY bars: {len(spy_bars)}")
-
-        # === Step 5: Compute signals for all tickers ===
-        candidates = []
-        with tracer.step("signal_scan", input_snapshot={"tickers": watchlist}) as result:
-            for ticker in watchlist:
-                if ticker in open_tickers:
-                    continue  # Skip tickers we already hold
-
-                bars = get_bars(ticker, days=60)
-                if not bars or len(bars) < 20:
-                    continue
-
-                sig = compute_signals(ticker, bars, spy_bars)
-                if not sig:
-                    print(f"[scanner] {ticker}: insufficient bars, skipping")
-                    continue
-                if sig["total_score"] >= min_signal:
-                    candidates.append(sig)
-                    print(f"[scanner]   {ticker}: score={sig['total_score']}/6, "
-                          f"price=${sig['price']:.2f}, atr=${sig['atr']:.2f}")
-
-                time.sleep(0.15)  # Rate limit courtesy
-
-            candidates.sort(key=lambda x: x["total_score"], reverse=True)
-            result.set({
-                "scanned": len(watchlist),
-                "candidates": len(candidates),
-                "top": [{"ticker": c["ticker"], "score": c["total_score"]} for c in candidates[:5]],
-            })
-            print(f"[scanner] Candidates: {len(candidates)} tickers pass signal threshold ({min_signal}+)")
-
-        # === Step 5b: Enrich with alternative signals ===
-        with tracer.step("signal_enrichment") as enrich_result:
-            candidates = _enrich_with_options_flow(candidates)
-            candidates = _enrich_with_form4(candidates)
-            enrich_result.complete(
-                options_flow_tickers=len([c for c in candidates if c["signals"].get("options_flow_net", 0) != 0]),
-                form4_tickers=len([c for c in candidates if c["signals"].get("form4_insider_score", 0) > 0]),
-            )
-
-        # === Step 6: Run inference on candidates ===
-        inference_results = []
-        with tracer.step("inference", input_snapshot={"candidates": [c["ticker"] for c in candidates]}) as result:
-            for cand in candidates:
-                ticker = cand["ticker"]
-                print(f"\n[scanner] Running inference on {ticker} (score={cand['total_score']})...")
-
-                inf_result = run_inference(
-                    ticker=ticker,
-                    signals=cand["signals"],
-                    total_score=cand["total_score"],
-                    scan_type="scanner",
-                    pipeline_run_id=tracer.root_id,
-                )
-                inf_result["_price"] = cand["price"]
-                inf_result["_atr"] = cand["atr"]
-                inf_result["_score"] = cand["total_score"]
-                inference_results.append(inf_result)
-
-                # Log signal evaluation
-                tracer.log_signal_evaluation(
-                    ticker=ticker,
-                    signals=cand["signals"],
-                    total_score=cand["total_score"],
-                    decision=inf_result["final_decision"],
-                    reasoning=f"confidence={inf_result['final_confidence']:.3f}, "
-                              f"depth={inf_result['max_depth_reached']}, "
-                              f"stop={inf_result.get('stopping_reason', '?')}",
-                    scan_type="scanner",
-                )
-
-            actionable = [r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")]
-            result.set({
-                "total_inferred": len(inference_results),
-                "actionable": len(actionable),
-                "decisions": {r["ticker"]: r["final_decision"] for r in inference_results},
-            })
-            print(f"\n[scanner] Inference complete: {len(actionable)} actionable / {len(inference_results)} total")
-
-        # === Shadow Inference (adversarial ensemble) ===
-        shadow_summary: dict = {}
-        with tracer.step("shadow_inference") as shadow_result:
-            shadow_profiles = _load_shadow_profiles()
-
-            if not shadow_profiles:
-                print("[scanner] No shadow profiles found — skipping")
-                shadow_result.set({"shadow_profiles": 0})
-            elif not candidates:
-                print("[scanner] No candidates — skipping shadow inference")
-                shadow_result.set({"shadow_profiles": len(shadow_profiles), "skipped": "no_candidates"})
-            else:
-                # Budget gate: only run shadows when >40% Claude budget remains
-                claude_budget = get_claude_budget()
-                claude_spent = get_todays_claude_spend()
-                budget_remaining_pct = (
-                    (claude_budget - claude_spent) / claude_budget if claude_budget > 0 else 0
-                )
-
-                if budget_remaining_pct < 0.40:
-                    print(f"[scanner] Shadow budget gate: {budget_remaining_pct:.1%} < 40% — skipping")
-                    shadow_result.set({"skipped": "budget_gate", "remaining_pct": budget_remaining_pct})
-                else:
-                    for shadow_profile in shadow_profiles:
-                        pname = shadow_profile.get("profile_name", "?")
-                        print(f"\n[scanner] Shadow inference: {pname}")
-                        shadow_results_for_profile: list[dict] = []
-
-                        for cand in candidates:
-                            ticker = cand["ticker"]
-                            try:
-                                shadow_inf = run_inference(
-                                    ticker=ticker,
-                                    signals=cand["signals"],
-                                    total_score=cand["total_score"],
-                                    scan_type=f"shadow_{pname.lower()}",
-                                    pipeline_run_id=tracer.root_id,
-                                    profile_override=shadow_profile,
-                                )
-                                shadow_results_for_profile.append(shadow_inf)
-
-                                live_result = next(
-                                    (r for r in inference_results if r["ticker"] == ticker),
-                                    None,
-                                )
-                                if live_result:
-                                    _record_divergence(
-                                        ticker=ticker,
-                                        live_result=live_result,
-                                        shadow_result_data=shadow_inf,
-                                        shadow_profile=shadow_profile,
-                                        live_profile=profile,
-                                    )
-
-                                time.sleep(0.5)  # Thermal courtesy
-                            except Exception as e:
-                                print(f"[scanner] Shadow error ({pname}/{ticker}): {e}")
-                                continue
-
-                        shadow_summary[pname] = {
-                            "candidates": len(shadow_results_for_profile),
-                            "enters": sum(
-                                1 for r in shadow_results_for_profile
-                                if r["final_decision"] in ("enter", "strong_enter")
-                            ),
-                            "skips": sum(
-                                1 for r in shadow_results_for_profile
-                                if r["final_decision"] in ("skip", "veto")
-                            ),
-                        }
-                        print(f"[scanner] {pname}: {shadow_summary[pname]}")
-
-                    shadow_result.set({
-                        "shadow_profiles_run": len(shadow_profiles),
-                        "summary": shadow_summary,
-                        "budget_remaining_pct": round(budget_remaining_pct, 3),
-                    })
-
-        # === Step 7: Execute trades ===
-        trades_placed = []
-        with tracer.step("execution") as result:
-            if not auto_execute:
-                print("[scanner] auto_execute_all is OFF — logging decisions only, no orders placed")
-                result.set({"auto_execute": False, "trades": 0})
-            else:
-                # Sort by confidence descending, take top N available slots
-                actionable = sorted(
-                    [r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")],
-                    key=lambda x: x["final_confidence"],
-                    reverse=True,
-                )
-
-                for inf_result in actionable:
-                    if slots_available <= 0:
-                        print("[scanner] No more position slots available")
-                        break
-                    if buying_power < equity * 0.05:
-                        print(f"[scanner] Insufficient buying power (${buying_power:,.0f})")
-                        break
-
-                    ticker = inf_result["ticker"]
-                    quote = get_latest_quote(ticker)
-                    price = quote["price"]
-                    if price <= 0:
-                        print(f"[scanner] {ticker}: no valid quote, skipping")
-                        continue
-
-                    trade = execute_trade(
-                        ticker=ticker,
-                        inference_result=inf_result,
-                        price=price,
-                        atr=inf_result["_atr"],
-                        equity=equity,
-                        profile=profile,
-                        tracer=tracer,
-                    )
-                    if trade:
-                        trades_placed.append(trade)
-                        slots_available -= 1
-                        buying_power -= price * trade["qty"]
-
-                result.set({
-                    "auto_execute": True,
-                    "trades_placed": len(trades_placed),
-                    "tickers": [t["ticker"] for t in trades_placed],
-                })
-
-        # === Done ===
+        # Step 6: Complete + report
         summary = {
             "date": TODAY,
             "profile": profile.get("profile_name", "?"),
-            "watchlist_size": len(watchlist),
+            "watchlist_size": len(candidates),  # candidates is post-filter
             "candidates": len(candidates),
             "inferred": len(inference_results),
             "actionable": len([r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")]),
@@ -906,7 +1015,7 @@ def run():
 
         # Slack summary
         lines = [f"*Scanner complete* — {profile.get('profile_name', '?')} profile"]
-        lines.append(f"Watchlist: {len(watchlist)} | Candidates: {len(candidates)} | Inferred: {len(inference_results)}")
+        lines.append(f"Candidates: {len(candidates)} | Inferred: {len(inference_results)}")
         if trades_placed:
             lines.append(f"*Trades placed: {len(trades_placed)}*")
             for t in trades_placed:

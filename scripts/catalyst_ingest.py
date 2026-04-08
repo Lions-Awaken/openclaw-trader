@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Catalyst Ingest — polls 6 data sources for market-moving events.
+Catalyst Ingest — polls 5 data sources for market-moving events.
 
 Sources:
   1. Finnhub company_news + insider_transactions (per watchlist ticker)
   2. SEC EDGAR RSS feed (8-K filings, insider forms)
   3. QuiverQuant congressional trades (STOCK Act disclosures)
-  4. Perplexity deep search (breaking news for top movers)
-  5. Yahoo Finance fundamentals + analyst data (yfinance)
-  6. FRED macro indicators (Fed funds, yield curve, CPI, unemployment)
+  4. Yahoo Finance fundamentals + analyst data (yfinance)
+  5. FRED macro indicators (Fed funds, yield curve, CPI, unemployment)
 
 Runs 3x daily on weekdays: 8:30 AM, 12:15 PM, 3:50 PM ET.
 
@@ -27,7 +26,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from common import (
     FINNHUB_KEY,
     FRED_KEY,
-    PERPLEXITY_KEY,
     _client,
     generate_embedding,
     sb_get,
@@ -539,72 +537,6 @@ def fetch_quiverquant_trades(politician_scores: dict | None = None) -> list[dict
     return events
 
 
-@traced("catalysts")
-def fetch_perplexity_search(tickers: list[str]) -> list[dict]:
-    """Deep search for breaking catalysts using Perplexity API."""
-    if not PERPLEXITY_KEY or not tickers:
-        return []
-
-    events = []
-    # Only search top 3 tickers to stay within budget
-    for ticker in tickers[:3]:
-        try:
-            client = _client
-            resp = client.post(
-                "https://api.perplexity.ai/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {PERPLEXITY_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "sonar",
-                    "messages": [
-                        {"role": "user", "content": (
-                            f"What are the most important breaking news, catalysts, or market-moving "
-                            f"events for {ticker} stock in the last 4 hours? Include analyst actions, "
-                            f"insider trades, SEC filings, earnings, product announcements. "
-                            f"If nothing significant, say 'No significant catalysts'. "
-                            f"Be concise, 2-3 bullet points max."
-                        )}
-                    ],
-                    "max_tokens": 300,
-                },
-            )
-            if resp.status_code == 200:
-                resp_data = resp.json()
-                content = resp_data["choices"][0]["message"]["content"]
-                if "no significant" not in content.lower():
-                    events.append({
-                        "ticker": ticker,
-                        "headline": f"Perplexity catalyst scan: {ticker}",
-                        "content": content,
-                        "source": "perplexity",
-                        "source_url": "",
-                        "event_time": datetime.now(timezone.utc).isoformat(),
-                    })
-
-                # Log cost
-                usage = resp_data.get("usage", {})
-                tokens_in = usage.get("prompt_tokens", 0)
-                tokens_out = usage.get("completion_tokens", 0)
-                # Perplexity sonar: ~$0.001/1K tokens
-                cost = (tokens_in + tokens_out) * 0.001 / 1000
-                if cost > 0:
-                    _post_to_supabase("cost_ledger", {
-                        "ledger_date": datetime.now(timezone.utc).date().isoformat(),
-                        "category": "perplexity_api",
-                        "subcategory": f"catalyst_ingest_{ticker}",
-                        "amount": round(-cost, 6),
-                        "description": f"Perplexity catalyst scan for {ticker}",
-                        "metadata": {"tokens_in": tokens_in, "tokens_out": tokens_out, "model": "sonar"},
-                    })
-
-        except Exception as e:
-            print(f"[catalyst_ingest] Perplexity search error for {ticker}: {e}")
-
-    return events
-
-
 # FRED series we track: (series_id, display_name, threshold_pct for "significant change")
 FRED_SERIES = [
     ("FEDFUNDS", "Fed Funds Rate", 0.0),       # Any change is significant
@@ -809,7 +741,6 @@ def run():
         finnhub_count = 0
         sec_count = 0
         qq_count = 0
-        ppx_count = 0
         yf_count = 0
         fred_count = 0
 
@@ -844,21 +775,14 @@ def run():
             qq_count = len([e for e in qq_events if e.get("ticker") in watchlist])
             result.set({"qq_events": len(qq_events), "matched": qq_count})
 
-        # Step 5: Perplexity deep search for top movers
-        with tracer.step("fetch_perplexity", input_snapshot={"tickers": watchlist[:3]}) as result:
-            ppx_events = fetch_perplexity_search(watchlist)
-            all_raw_events.extend(ppx_events)
-            ppx_count = len(ppx_events)
-            result.set({"perplexity_events": ppx_count})
-
-        # Step 6: Yahoo Finance fundamentals + analyst data
+        # Step 5: Yahoo Finance fundamentals + analyst data
         with tracer.step("fetch_yfinance", input_snapshot={"tickers": watchlist}) as result:
             yf_events = fetch_yfinance_signals(watchlist)
             all_raw_events.extend(yf_events)
             yf_count = len(yf_events)
             result.set({"yfinance_events": yf_count})
 
-        # Step 7: FRED macro indicators
+        # Step 6: FRED macro indicators
         with tracer.step("fetch_fred") as result:
             fred_events = fetch_fred_macro()
             all_raw_events.extend(fred_events)
@@ -867,7 +791,7 @@ def run():
 
         print(f"[catalyst_ingest] Raw events collected: {len(all_raw_events)}")
 
-        # Step 8: Classify, embed, deduplicate, insert
+        # Step 7: Classify, embed, deduplicate, insert
         with tracer.step("classify_embed_insert", input_snapshot={"raw_count": len(all_raw_events)}) as result:
             recent_embeddings = []
             inserted = 0
@@ -938,7 +862,7 @@ def run():
 
             result.set({"inserted": inserted, "duplicates": duplicates, "total_raw": len(all_raw_events)})
 
-        # Step 9: Detect congress clusters
+        # Step 8: Detect congress clusters
         with tracer.step("detect_congress_clusters") as result:
             congress_events = [
                 e for e in all_raw_events
@@ -956,7 +880,7 @@ def run():
         print(f"[catalyst_ingest] Complete. Inserted: {inserted}, Duplicates: {duplicates}")
         slack_notify(
             f"*Catalyst Ingest complete* — `{inserted}` events inserted, `{duplicates}` dupes skipped\n"
-            f"Sources: finnhub `{finnhub_count}` · sec `{sec_count}` · quiverquant `{qq_count}` · perplexity `{ppx_count}` · yfinance `{yf_count}` · fred `{fred_count}`"
+            f"Sources: finnhub `{finnhub_count}` · sec `{sec_count}` · quiverquant `{qq_count}` · yfinance `{yf_count}` · fred `{fred_count}`"
         )
 
     except Exception as e:

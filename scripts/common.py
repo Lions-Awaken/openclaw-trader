@@ -4,7 +4,7 @@ Common — shared config, HTTP clients, and helpers for all OpenClaw scripts.
 
 Centralizes env vars, Alpaca API helpers, Supabase helpers, and Ollama
 embedding calls. Eliminates duplication across scanner, position_manager,
-inference_engine, catalyst_ingest, calibrator, meta_daily, meta_weekly,
+inference_engine, catalyst_ingest, calibrator, meta_analysis,
 and post_trade_analysis.
 """
 
@@ -342,6 +342,84 @@ def load_strategy_profile() -> dict:
         "bypass_regime_gate": False,
         "auto_execute_all": False,
     }
+
+
+# ==========================================================================
+# Claude API — centralized call with retry + dual-key fallback
+# ==========================================================================
+def call_claude(
+    model: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float = 0.3,
+    system: str | None = None,
+) -> dict | None:
+    """Call the Anthropic Messages API with retry and dual-key fallback.
+
+    Tries ANTHROPIC_API_KEY first; on any non-200 or exception retries up to 3
+    times with exponential backoff, then falls back to ANTHROPIC_API_KEY_2 if
+    available.
+
+    Returns the full parsed response dict so callers can extract content,
+    usage, etc.  Returns None on total failure.
+    """
+    keys_to_try = [k for k in [ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2] if k]
+    if not keys_to_try:
+        print("[common] call_claude: no API keys available")
+        return None
+
+    RETRYABLE = {429, 529}
+
+    body: dict = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": messages,
+    }
+    if system is not None:
+        body["system"] = system
+
+    for key_index, api_key in enumerate(keys_to_try):
+        key_label = f"key{'2' if key_index else '1'}"
+        backoff = 2.0
+        for attempt in range(3):
+            print(f"[common] call_claude: {model} attempt {attempt + 1}/3 ({key_label})")
+            try:
+                resp = _claude_client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json=body,
+                )
+                if resp.status_code == 200:
+                    print(f"[common] call_claude: success ({key_label})")
+                    return resp.json()
+                if resp.status_code in RETRYABLE:
+                    wait = min(float(resp.headers.get("retry-after", backoff)), 16.0)
+                    print(
+                        f"[common] call_claude: {resp.status_code} ({key_label}) "
+                        f"attempt {attempt + 1}/3, waiting {wait:.1f}s"
+                    )
+                    if attempt == 2 and key_index == 0 and ANTHROPIC_API_KEY_2:
+                        print("[common] call_claude: switching to fallback key")
+                        break
+                    time.sleep(wait)
+                    backoff = min(backoff * 2, 16.0)
+                    continue
+                print(f"[common] call_claude: non-retryable {resp.status_code} ({key_label})")
+                return None
+            except httpx.TimeoutException:
+                print(f"[common] call_claude: timeout attempt {attempt + 1} ({key_label})")
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 16.0)
+            except Exception as e:
+                print(f"[common] call_claude: error ({key_label}): {e}")
+                return None
+    print("[common] call_claude: all keys exhausted, giving up")
+    return None
 
 
 # ==========================================================================

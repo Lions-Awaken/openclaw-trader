@@ -1019,7 +1019,7 @@ async def _fetch_system_data(client: httpx.AsyncClient) -> dict:
             r = await client.get(
                 f"{SUPABASE_URL}/rest/v1/pipeline_runs",
                 headers=sb_headers(),
-                params={"select": "status", "step_name": "eq.root", "started_at": f"gte.{cutoff_24h}"},
+                params={"select": "status", "step_name": "eq.root", "started_at": f"gte.{cutoff_24h}", "limit": "500"},
             )
             return r.json() if r.status_code == 200 else []
         except Exception:
@@ -1421,6 +1421,7 @@ async def get_pipeline_health(request: Request, oc_session: str | None = Cookie(
             "select": "status",
             "step_name": "neq.root",
             "started_at": f"gte.{cutoff}",
+            "limit": "2000",
         },
     )
     if resp.status_code != 200:
@@ -1565,6 +1566,7 @@ async def get_predictions_live(request: Request, oc_session: str | None = Cookie
             "select": "id,ticker,predicted_direction,entry_price,confidence,timeframe,thesis,expires_at,created_at",
             "status": "eq.open",
             "order": "created_at.desc",
+            "limit": "50",
         },
     )
     if resp.status_code != 200:
@@ -1794,6 +1796,7 @@ async def get_inference_depth_distribution(
             "select": "chain_date,max_depth_reached,final_decision,final_confidence,stopping_reason",
             "chain_date": f"gte.{cutoff}",
             "order": "chain_date.asc",
+            "limit": "500",
         },
     )
     if resp.status_code != 200:
@@ -1904,6 +1907,7 @@ async def get_catalyst_stats(request: Request, oc_session: str | None = Cookie(N
         params={
             "select": "catalyst_type,direction,magnitude",
             "event_time": f"gte.{cutoff}",
+            "limit": "1000",
         },
     )
     if resp.status_code != 200:
@@ -2081,6 +2085,7 @@ async def get_economics_summary(
         params={
             "select": "category,amount",
             "ledger_date": f"gte.{cutoff}",
+            "limit": "1000",
         },
     )
     if resp.status_code != 200:
@@ -2132,6 +2137,7 @@ async def get_economics_breakdown(
             "select": "category,subcategory,amount,ledger_date",
             "ledger_date": f"gte.{cutoff}",
             "order": "ledger_date.desc",
+            "limit": "1000",
         },
     )
     if resp.status_code != 200:
@@ -2169,6 +2175,7 @@ async def get_economics_history(
             "select": "ledger_date,category,amount",
             "ledger_date": f"gte.{cutoff}",
             "order": "ledger_date.asc",
+            "limit": "1000",
         },
     )
     if resp.status_code != 200:
@@ -2215,7 +2222,7 @@ async def get_budget_config(request: Request, oc_session: str | None = Cookie(No
     resp = await client.get(
         f"{SUPABASE_URL}/rest/v1/budget_config",
         headers=sb_headers(),
-        params={"order": "config_key.asc"},
+        params={"order": "config_key.asc", "limit": "50"},
     )
     configs = resp.json() if resp.status_code == 200 else []
 
@@ -2226,6 +2233,7 @@ async def get_budget_config(request: Request, oc_session: str | None = Cookie(No
         params={
             "select": "category,amount",
             "ledger_date": f"eq.{today}",
+            "limit": "500",
         },
     )
     today_costs = resp2.json() if resp2.status_code == 200 else []
@@ -2500,6 +2508,7 @@ async def get_strategy_profiles(request: Request, oc_session: str | None = Cooki
         params={
             "select": "id,profile_name,description,active,annual_target_pct,daily_target_pct,weekly_target_pct,min_signal_score,min_tumbler_depth,min_confidence,max_risk_per_trade_pct,max_concurrent_positions,max_portfolio_risk_pct,position_size_method,trade_style,max_hold_days,circuit_breakers_enabled,self_modify_enabled,self_modify_requires_approval,prefer_high_beta,created_at",
             "order": "created_at.asc",
+            "limit": "50",
         },
     )
     return resp.json() if resp.status_code == 200 else []
@@ -2739,7 +2748,7 @@ async def get_tuning_profiles(request: Request, oc_session: str | None = Cookie(
     resp = await client.get(
         f"{SUPABASE_URL}/rest/v1/tuning_profile_performance",
         headers=sb_headers(),
-        params={"order": "version.desc"},
+        params={"order": "version.desc", "limit": "50"},
     )
     return resp.json() if resp.status_code == 200 else []
 
@@ -2872,6 +2881,7 @@ async def get_trade_learnings_stats(
         params={
             "select": "outcome,pnl_pct,expectation_accuracy,tumbler_depth,expected_confidence",
             "trade_date": f"gte.{cutoff}",
+            "limit": "500",
         },
     )
     if resp.status_code != 200:
@@ -3860,6 +3870,7 @@ async def get_shadow_profiles(request: Request, oc_session: str | None = Cookie(
                       "divergence_rate,last_graded_at",
             "is_shadow": "eq.true",
             "order": "fitness_score.desc",
+            "limit": "20",
         },
     )
     return resp.json() if resp.status_code == 200 else []
@@ -3988,6 +3999,7 @@ async def get_health_latest(request: Request, oc_session: str = Cookie(None)):
         params={
             "run_id": f"eq.{run_id}",
             "order": "check_order.asc",
+            "limit": "200",
         },
     )
     if rows_resp.status_code != 200:
@@ -4231,7 +4243,12 @@ async def get_simulator_status(
 
 @app.get("/api/health/flight-status")
 async def get_flight_status(request: Request, oc_session: str = Cookie(None)):
-    """Manifest vs reality for today's scheduled functions."""
+    """Manifest vs reality for today's scheduled functions.
+
+    Consolidated from N+1 per-entry queries into 2 total queries:
+    one against pipeline_runs (all pipeline_names at once, latest per name
+    resolved in Python), one against system_health (for health_check entry).
+    """
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         return []
@@ -4239,64 +4256,80 @@ async def get_flight_status(request: Request, oc_session: str = Cookie(None)):
     client = get_http()
     now = datetime.now(timezone.utc)
 
-    async def _check_entry(entry: dict) -> dict:
+    # Determine the maximum freshness window across all manifest entries so we
+    # fetch far enough back to catch weekly jobs (170h = ~7 days).
+    max_freshness_h = max(e["freshness_hours"] for e in FLIGHT_MANIFEST)
+    cutoff = (now - timedelta(hours=max_freshness_h + 12)).isoformat()
+
+    # Collect all distinct pipeline_names that use pipeline_runs.
+    pipeline_names = list({
+        e["pipeline_name"]
+        for e in FLIGHT_MANIFEST
+        if e["writes_pipeline_runs"]
+    })
+
+    # Single query: recent root rows for all relevant pipelines.
+    # Results are ordered desc so the first occurrence per pipeline_name is
+    # the most recent run — we reduce to latest_per_name in Python.
+    latest_per_pipeline: dict[str, str] = {}
+    try:
+        # Build an OR filter: pipeline_name=eq.X,pipeline_name=eq.Y,...
+        or_filter = ",".join(f"pipeline_name.eq.{pn}" for pn in pipeline_names)
+        pr_resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+            headers=sb_headers(),
+            params={
+                "select": "pipeline_name,started_at",
+                "or": f"({or_filter})",
+                "step_name": "eq.root",
+                "started_at": f"gte.{cutoff}",
+                "order": "started_at.desc",
+                "limit": "500",
+            },
+        )
+        if pr_resp.status_code == 200:
+            for row in pr_resp.json():
+                pn = row.get("pipeline_name", "")
+                if pn and pn not in latest_per_pipeline:
+                    latest_per_pipeline[pn] = row["started_at"]
+    except Exception:
+        pass
+
+    # Single query: most recent scheduled health_check run.
+    health_check_last_run: str | None = None
+    try:
+        sh_resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/system_health",
+            headers=sb_headers(),
+            params={
+                "select": "created_at",
+                "run_type": "eq.scheduled",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if sh_resp.status_code == 200 and sh_resp.json():
+            health_check_last_run = sh_resp.json()[0].get("created_at")
+    except Exception:
+        pass
+
+    def _compute_entry(entry: dict) -> dict:
         name = entry["name"]
         pipeline_name = entry["pipeline_name"]
         freshness_hours = entry["freshness_hours"]
         writes_pipeline_runs = entry["writes_pipeline_runs"]
 
-        last_run_at: str | None = None
-        freshness_ok = False
-
         if writes_pipeline_runs:
-            try:
-                resp = await client.get(
-                    f"{SUPABASE_URL}/rest/v1/pipeline_runs",
-                    headers=sb_headers(),
-                    params={
-                        "select": "started_at,status",
-                        "pipeline_name": f"eq.{pipeline_name}",
-                        "step_name": "eq.root",
-                        "order": "started_at.desc",
-                        "limit": "1",
-                    },
-                )
-                rows = resp.json() if resp.status_code == 200 else []
-                if rows:
-                    last_run_at = rows[0].get("started_at")
-            except Exception:
-                pass
+            last_run_at = latest_per_pipeline.get(pipeline_name)
         else:
-            # health_check — query system_health table
-            try:
-                resp = await client.get(
-                    f"{SUPABASE_URL}/rest/v1/system_health",
-                    headers=sb_headers(),
-                    params={
-                        "select": "created_at",
-                        "run_type": "eq.scheduled",
-                        "order": "created_at.desc",
-                        "limit": "1",
-                    },
-                )
-                rows = resp.json() if resp.status_code == 200 else []
-                if rows:
-                    last_run_at = rows[0].get("created_at")
-            except Exception:
-                pass
+            last_run_at = health_check_last_run
 
-        # Compute status
         if last_run_at:
             try:
                 last_dt = datetime.fromisoformat(last_run_at.replace("Z", "+00:00"))
                 age_h = (now - last_dt).total_seconds() / 3600
                 freshness_ok = age_h <= freshness_hours
-                if freshness_ok:
-                    status = "ran"
-                elif age_h <= freshness_hours * 1.5:
-                    status = "stale"
-                else:
-                    status = "stale"
+                status = "ran" if freshness_ok else "stale"
             except (ValueError, AttributeError):
                 status = "missing"
                 freshness_ok = False
@@ -4315,8 +4348,7 @@ async def get_flight_status(request: Request, oc_session: str = Cookie(None)):
             "freshness_hours": freshness_hours,
         }
 
-    results = await asyncio.gather(*[_check_entry(e) for e in FLIGHT_MANIFEST])
-    return list(results)
+    return [_compute_entry(e) for e in FLIGHT_MANIFEST]
 
 
 if __name__ == "__main__":

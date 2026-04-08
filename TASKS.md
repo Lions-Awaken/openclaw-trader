@@ -356,7 +356,7 @@ Shows the manifest-vs-reality diff for today's scheduled runs. One row per manif
 
 ## Wave 4 — Integration + Deploy
 
-### TASK-SIM-05 . PICARD . [BLOCKED: TASK-SIM-02, TASK-SIM-04]
+### TASK-SIM-05 . PICARD . [DONE]
 **Goal:** Final integration. (1) Commit all changes and push to git. (2) SSH to ridley, git pull, verify all new scripts exist. (3) Run `python scripts/test_system.py` on ridley — all tests should pass. (4) Run `python scripts/health_check.py --dry-run` on ridley — all groups including new ones should pass. (5) Verify dashboard Flight Status tab loads with correct data. (6) Deploy dashboard to Fly.io. (7) Post summary to Slack thread 1775527228.672159.
 **Acceptance:** test_system.py passes all tests on ridley. health_check.py --dry-run passes on ridley. Dashboard deployed. Slack summary posted. All scripts exist on ridley.
 **Output artifact:** Final summary in PROGRESS.md with test output.
@@ -364,8 +364,102 @@ Shows the manifest-vs-reality diff for today's scheduled runs. One row per manif
 
 ---
 
+## Optimization Audit — Cut the Fat
+
+Source: 4-agent deep audit (2026-04-07) — code size, hardware, costs, architecture
+Goal: Reduce cost, eliminate RAM crash risk, consolidate code — zero feature loss
+
+---
+
+## Wave 1 — Critical Fixes (no feature changes, immediate impact)
+
+### TASK-OPT-01 . BACKEND-AGENT . [DONE]
+**Goal:** Reschedule ridley crontab to eliminate RAM overlap. Move catalyst_ingest midday from 9:15 to 9:00 (15-min buffer before 9:30 scanner). Remove position_manager 12:30 run (keep 12:00 + 12:45 only). This eliminates the 9:15-9:30 concurrent load that peaks at 9.3GB on a 7.4GB system.
+**Acceptance:** `crontab -l` on ridley shows catalyst_ingest at `0 9` not `15 9`. Position_manager no longer runs at 12:30. Update manifest.py schedule fields to match.
+**Output artifact:** Updated crontab + manifest.py schedule entries in PROGRESS.md.
+**Depends on:** nothing
+
+### TASK-OPT-02 . BACKEND-AGENT . [DONE]
+**Goal:** Fix dashboard N+1 query pattern in `/api/logs/domains` (server.py line ~3423). Currently queries pipeline_runs 3 times with different filters in `_fetch_system_data()`. Consolidate into a single query that fetches all needed data, then filter/aggregate in Python. Also add `limit=500` default to all GET endpoints that currently return unbounded result sets.
+**Acceptance:** `/api/logs/domains` makes 1 Supabase query (not 3). All GET endpoints returning lists have a limit parameter (default 100 or 500). Ruff clean.
+**Output artifact:** Updated server.py.
+**Depends on:** nothing
+
+### TASK-OPT-03 . BACKEND-AGENT . [DONE]
+**Goal:** Create `requirements.txt` at project root listing all Python dependencies used on ridley. SSH to ridley, run `pip freeze` or inspect imports across all scripts. Include: httpx, anthropic, sentry-sdk, colorama, psutil, yfinance, feedparser (if used). Pin versions. Also create a `scripts/install.sh` that does `pip install -r requirements.txt`.
+**Acceptance:** `requirements.txt` exists at project root. `pip install -r requirements.txt` on a clean env installs everything needed. All scripts import without error.
+**Output artifact:** requirements.txt + scripts/install.sh.
+**Depends on:** nothing
+
+---
+
+## Wave 2 — Cost Reduction (feature-preserving, save ~$40-60/mo)
+
+### TASK-OPT-04 . BACKEND-AGENT . [DONE]
+**Goal:** Remove Perplexity API from catalyst_ingest.py. The `fetch_perplexity_search()` function (line ~543) duplicates information already provided by Finnhub news + SEC EDGAR + yfinance. Remove the function, remove the call from `run()`, remove the PERPLEXITY_API_KEY env var check. Keep the function code in a comment block or separate file for potential future re-enablement. Update manifest.py to remove perplexity from expected_steps. Saves $20-45/month.
+**Acceptance:** `catalyst_ingest.py` no longer imports or calls Perplexity. `ruff check` passes. Catalyst ingest still runs with 5 sources (finnhub, sec_edgar, quiverquant, yfinance, fred). No cost_ledger entries for perplexity_api after next run.
+**Output artifact:** Updated catalyst_ingest.py + manifest.py.
+**Depends on:** nothing
+
+### TASK-OPT-05 . BACKEND-AGENT . [DONE]
+**Goal:** Downgrade Tumbler 4 (pattern matching) from `claude-sonnet-4-6` to `claude-haiku-4-5-20251001` in inference_engine.py. T4 is a simpler pattern-matching task that doesn't need Sonnet's depth. Keep T5 (counterfactual synthesis) on Sonnet — it requires deeper reasoning. This saves ~70-80% on T4 costs. Also implement tiered shadow budget gate: when budget < 40%, run only REGIME_WATCHER (free — stops at T3) + FORM4_INSIDER (cheapest full-chain); when budget < 20%, skip all shadows. Current gate is binary (all or nothing at 40%).
+**Acceptance:** T4 calls use haiku model. T5 calls still use sonnet. Scanner shadow loop has 3-tier budget gate (full/reduced/none). Ruff clean. Cost_ledger entries after next run show lower per-call amounts for T4.
+**Output artifact:** Updated inference_engine.py + scanner.py.
+**Depends on:** TASK-OPT-04
+
+---
+
+## Wave 3 — Code Consolidation (same functionality, less code)
+
+### TASK-OPT-06 . BACKEND-AGENT . [DONE]
+**Goal:** Centralize `call_claude()` in common.py. Currently the Claude API call pattern (headers, retry logic, backoff, error handling) is duplicated across inference_engine.py, meta_daily.py, meta_weekly.py, and post_trade_analysis.py. Extract a single `call_claude(model, messages, max_tokens, temperature=0.3) -> dict` function in common.py. Update all 4 files to import and use it. Include the dual-key retry pattern (ANTHROPIC_API_KEY → ANTHROPIC_API_KEY_2 fallback).
+**Acceptance:** `call_claude()` exists in common.py. All 4 files import from common instead of inline Claude calls. No duplicate headers/retry code remains. Ruff clean across all 5 files.
+**Output artifact:** Updated common.py + 4 script files.
+**Depends on:** nothing
+
+### TASK-OPT-07 . BACKEND-AGENT . [DONE]
+**Goal:** Merge `scripts/ingest_form4.py` and `scripts/ingest_options_flow.py` into a single `scripts/ingest_signals.py` with a mode argument: `python scripts/ingest_signals.py form4` or `python scripts/ingest_signals.py options`. Shared boilerplate (imports, tracer setup, DB write pattern) consolidated. Scoring functions kept as separate named functions within the file. Update crontab on ridley, manifest.py, and health_check.py references. Delete the two old files.
+**Acceptance:** `python scripts/ingest_signals.py form4` works identically to old ingest_form4.py. `python scripts/ingest_signals.py options` works identically to old ingest_options_flow.py. Old files deleted. Crontab updated. Manifest updated. Ruff clean.
+**Output artifact:** New ingest_signals.py, deleted ingest_form4.py + ingest_options_flow.py.
+**Depends on:** TASK-OPT-06
+
+### TASK-OPT-08 . BACKEND-AGENT . [DONE]
+**Goal:** Consolidate `scripts/meta_daily.py` and `scripts/meta_weekly.py` into `scripts/meta_analysis.py` with a frequency argument: `python scripts/meta_analysis.py daily` or `python scripts/meta_analysis.py weekly`. The ~40% overlapping code (data gathering, Claude reflection, embedding, storage) is shared. The daily-specific and weekly-specific logic (aggregation window, prompt text, extra pattern discovery) are branched by frequency. Update crontab, manifest.py references. Delete old files.
+**Acceptance:** `python scripts/meta_analysis.py daily` produces identical output to old meta_daily.py. Weekly mode same. Old files deleted. Crontab updated. Manifest updated. Ruff clean.
+**Output artifact:** New meta_analysis.py, deleted meta_daily.py + meta_weekly.py.
+**Depends on:** TASK-OPT-06
+
+---
+
+## Wave 4 — Architecture Cleanup
+
+### TASK-OPT-09 . BACKEND-AGENT . [DONE]
+**Goal:** Refactor `scanner.py::run()` from 361 lines into 4-5 well-named functions: `_setup_and_check() -> dict` (profile, account, circuit breakers), `_build_and_scan() -> list[dict]` (watchlist, bars, signals, enrichment), `_run_inference(candidates) -> list[dict]` (live inference loop), `_run_shadow_inference(candidates, inference_results) -> dict` (shadow loop with tiered budget gate), `_execute_trades(actionable) -> list` (order placement). The `run()` function becomes a ~50-line orchestrator calling these functions in sequence. No behavior change — pure refactor.
+**Acceptance:** `scanner.py::run()` is <= 80 lines. All extracted functions are defined in the same file. Scanner produces identical output (same pipeline_runs steps, same inference_chains, same trade behavior). Ruff clean.
+**Output artifact:** Updated scanner.py.
+**Depends on:** TASK-OPT-05, TASK-OPT-07, TASK-OPT-08
+
+### TASK-OPT-10 . BACKEND-AGENT . [DONE]
+**Goal:** Update `scripts/manifest.py`, `scripts/test_system.py`, and `scripts/health_check.py` to reflect all consolidation changes: new script names (ingest_signals.py, meta_analysis.py), updated function names from scanner refactor, removed Perplexity references. Run the preflight simulator to verify everything still works.
+**Acceptance:** `python scripts/test_system.py --dry-run` passes with no NO-GO results from import or manifest checks. `python scripts/health_check.py --dry-run` passes all groups. Manifest entries match actual scripts. Ruff clean.
+**Output artifact:** Updated manifest.py + test_system.py + health_check.py. Dry-run output in PROGRESS.md.
+**Depends on:** TASK-OPT-09
+
+---
+
+## Wave 5 — Deploy + Verify
+
+### TASK-OPT-11 . PICARD . [BLOCKED: TASK-OPT-10]
+**Goal:** Final integration. Commit all changes. Push to git. Pull on ridley. Run `python scripts/test_system.py` on ridley (full, not dry-run) — all tests should pass. Verify crontab is correct. Post summary to Slack.
+**Acceptance:** All tests pass on ridley. Crontab verified. Code deployed. Slack summary posted.
+**Output artifact:** Final summary in PROGRESS.md.
+**Depends on:** TASK-OPT-10
+
+---
+
 ## Completed — Prior Sessions
 
+### System Simulator + NASA Preflight (2026-04-07): TASK-SIM-01 through TASK-SIM-05 . [DONE]
 ### Health Monitor + Signal Diversification (2026-04-07): TASK-HM-01 through TASK-SD-06 + TASK-INT-01 . [DONE]
 ### Adversarial Ensemble Architecture (2026-04-06): TASK-AE-01 through TASK-AE-07 . [DONE]
 ### Dashboard Fix Session (2026-04-06): TASK-D01 through TASK-D06 . [DONE]

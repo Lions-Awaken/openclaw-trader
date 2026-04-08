@@ -1,52 +1,70 @@
 #!/usr/bin/env python3
+"""Unified signal ingest — Form 4 insider filings and options flow.
+
+Usage:
+    python scripts/ingest_signals.py form4      # SEC EDGAR Form 4 insider filings
+    python scripts/ingest_signals.py options    # Options flow (CSV or Unusual Whales API)
+
+Form 4 mode (replaces ingest_form4.py):
+    Fetches SEC EDGAR Form 4 filings for the active watchlist + AI infra tickers.
+    Scores purchase transactions 1–10 and writes to form4_signals.
+    Runs at 6:00 AM PDT weekdays.
+
+Options mode (replaces ingest_options_flow.py):
+    Loads unusual options activity from data/options_flow.csv (manual) or
+    the Unusual Whales API (when UNUSUAL_WHALES_API_KEY is set).
+    Scores signals 1–10 and writes to options_flow_signals.
+    Runs at 7:00 AM PDT weekdays.
 """
-Form 4 Ingest — fetches SEC EDGAR Form 4 insider filings and writes to
-form4_signals table.
 
-Target tickers: active strategy profile watchlist + hardcoded AI
-infrastructure names (NVDA, AMD, AVGO, SMCI, MRVL, DELL, PLTR, ARM).
-
-Scoring: score_form4_signal() returns 1–10. Sales are skipped (score 0).
-Buys are scored on total value, ownership % change, cluster count, and
-filer seniority.
-
-Runs as a standalone script (cron 6 AM PST weekdays) or imported for its
-scoring function by the scanner enrichment layer.
-"""
-
+import argparse
+import csv
 import os
 import sys
 import time
+from collections import Counter
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
 from common import _client, load_strategy_profile, sb_get, slack_notify
 from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced
 
 # ===========================================================================
-# Config
+# Shared config
 # ===========================================================================
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 
-# Hardcoded AI infrastructure watchlist — always included
+# ===========================================================================
+# Form 4 — config
+# ===========================================================================
 AI_INFRA_TICKERS = ["NVDA", "AMD", "AVGO", "SMCI", "MRVL", "DELL", "PLTR", "ARM"]
 
 # SEC EDGAR EFTS full-text search endpoint
 EDGAR_EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
 
-# User-Agent required by SEC EDGAR — must identify the application
+# User-Agent required by SEC EDGAR
 SEC_USER_AGENT = "OpenClaw-Trader/1.0 (research; github.com/Lions-Awaken)"
 
-# Lookback window for Form 4 filings
 LOOKBACK_DAYS = 3
 
-# Titles that earn senior credit in scoring
 SENIOR_TITLES = {"ceo", "cfo", "coo", "president", "chairman", "chief executive", "chief financial"}
 MID_TITLES = {"vp", "vice president", "director", "svp", "evp", "general counsel", "treasurer"}
 
+# ===========================================================================
+# Options Flow — config
+# ===========================================================================
+UNUSUAL_WHALES_KEY = os.environ.get("UNUSUAL_WHALES_API_KEY", "")
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+CSV_PATH = _REPO_ROOT / "data" / "options_flow.csv"
+
+VALID_SIGNAL_TYPES = {"unusual_call", "unusual_put", "sweep", "block", "darkpool"}
+VALID_SENTIMENTS = {"bullish", "bearish", "neutral"}
+
 
 # ===========================================================================
-# Scoring
+# Form 4 — scoring
 # ===========================================================================
 def score_form4_signal(row: dict) -> int:
     """Score a Form 4 filing signal 1–10.
@@ -111,13 +129,12 @@ def score_form4_signal(row: dict) -> int:
 
 
 # ===========================================================================
-# Watchlist
+# Form 4 — watchlist
 # ===========================================================================
 def get_target_tickers() -> list[str]:
     """Combine active profile watchlist with AI infra hardcoded list."""
     tickers: set[str] = set(AI_INFRA_TICKERS)
 
-    # Load from active strategy profile watchlist (signal_evaluations recent scans)
     try:
         profile = load_strategy_profile()
         watchlist = profile.get("watchlist", [])
@@ -126,7 +143,6 @@ def get_target_tickers() -> list[str]:
     except Exception as e:
         print(f"[form4] Could not load strategy profile watchlist: {e}")
 
-    # Also pull from recent signal_evaluations as a secondary source
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).date().isoformat()
         evals = sb_get("signal_evaluations", {
@@ -146,14 +162,11 @@ def get_target_tickers() -> list[str]:
 
 
 # ===========================================================================
-# EDGAR fetcher
+# Form 4 — EDGAR fetcher
 # ===========================================================================
 @traced("ingest")
 def fetch_edgar_form4(start_dt: date, end_dt: date) -> list[dict]:
-    """Query SEC EDGAR EFTS for Form 4 filings in the given date range.
-
-    Returns a list of raw filing dicts extracted from the EDGAR response.
-    """
+    """Query SEC EDGAR EFTS for Form 4 filings in the given date range."""
     try:
         resp = _client.get(
             EDGAR_EFTS_URL,
@@ -192,11 +205,10 @@ def fetch_edgar_form4(start_dt: date, end_dt: date) -> list[dict]:
 
 
 # ===========================================================================
-# Parse + filter
+# Form 4 — parse + filter
 # ===========================================================================
 def _extract_ticker(filing: dict) -> str | None:
     """Best-effort extraction of the primary ticker from an EDGAR filing record."""
-    # EDGAR EFTS uses 'entity_name' but not always a ticker — try common fields
     ticker = (
         filing.get("ticker_symbol")
         or filing.get("ticker")
@@ -229,14 +241,8 @@ def _extract_int(filing: dict, *keys: str) -> int | None:
     return None
 
 
-def parse_filings(
-    filings: list[dict],
-    target_tickers: set[str],
-) -> list[dict]:
-    """Filter to target tickers, normalise fields, skip sales.
-
-    Returns normalised records ready for scoring and DB insert.
-    """
+def parse_filings(filings: list[dict], target_tickers: set[str]) -> list[dict]:
+    """Filter to target tickers, normalise fields, skip sales."""
     records: list[dict] = []
     today = date.today().isoformat()
 
@@ -245,10 +251,6 @@ def parse_filings(
         if not ticker or ticker not in target_tickers:
             continue
 
-        # EDGAR EFTS does not always carry structured transaction fields —
-        # we capture what's available and leave None for the rest.
-        # The DB columns are nullable to accommodate this.
-
         filing_date = filing.get("file_date") or filing.get("period_of_report") or today
         signal_date = filing.get("period_of_report") or filing_date
 
@@ -256,7 +258,6 @@ def parse_filings(
         filer_title = str(filing.get("officer_title") or "")
 
         transaction_type_raw = str(filing.get("transaction_code") or "").upper()
-        # EDGAR transaction codes: P = purchase, S = sale, G = gift, M = exercise
         transaction_type_map = {
             "P": "purchase",
             "S": "sale",
@@ -266,7 +267,6 @@ def parse_filings(
         }
         transaction_type = transaction_type_map.get(transaction_type_raw, "sale")
 
-        # Skip sales immediately — score_form4_signal() would return 0 anyway
         if transaction_type == "sale":
             continue
 
@@ -274,7 +274,6 @@ def parse_filings(
         price_per_share = _extract_float(filing, "price_per_share", "transaction_price_per_share")
         total_value = _extract_float(filing, "total_value", "transaction_total_value")
 
-        # Derive total_value if not directly available
         if total_value is None and shares is not None and price_per_share is not None:
             total_value = round(shares * price_per_share, 2)
 
@@ -293,8 +292,8 @@ def parse_filings(
             "total_value": total_value,
             "shares_owned_after": shares_owned_after,
             "ownership_pct_change": ownership_pct_change,
-            "days_since_last_filing": None,  # populated below if derivable
-            "cluster_count": 1,              # updated by cluster detection
+            "days_since_last_filing": None,
+            "cluster_count": 1,
             "source": "sec_edgar",
             "raw_data": filing,
         })
@@ -304,8 +303,6 @@ def parse_filings(
 
 def _detect_clusters(records: list[dict]) -> list[dict]:
     """Update cluster_count for tickers with multiple buyers in the batch."""
-    from collections import Counter
-
     ticker_counts: Counter = Counter(r["ticker"] for r in records)
     for rec in records:
         rec["cluster_count"] = ticker_counts[rec["ticker"]]
@@ -313,7 +310,7 @@ def _detect_clusters(records: list[dict]) -> list[dict]:
 
 
 # ===========================================================================
-# DB insert
+# Form 4 — DB insert
 # ===========================================================================
 @traced("ingest")
 def insert_form4_signals(records: list[dict]) -> int:
@@ -325,10 +322,9 @@ def insert_form4_signals(records: list[dict]) -> int:
     for rec in records:
         score = score_form4_signal(rec)
         if score == 0:
-            continue  # Sales filtered here as a safety net
+            continue
 
         row = {**rec, "raw_data": {**rec.get("raw_data", {}), "score": score}}
-        # Strip None values to let DB defaults apply
         row = {k: v for k, v in row.items() if v is not None}
 
         stored = _post_to_supabase("form4_signals", row)
@@ -339,9 +335,173 @@ def insert_form4_signals(records: list[dict]) -> int:
 
 
 # ===========================================================================
-# Entry point
+# Options Flow — scoring
 # ===========================================================================
-def run() -> None:
+def score_options_signal(sig: dict) -> int:
+    """Score an options flow signal 1–10.
+
+    Args:
+        sig: dict with keys: premium (float), signal_type (str),
+             implied_volatility (float), sentiment (str).
+
+    Returns:
+        Integer score 1–10. Returns 0 if the row is clearly invalid.
+    """
+    score = 1  # base
+
+    # Premium size
+    try:
+        premium = float(sig.get("premium") or 0)
+    except (ValueError, TypeError):
+        premium = 0.0
+
+    if premium >= 1_000_000:
+        score += 3
+    elif premium >= 500_000:
+        score += 2
+    elif premium >= 100_000:
+        score += 1
+
+    # Signal type
+    signal_type = str(sig.get("signal_type") or "").lower().strip()
+    if signal_type in ("sweep", "block"):
+        score += 2
+    elif signal_type == "darkpool":
+        score += 1
+
+    # IV rank
+    try:
+        iv = float(sig.get("implied_volatility") or 0)
+    except (ValueError, TypeError):
+        iv = 0.0
+
+    if iv >= 0.70:
+        score += 2
+    elif iv >= 0.50:
+        score += 1
+
+    return min(score, 10)
+
+
+# ===========================================================================
+# Options Flow — data sources
+# ===========================================================================
+def load_options_csv(path: str) -> list[dict]:
+    """Read options flow signals from the given CSV path.
+
+    Returns an empty list (no error raised) if the file does not exist.
+    """
+    csv_path = Path(path)
+    if not csv_path.exists():
+        print(f"[options_flow] CSV not found at {csv_path} — skipping manual load")
+        return []
+
+    rows: list[dict] = []
+    with csv_path.open(newline="") as fh:
+        reader = csv.DictReader(fh)
+        for i, raw in enumerate(reader, start=1):
+            row = {k.strip().lower(): v.strip() for k, v in raw.items()}
+
+            ticker = row.get("ticker", "").upper()
+            signal_type = row.get("signal_type", "").lower()
+            sentiment = row.get("sentiment", "").lower()
+
+            if not ticker:
+                print(f"[options_flow] Row {i}: missing ticker — skipped")
+                continue
+            if signal_type not in VALID_SIGNAL_TYPES:
+                print(
+                    f"[options_flow] Row {i} ({ticker}): invalid signal_type "
+                    f"'{signal_type}' — skipped"
+                )
+                continue
+            if sentiment and sentiment not in VALID_SENTIMENTS:
+                print(
+                    f"[options_flow] Row {i} ({ticker}): invalid sentiment "
+                    f"'{sentiment}' — defaulting to neutral"
+                )
+                sentiment = "neutral"
+
+            def _num(key: str) -> float | None:
+                val = row.get(key, "")
+                try:
+                    return float(val) if val else None
+                except ValueError:
+                    return None
+
+            rows.append({
+                "ticker": ticker,
+                "signal_date": row.get("signal_date") or date.today().isoformat(),
+                "signal_type": signal_type,
+                "strike": _num("strike"),
+                "expiry": row.get("expiry") or None,
+                "premium": _num("premium"),
+                "open_interest": int(_num("open_interest") or 0) or None,
+                "volume": int(_num("volume") or 0) or None,
+                "implied_volatility": _num("implied_volatility"),
+                "sentiment": sentiment or "neutral",
+                "source": "manual",
+                "raw_data": dict(raw),
+            })
+
+    print(f"[options_flow] Loaded {len(rows)} rows from CSV")
+    return rows
+
+
+def fetch_from_unusual_whales(api_key: str) -> list[dict]:
+    """Fetch unusual options activity from the Unusual Whales API.
+
+    This is a stub — the full implementation requires a paid API subscription.
+    When UNUSUAL_WHALES_API_KEY is not set this function returns an empty list
+    so the script can run in CSV-only mode.
+
+    Args:
+        api_key: Unusual Whales API key from UNUSUAL_WHALES_API_KEY env var.
+
+    Returns:
+        List of normalised option flow dicts (empty until API is wired up).
+    """
+    if not api_key:
+        print(
+            "[options_flow] UNUSUAL_WHALES_API_KEY not configured — "
+            "set env var to enable live options flow"
+        )
+        return []
+
+    # Stub: API integration not yet implemented.
+    # When ready, call https://api.unusualwhales.com/api/option-contracts/flow
+    # with Authorization: Bearer {api_key} and map response to our schema.
+    print("[options_flow] Unusual Whales API key found but integration is a stub — returning empty list")
+    return []
+
+
+# ===========================================================================
+# Options Flow — DB insert
+# ===========================================================================
+@traced("ingest")
+def insert_options_signals(signals: list[dict]) -> int:
+    """Score and upsert options flow signals to Supabase. Returns inserted count."""
+    if not signals:
+        return 0
+
+    inserted = 0
+    for sig in signals:
+        score = score_options_signal(sig)
+        record = {**sig, "raw_data": {**sig.get("raw_data", {}), "score": score}}
+        record = {k: v for k, v in record.items() if v is not None}
+
+        stored = _post_to_supabase("options_flow_signals", record)
+        if stored:
+            inserted += 1
+
+    return inserted
+
+
+# ===========================================================================
+# Mode runners
+# ===========================================================================
+def run_form4() -> None:
+    """Run the Form 4 insider filing ingest (replaces ingest_form4.py)."""
     tracer = PipelineTracer(
         "ingest_form4",
         metadata={"time": datetime.now(timezone.utc).isoformat()},
@@ -352,26 +512,20 @@ def run() -> None:
         end_dt = date.today()
         start_dt = end_dt - timedelta(days=LOOKBACK_DAYS)
 
-        # Step 1: resolve target tickers
         with tracer.step("load_watchlist") as result:
             target_tickers = get_target_tickers()
             result.set({"ticker_count": len(target_tickers)})
 
-        # Step 2: fetch from EDGAR
         with tracer.step("fetch_edgar", input_snapshot={"start": start_dt.isoformat(), "end": end_dt.isoformat()}) as result:
             filings = fetch_edgar_form4(start_dt, end_dt)
             result.set({"raw_filings": len(filings)})
-
-            # Brief pause to be polite to SEC servers
             time.sleep(1)
 
-        # Step 3: parse, filter, cluster
         with tracer.step("parse_filings", input_snapshot={"filings": len(filings)}) as result:
             records = parse_filings(filings, set(target_tickers))
             records = _detect_clusters(records)
             result.set({"parsed": len(records)})
 
-        # Step 4: score + insert
         with tracer.step("insert_signals", input_snapshot={"records": len(records)}) as result:
             inserted = insert_form4_signals(records)
             result.set({"inserted": inserted, "total": len(records)})
@@ -392,5 +546,62 @@ def run() -> None:
         raise
 
 
+def run_options() -> None:
+    """Run the options flow ingest (replaces ingest_options_flow.py)."""
+    tracer = PipelineTracer(
+        "ingest_options_flow",
+        metadata={"time": datetime.now(timezone.utc).isoformat()},
+    )
+    set_active_tracer(tracer)
+
+    try:
+        signals: list[dict] = []
+
+        with tracer.step("fetch_signals") as result:
+            if UNUSUAL_WHALES_KEY:
+                live = fetch_from_unusual_whales(UNUSUAL_WHALES_KEY)
+                signals.extend(live)
+                result.set({"source": "unusual_whales", "count": len(live)})
+            else:
+                csv_rows = load_options_csv(str(CSV_PATH))
+                signals.extend(csv_rows)
+                result.set({"source": "csv", "count": len(csv_rows)})
+
+        with tracer.step("insert_signals", input_snapshot={"total": len(signals)}) as result:
+            inserted = insert_options_signals(signals)
+            result.set({"inserted": inserted, "total": len(signals)})
+
+        tracer.complete({"inserted": inserted, "total": len(signals)})
+        print(f"[options_flow] Complete — {inserted}/{len(signals)} signals inserted")
+
+        if signals:
+            slack_notify(
+                f"*Options Flow Ingest* — `{inserted}` signals inserted "
+                f"({'unusual_whales' if UNUSUAL_WHALES_KEY else 'csv'})"
+            )
+
+    except Exception as e:
+        tracer.fail(str(e))
+        print(f"[options_flow] Fatal: {e}")
+        slack_notify(f"*Options Flow Ingest FATAL*: {e}")
+        raise
+
+
+# ===========================================================================
+# Entry point
+# ===========================================================================
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(
+        description="Unified signal ingest — Form 4 insider filings and options flow."
+    )
+    parser.add_argument(
+        "mode",
+        choices=["form4", "options"],
+        help="form4: SEC EDGAR insider filings | options: unusual options activity",
+    )
+    args = parser.parse_args()
+
+    if args.mode == "form4":
+        run_form4()
+    else:
+        run_options()
