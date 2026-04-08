@@ -4163,14 +4163,34 @@ FLIGHT_MANIFEST = [
 
 @app.post("/api/simulator/run")
 async def trigger_simulator(request: Request, oc_session: str = Cookie(None)):
-    """Trigger test_system.py as a subprocess. Returns a run_id for polling."""
+    """Write a trigger row to system_health; simulator_watcher on ridley will pick it up.
+
+    The old approach (subprocess.Popen) only works when the dashboard is running locally
+    on ridley. This Supabase-bridged approach works from Fly.io or anywhere else.
+    """
     _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        raise HTTPException(status_code=503, detail="Supabase not configured")
     run_id = str(uuid.uuid4())
-    subprocess.Popen(
-        [sys.executable, "scripts/test_system.py"],
-        env={**os.environ, "SIMULATOR_RUN_ID": run_id},
-        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    client = get_http()
+    resp = await client.post(
+        f"{SUPABASE_URL}/rest/v1/system_health",
+        headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=minimal"},
+        json={
+            "run_id": run_id,
+            "run_type": "simulator",
+            "check_group": "TRIGGER",
+            "check_name": "_trigger",
+            "check_order": 0,
+            "status": "skip",
+            "value": "awaiting ridley pickup",
+            "expected": "",
+            "error_message": "",
+            "duration_ms": 0,
+        },
     )
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=502, detail="Failed to write trigger row to Supabase")
     return {"status": "triggered", "run_id": run_id}
 
 
@@ -4214,7 +4234,9 @@ async def get_simulator_status(
         params={
             "run_id": f"eq.{run_id}",
             "run_type": "eq.simulator",
+            "check_name": "neq._trigger",  # exclude the trigger sentinel row
             "order": "check_order.asc",
+            "limit": "100",
         },
     )
     if rows_resp.status_code != 200:

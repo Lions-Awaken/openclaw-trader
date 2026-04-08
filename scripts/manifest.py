@@ -309,6 +309,16 @@ EVENT_TRIGGERED: list[ManifestEntry] = [
         criticality="low",
         writes_to_pipeline_runs=False,  # writes to system_health
     ),
+    ManifestEntry(
+        name="simulator_watcher",
+        script="scripts/simulator_watcher.py",
+        pipeline_name="simulator_watcher",
+        schedule="persistent",
+        schedule_desc="Persistent daemon on ridley — polls for simulator triggers every 15s",
+        expected_steps=[],
+        criticality="low",
+        writes_to_pipeline_runs=False,  # does not write pipeline_runs, manages system_health
+    ),
 ]
 
 ALL_ENTRIES: list[ManifestEntry] = MANIFEST + EVENT_TRIGGERED
