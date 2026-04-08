@@ -15,16 +15,21 @@ openclaw-trader/
 │   └── migrations/           # SQL migrations
 ├── scripts/
 │   ├── scan-secrets.sh       # Secret scanner for pre-commit
+│   ├── manifest.py           # Function manifest — canonical registry of all scheduled/triggered functions
 │   ├── tracer.py             # PipelineTracer — execution observability library
-│   ├── catalyst_ingest.py    # 4-source catalyst detection + embedding (3x daily)
+│   ├── common.py             # Shared imports: Supabase, Alpaca, Slack, embeddings
+│   ├── shadow_profiles.py    # Immutable adversarial system prompts (5 profiles)
+│   ├── catalyst_ingest.py    # 6-source catalyst detection + embedding (3x daily)
 │   ├── inference_engine.py   # 5-tumbler Lock & Tumbler analysis engine
-│   ├── scanner.py            # Autonomous trading orchestrator — scan → infer → execute (2x daily)
+│   ├── scanner.py            # Autonomous trading orchestrator — scan → enrich → infer → shadow → execute (2x daily)
 │   ├── position_manager.py   # Position lifecycle — trailing stops, time stops, EOD flatten (every 30m)
-│   ├── scanner_unleashed.py  # UNLEASHED signal scoring (9 signals, alpaca-py SDK)
-│   ├── calibrator.py         # Weekly calibration + outcome grading + pattern updates
+│   ├── health_check.py       # 44-check pre-market system health (8 groups, writes system_health table)
+│   ├── ingest_form4.py       # SEC EDGAR Form 4 insider filing ingest (weekday 6AM)
+│   ├── ingest_options_flow.py # Options flow signal ingest — CSV + Unusual Whales stub (weekday 7AM)
+│   ├── calibrator.py         # Weekly calibration + outcome grading + shadow profile DWM weighting
 │   ├── post_trade_analysis.py # Post-trade RAG ingestion — triggered on every trade close
-│   ├── meta_daily.py         # Daily meta-analysis with RAG + chain analysis (cron 4:30 PM ET)
-│   └── meta_weekly.py        # Weekly strategy review + pattern discovery (cron Sunday 7 PM ET)
+│   ├── meta_daily.py         # Daily meta-analysis with RAG + chain + shadow divergence context
+│   └── meta_weekly.py        # Weekly strategy review + pattern discovery (cron Sunday 4 PM PDT)
 ├── dashboard/
 │   ├── server.py             # FastAPI backend with trading + pipeline + meta + tumbler APIs
 │   ├── index.html            # Dashboard UI (10 tabs)
@@ -84,23 +89,53 @@ Decision: strong_enter (>=0.75) | enter (>=0.60) | watch (>=0.45) | skip (>=0.20
 
 Stopping rules: veto_signal, confidence_floor, forced_connection (delta < 0.03), conflicting_signals, insufficient_data, resource_limit, time_limit (30s).
 
+## Function Manifest
+
+**Canonical source:** `scripts/manifest.py`
+
+Every scheduled and event-triggered function in the system is registered in the manifest. Health checks diff the manifest against `pipeline_runs` to detect silent failures — if it's not in the manifest, the system can't tell you it didn't run.
+
+### Convention: Update the Manifest on Every Change
+
+When you add, remove, or modify any of the following, you MUST update `scripts/manifest.py`:
+- A new cron-scheduled script
+- A new crontab entry on ridley
+- A new `PipelineTracer` pipeline_name
+- A new expected step_name within an existing pipeline
+- A change to an existing schedule or dependency
+
+**Format:** Add a `ManifestEntry` to `MANIFEST` (cron) or `EVENT_TRIGGERED` (on-demand). Fields: name, script, pipeline_name, schedule, schedule_desc, expected_steps, criticality, dependencies.
+
+### Deploy Checklist
+
+After writing scripts that run on ridley via cron:
+1. Update `scripts/manifest.py` with new entries
+2. Commit and push on mother_brain
+3. SSH to ridley: `cd ~/openclaw-trader && git pull`
+4. Verify: `crontab -l | grep <script_name>`
+
+Forgetting step 3 means crons fire but scripts don't exist on ridley.
+
 ## Cron Schedule
 
 Ridley is in **PDT (America/Los_Angeles)**. Crontab uses `SHELL=/bin/bash` (dash doesn't support `source`).
 
-| Script | Schedule (ET) | PDT on ridley | LLM | RAM Peak |
+| Script | PDT on ridley | pipeline_name | LLM | RAM Peak |
 |--------|--------------|---------------|-----|----------|
-| catalyst_ingest.py | M-F 8:30 AM, 12:15 PM, 3:50 PM | 5:30, 9:15, 12:50 | Ollama embed | ~3.2GB |
-| scanner.py | M-F 9:35 AM, 12:30 PM | 6:35, 9:30 | qwen + Claude (via inference_engine) | ~3.5GB |
-| position_manager.py | M-F every 30m 9:00 AM–3:45 PM | 6:00–12:45 | None | ~1.5GB |
-| inference_engine.py | Called by scanner.py | — | qwen + Claude | ~3.5GB |
-| meta_daily.py | M-F 4:30 PM | 13:30 | Claude + embed | ~3.5GB |
-| meta_weekly.py | Sun 7:00 PM | 16:00 | Claude + embed | ~3.5GB |
-| calibrator.py | Sun 7:30 PM | 16:30 | None | ~2.6GB |
+| health_check.py | 5:00 M-F | health_check (writes system_health) | None | ~2GB |
+| catalyst_ingest.py | 5:30, 9:15, 12:50 M-F | catalyst_ingest | Ollama embed | ~3.2GB |
+| ingest_form4.py | 6:00 M-F | ingest | None | ~1.5GB |
+| scanner.py | 6:35, 9:30 M-F | scanner | qwen + Claude | ~3.5GB |
+| ingest_options_flow.py | 7:00 M-F | ingest | None | ~1.5GB |
+| position_manager.py | every 30m 6:00–12:45 M-F | position_manager | None | ~1.5GB |
+| meta_daily.py | 13:30 M-F | meta_daily | Claude + embed | ~3.5GB |
+| meta_weekly.py | 16:00 Sun | meta_weekly | Claude + embed | ~3.5GB |
+| calibrator.py | 16:30 Sun | calibrator | None | ~2.6GB |
+| heartbeat.py | every 5m | heartbeat | None | ~0.5GB |
 
 ## Dashboard Tabs
 
-Dashboard | Pipeline | Trade Log | Positions | Predictions | Meta-Learning | Catalysts | System | Economics | How It Works
+Dashboard | Pipeline | Trade Log | Positions | Predictions | Meta-Learning | Catalysts | System | Economics | Health | Signals | How It Works
 
 ## Observability
 
@@ -116,6 +151,8 @@ Dashboard | Pipeline | Trade Log | Positions | Predictions | Meta-Learning | Cat
 - NEVER rewrite scanner.py, position_manager.py, or inference_engine.py from scratch — READ them first, they import from common.py and have Slack/Sentry/fill-polling wired in
 - NEVER re-declare env vars or create httpx.Client in individual scripts — use `from common import ...`
 - NEVER merge a PR that removes common.py imports or re-introduces code duplication
+- NEVER add a cron entry or new pipeline script without updating `scripts/manifest.py`
+- NEVER write scripts to ridley crons without committing, pushing, and pulling on ridley
 
 ## Git Guardrails
 

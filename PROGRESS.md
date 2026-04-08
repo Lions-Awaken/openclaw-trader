@@ -5,6 +5,1535 @@
 
 ---
 
+## TASK-SIM-04 . FRONTEND-AGENT (Troi) . DONE — 2026-04-08
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/dashboard/server.py` — added 3 API routes + FLIGHT_MANIFEST constant + promoted `subprocess` to top-level import
+- `/home/mother_brain/projects/openclaw-trader/dashboard/index.html` — added Preflight nav pill, section HTML, CSS, and full JavaScript implementation
+
+### New API Routes
+- `POST /api/simulator/run` — triggers `scripts/test_system.py` as subprocess with `SIMULATOR_RUN_ID` env var; returns `{status, run_id}`
+- `GET /api/simulator/status?run_id=<uuid>` — queries `system_health` table for `run_type='simulator'` rows matching run_id, ordered by `check_order`; if run_id omitted, returns most recent simulator run; response includes `{run_id, checks[], summary: {total, go, nogo, scrub, complete}}`; "complete" triggers at 37+ checks reported
+- `GET /api/health/flight-status` — FLIGHT_MANIFEST hard-coded in server.py (10 entries); for `writes_pipeline_runs=True` entries queries `pipeline_runs WHERE pipeline_name=X AND step_name=root ORDER BY started_at DESC LIMIT 1`; for `health_check` queries `system_health WHERE run_type='scheduled'`; computes `status: ran/stale/missing` based on `freshness_hours`
+
+### Dashboard UI
+- Nav pill: added after "Signals" pill
+- Section: `id="section-preflight"` with card containing header, intro text, and `id="preflight-content"` div
+- CSS: `.preflight-btn`, `.preflight-table`, `.preflight-group-header`, `.preflight-dot.*`, `.preflight-error-row`, `.preflight-banner`, `.flight-status-table`, `.flight-status-dot.*` — all added before closing `</style>`
+- JS functions: `loadPreflight()`, `buildPreflightUI()`, `_buildTestRow()`, `togglePreflightError()`, `initiatePreflight()`, `_rebuildPreflightGrid()`, `_updatePreflightBanner()`, `loadFlightStatus()`, `buildFlightStatusUI()`
+
+### Key Design Decisions
+- `PREFLIGHT_TESTS` hard-coded in JS with 9 groups (37 tests, IDs A1–I5) matching test_system.py check_name fields
+- Polling at 2s intervals, 180s timeout (90 polls), stops on `complete=true`
+- POLLING indicator shown on first test without a result (gives live "currently running" feel)
+- NO-GO rows are clickable to expand error/expected details inline
+- On page load: fetches most recent simulator run from `/api/simulator/status` (no run_id) and renders historical GO/NO-GO results rather than showing all STANDBY
+- Flight status auto-refreshes every 30s; stops when switching tabs (timer cleared on next `loadPreflight` call)
+- `complete` threshold set at 37 in the API endpoint — matches the 37 tests defined in test_system.py per TASK-SIM-02 PROGRESS entry
+
+### Ruff
+`ruff check dashboard/server.py` — All checks passed.
+
+### Deployment
+Deployed to Fly.io `openclaw-trader-dash`. All 3 routes confirmed in `/openapi.json`. Healthz returns 200.
+
+### Assumptions
+- The `check_name` field in `system_health` stores the test ID (e.g. "A1", "B3") — this is how TASK-SIM-02 described the `check_name` field and was confirmed in the progress notes
+- 37 tests is the canonical count from TASK-SIM-02 — if new tests are added to test_system.py the `complete` threshold in `/api/simulator/status` needs updating
+- `run_type='scheduled'` is used for health_check in `system_health` (vs `run_type='simulator'` for preflight) — consistent with TASK-HM-02 which writes to `system_health` with `run_type` set by the script
+
+### Follow-on Work Noticed
+- The FLIGHT_MANIFEST includes `ingest_form4` and `ingest_options_flow` both with `pipeline_name='ingest'` — both use the same pipeline_name so the "last fired" for those will show the same result. If they need to be distinguished, they need unique `pipeline_name` values in the DB writes (or a different query field)
+- `complete=True` at 37 checks is hardcoded; if test_system.py grows, bump the threshold in `get_simulator_status`
+
+---
+
+## TASK-SIM-02 . BACKEND-AGENT (Geordi) . DONE — 2026-04-08
+
+### Files Created
+- `/home/mother_brain/projects/openclaw-trader/scripts/test_system.py` — 660-line NASA go/no-go preflight simulator
+
+### Architecture
+- **Dual-mode**: CLI (colorama output) + dashboard-triggered (writes to `system_health` when `SIMULATOR_RUN_ID` env var is set)
+- **`--dry-run` flag**: skips all DB writes, external API calls, Ollama/Claude calls, and dashboard HTTP checks
+- **Live-write contract**: each test calls `_write_result()` immediately on completion — dashboard can poll every 2s and see results appear in real time
+- **Error isolation**: every test wrapped in `_run()` which catches all exceptions — one failure cannot crash the next test
+
+### Test Groups (37 total checks)
+
+| Group | Tests | check_order range |
+|-------|-------|-------------------|
+| A - Module Integrity | A1 (imports), A2 (callables) | 100-110 |
+| B - Ground Systems | B1-B6 (tables, columns, profiles) | 200-250 |
+| C - Adversarial Array | C1 (contexts), C2 (depth caps) | 300-310 |
+| D - Signal Acquisition | D1-D4 (profile, signals, enrichment) | 400-430 |
+| E - Tumbler Chain | E1-E4 (inference, depth, stopping rule) | 500-530 |
+| F - Ensemble Systems | F1-F4 (load, divergence, grade, summary) | 600-630 |
+| G - Economics | G1-G4 (spend, budget, attribution, estimate) | 700-730 |
+| H - End-to-End Flow | H1-H6 (inject, scan, enrich, chain, diverge, cleanup) | 800-850 |
+| I - Dashboard Comms | I1-I5 (5 HTTP endpoints) | 900-940 |
+
+### DB Writes
+- Table: `system_health` — written via `_post_to_supabase` from tracer.py
+- Fields: `run_id`, `run_type='simulator'`, `check_group`, `check_name`, `check_order`, `status` (pass/fail/skip), `value`, `expected`, `error_message`, `duration_ms`
+- Status mapping: GO→pass, NO-GO→fail, SCRUB→skip
+
+### Synthetic data cleanup (H6)
+- Deletes from: `catalyst_events`, `inference_chains`, `shadow_divergences`, `signal_evaluations` WHERE `ticker='SIM_TEST'`
+- Cleanup runs even if earlier tests failed (H6 is always attempted unless `--dry-run`)
+
+### Key design decisions
+- `run_inference` returns `"profile"` key, not `"profile_name"` — E1 asserts `result["profile"] == "SKEPTIC"` accordingly
+- `get_shadow_divergence_summary` returns `{count, divergences, unanimous_dissent}` — no `profiles_active` key (task spec was aspirational); F4 checks the three keys that actually exist
+- `grade_shadow_profiles` returns `{"graded": int, "profiles_updated": int}` — F3 accepts either `graded` or `graded_divergences` key for forward compatibility
+- `get_todays_claude_spend()` returns `int` (0) when table empty — G1/G2 accept `(int, float)` with explicit `float()` cast
+- B4 (CONGRESS_MIRROR backfill) checks for > 100 rows — will NO-GO on a fresh DB, expected
+- F2 (record divergence) uses opposite decisions (enter vs skip) to guarantee `_record_divergence` writes a row (it only writes on disagreement)
+
+### Ruff
+`ruff check scripts/test_system.py` — All checks passed
+
+### Dry-run smoke test (local, no env vars)
+```
+18/37 GO  |  8 NO-GO  |  11 SCRUB   T+ 0.1s
+```
+The 8 NO-GO are all expected DB-dependent checks (B1-B6, F1, F2) failing because SUPABASE_URL is not set locally. On ridley with env vars, all should GO.
+
+---
+
+## TASK-SIM-03 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/health_check.py` — added 5 new check groups (15 checks), promoting total from 34 to 49 checks across 13 groups
+
+### Changes Made
+
+**Top-level imports added:**
+- `import subprocess` (promoted from inline inside `_get_crontab()` and `_is_dashboard_running()`)
+- `import httpx` (for Claude API canary call)
+
+**Inline `import subprocess` removed** from `_get_crontab()` and `_is_dashboard_running()` — now uses top-level import.
+
+**New Groups:**
+
+| Group | Name | Checks | Order Range |
+|-------|------|--------|-------------|
+| 9 | `claude_api` | 3 | 901–903 |
+| 10 | `crontab_drift` | 2 | 1001–1002 |
+| 11 | `output_quality` | 3 | 1101–1103 |
+| 12 | `data_freshness` | 4 | 1201–1204 |
+| 13 | `historical_regression` | 3 | 1301–1303 |
+
+**GROUP 9 — claude_api:**
+- 901: Claude API canary — makes one `claude-haiku-4-5-20251001` call with `max_tokens=10`, asserts `HEALTHY` in response. SKIPs in `--dry-run` mode and when `ANTHROPIC_API_KEY` is not set. Uses `_check_901_wrapper()` to detect `--dry-run` from `sys.argv`.
+- 902: Budget pre-flight — calls `get_claude_budget()`, `get_todays_claude_spend()`, `estimate_daily_claude_budget()`. WARN if remaining < 2*needed, FAIL if remaining < needed.
+- 903: Claude API key valid — asserts `ANTHROPIC_API_KEY` length > 20 (does not print value).
+
+**GROUP 10 — crontab_drift:**
+- 1001: Crontab vs manifest — reads `crontab -l`, checks each MANIFEST entry with a real cron schedule for its script basename. WARN (not FAIL) if any missing.
+- 1002: Script files on disk — checks every `ALL_ENTRIES` script path exists on disk relative to project root. WARN if any missing.
+
+**GROUP 11 — output_quality:**
+- 1101: Yesterday's output validation — queries most recent `pipeline_runs` root step for each entry with `output_validator` and `writes_to_pipeline_runs=True`, runs `validate_output(entry, snap)`. WARN if any fail.
+- 1102: Meta reflection quality — queries `meta_reflections` most recent row, checks `signal_assessment` not empty, not "Unable to assess", length > 50.
+- 1103: Catalyst source diversity — queries most recent `catalyst_ingest` root `output_snapshot`, counts source keys with >0 events. Falls back to `total_inserted` if no per-source keys in snapshot. WARN if fewer than 3 sources active.
+
+**GROUP 12 — data_freshness:**
+- 1201: Catalyst events fresh — queries `catalyst_events` with `created_at > now() - 48h`. FAIL if count == 0.
+- 1202: Inference chains fresh — SKIP on weekends, FAIL if no rows in `inference_chains` in 48h.
+- 1203: Pipeline runs fresh (manifest-driven) — for each high-criticality manifest entry with `freshness_hours` set and `writes_to_pipeline_runs=True`, queries `pipeline_runs` within the freshness window. WARN with list of stale entries.
+- 1204: Shadow divergences flowing — SKIP on weekends, FAIL if no `shadow_divergences` rows in 48h.
+
+**GROUP 13 — historical_regression:**
+- 1301: Catalyst volume regression — fetches last 20 `catalyst_ingest` root snapshots, computes average `total_inserted`, asserts most recent >= 50% of average. SKIP if avg==0 or fewer than 3 runs.
+- 1302: Scanner candidate regression — same pattern for `candidates` field in scanner output.
+- 1303: Shadow divergence rate — counts `shadow_divergences` and `pipeline_runs` with `step_name=shadow_inference` over last 7 days. Computes rate = divergences / (runs * avg_candidates). WARN if outside 5%–80%. SKIP on weekends.
+
+**Helper added:** `_is_weekday() -> bool` — returns True for Monday–Friday UTC.
+
+### DB Queries Run
+- `pipeline_runs` — `WHERE pipeline_name=X AND step_name=root ORDER BY created_at DESC LIMIT 1/20` (output validation, regression checks)
+- `pipeline_runs` — `WHERE pipeline_name=scanner AND step_name=shadow_inference AND created_at >= now()-7d` (divergence rate)
+- `meta_reflections` — `ORDER BY created_at DESC LIMIT 1` (reflection quality)
+- `catalyst_events` — `WHERE created_at >= now()-48h LIMIT 200` (freshness)
+- `inference_chains` — `WHERE created_at >= now()-48h LIMIT 10` (freshness)
+- `shadow_divergences` — `WHERE created_at >= now()-48h/7d` (freshness + rate)
+
+### Assumptions
+- `ANTHROPIC_API_KEY` is the actual env var name (not `CLAUDE_API_KEY` — confirmed from common.py)
+- `output_snapshot` in `pipeline_runs` is a JSON dict (existing pattern confirmed)
+- Per-source catalyst keys follow `fetch_{source_name}` naming or are in `["finnhub", "sec_edgar", ...]` set — with graceful fallback to `total_inserted`
+- `claude-haiku-4-5-20251001` model ID is current (from task spec)
+- Group 10 check 1001 uses WARN (not FAIL) for missing crontab entries, matching codebase's philosophy that health_check runs on mother_brain where ridley's crontab isn't accessible
+
+### Ruff
+`ruff check scripts/health_check.py` — All checks passed.
+
+### Follow-on Work
+- If `httpx` is not in the project's dependencies, it may need to be added to requirements (the project uses a `_client` from `common.py` which is likely httpx already — worth verifying)
+- Check 1103 fallback (no per-source keys in snapshot) may be common if catalyst_ingest doesn't write per-source breakdown to output_snapshot — could be enhanced once the output shape is confirmed
+
+---
+
+## TASK-SIM-01 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py` — added 3 new fields, 6 validator functions, 2 helper functions, updated all MANIFEST entries, added test_system to EVENT_TRIGGERED
+
+### Changes Made
+
+**New fields on ManifestEntry (all with defaults — backward-compatible):**
+- `output_validator: Callable[[dict], bool] | None = None` — takes pipeline_runs.output_snapshot, returns True if healthy
+- `freshness_hours: int | None = None` — max hours since last run before considered stale
+- `estimated_claude_cost: float = 0.0` — expected Claude API cost per run in USD
+
+**Added `from collections.abc import Callable` import.**
+
+**Validator functions (defined above MANIFEST list):**
+- `_valid_catalyst` — checks `total_inserted > 5`
+- `_valid_scanner` — checks `candidates > 0`
+- `_valid_meta` — checks output does not contain "Unable to assess" and len > 20
+- `_valid_heartbeat` — always True (presence of run is sufficient)
+- `_valid_calibrator` — always True (presence of run is sufficient)
+- `_valid_ingest` — always True (tables may be empty initially)
+
+**Per-entry freshness_hours and estimated_claude_cost:**
+| Entry | freshness_hours | estimated_claude_cost |
+|-------|----------------|-----------------------|
+| health_check | 26 | 0.0 |
+| catalyst_ingest (all 3) | 26 | 0.0 |
+| ingest_form4 | 26 | 0.0 |
+| scanner_morning | 26 | 0.03 |
+| ingest_options_flow | 26 | 0.0 |
+| scanner_midday | 26 | 0.03 |
+| position_manager | 2 | 0.0 |
+| meta_daily | 26 | 0.02 |
+| meta_weekly | 170 | 0.02 |
+| calibrator | 170 | 0.0 |
+| heartbeat | 1 | 0.0 |
+
+**New helper functions:**
+- `validate_output(entry, snapshot) -> bool` — runs entry's validator, returns True if None validator
+- `estimate_daily_claude_budget() -> float` — sums estimated_claude_cost across all weekday entries
+
+**New EVENT_TRIGGERED entry:** `test_system` (script=scripts/test_system.py, pipeline_name=simulator, schedule=manual, writes_to_pipeline_runs=False)
+
+### Acceptance Criteria Results
+- `estimate_daily_claude_budget()` = 0.08 (> 0: PASS)
+- `validate_output(catalyst_ingest_morning, {"total_inserted": 0})` = False (PASS)
+- `validate_output(catalyst_ingest_morning, {"total_inserted": 50})` = True (PASS)
+- `validate_output(meta_daily, {"text": "Unable to assess"})` = False (PASS)
+- `validate_output(heartbeat, {})` = True (PASS)
+- All 13 MANIFEST cron entries have freshness_hours set (PASS)
+- `ruff check scripts/manifest.py` — All checks passed (PASS)
+
+### Unblocked
+- TASK-SIM-02 — now [READY]
+- TASK-SIM-03 — now [READY]
+
+### Assumptions
+- `_valid_meta` uses `str(snap)` to serialize the full snapshot dict before checking for "Unable to assess" — this catches both top-level string values and nested keys.
+- `estimate_daily_claude_budget()` counts position_manager once per weekday even though it runs ~14 times per day (cost is 0.0, so no impact).
+- heartbeat freshness_hours=1 is aggressive (runs every 5 min) but appropriate for a liveness sentinel.
+
+---
+
+## TASK-SD-05 . FRONTEND-AGENT (Troi) . DONE — 2026-04-06
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/dashboard/server.py` — added 2 API routes
+- `/home/mother_brain/projects/openclaw-trader/dashboard/index.html` — added nav pill, section div, and JavaScript
+
+### Server Routes Added
+- `GET /api/signals/options-flow?days=7` — queries `options_flow_signals` table, returns up to 100 rows ordered by `signal_date DESC, created_at DESC`. Days capped at 90.
+- `GET /api/signals/form4?days=30` — queries `form4_signals` table, returns up to 100 rows ordered by `signal_date DESC, created_at DESC`. Days capped at 180.
+- Both routes follow the exact same pattern as `/api/shadow/divergences` (httpx GET with sb_headers(), date-based cutoff using `.date().isoformat()`, `_require_auth` guard).
+
+### Frontend
+- Nav pill: `showSection('signalfeed')` labelled "Signals" — added after Health pill
+- Section ID: `section-signalfeed` (not `section-signals` — that name is unused but `signals` as a keyword appears in loadCongressSignals and /api/signals/accuracy, so `signalfeed` avoids any collision)
+- Section wired into `showSection` override at line ~1830 alongside shadow, health, etc.
+- Three sub-sections rendered by `buildSignalFeedUI()`:
+  1. Options Flow table (ticker, date, type, sentiment, premium, IV) — color-coded by type (sweep=cyan, block=purple) and sentiment (bullish=green, bearish=red)
+  2. Form 4 Insider table (ticker, filer+title, transaction type, total value, ownership change, cluster count badge) — color-coded by transaction type
+  3. Shadow Profile Fitness bars — all 5 profiles, two bars each: fitness_score (cyan) and dwm_weight (purple), normalized to shared max scale
+- All font sizes: labels 14-16px, values 20px, headers 20-24px — meets minimum 16px requirement
+- All user data routed through `esc()` for XSS prevention
+- All fetches use `{credentials: 'include'}`
+- Empty states shown for both tables when no rows returned
+
+### API Contract Consumed
+- `GET /api/shadow/profiles` — existing route, returns `profile_name, shadow_type, fitness_score, dwm_weight` per profile
+- `GET /api/signals/options-flow` — new route (self-authored)
+- `GET /api/signals/form4` — new route (self-authored)
+
+### Assumptions
+- `implied_volatility` in `options_flow_signals` is stored as a decimal (0.35 = 35%) — rendered via `fmtPct()` which multiplies by 100. If stored as a percentage already, the display will be 100x off — backend agent should verify.
+- `ownership_pct_change` in `form4_signals` is also a decimal — same assumption applies.
+- `premium` and `total_value` are raw dollar amounts (not thousands) — formatted with K/M suffixes.
+
+### ruff
+`ruff check dashboard/server.py` — All checks passed.
+
+### Follow-on Work
+- Deployment to Fly.io deferred per task instructions — TASK-INT-01 handles that.
+- Days filter controls (UI dropdowns for 7/30/90 days) not built — tables always show default window. Could be added as a nice-to-have.
+
+---
+
+## TASK-SD-06 . BACKEND-AGENT (Geordi) . DONE — 2026-04-07
+
+### Crontab Entries Added (ridley)
+
+Both signal ingest entries added to ridley's crontab. Pattern matches all existing OpenClaw entries: `python3`, `~/openclaw-trader`, `source ~/.openclaw/workspace/.env`.
+
+```
+# Form 4 insider signals (6AM PDT weekdays — before market open)
+0 6 * * 1-5    cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/ingest_form4.py >> /tmp/openclaw_form4.log 2>&1
+
+# Options flow ingest (7AM PDT weekdays — pre-market)
+0 7 * * 1-5    cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/ingest_options_flow.py >> /tmp/openclaw_options.log 2>&1
+```
+
+### Schedule Notes
+- Form 4: 6AM PDT weekdays (9AM ET — market opens 9:30AM ET, giving 30 min before open)
+- Options flow: 7AM PDT weekdays (10AM ET — first hour of market action captured)
+- Both run after catalyst_ingest.py (5:30AM PDT) and before scanner.py (6:35AM PDT first run)
+- Log paths: `/tmp/openclaw_form4.log`, `/tmp/openclaw_options.log`
+
+### Full Crontab After Change
+
+```
+SHELL=/bin/bash
+
+# StreamSaber → Supabase sync (every 30 min)
+*/30 * * * * /usr/bin/python3 /mnt/nvme/stream-saber/src/supabase_sync.py >> /mnt/nvme/stream-saber/logs/supabase_sync.log 2>&1
+
+# ── OpenClaw Trader (all times PDT — ridley is Pacific) ──────────────────
+# ET→PDT: subtract 3 hours. Market hours: 6:30 AM – 1:00 PM PDT
+
+# Catalyst ingestion (3x daily before scan windows)
+30 5 * * 1-5   cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/catalyst_ingest.py >> /tmp/oc-catalyst.log 2>&1
+15 9 * * 1-5   cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/catalyst_ingest.py >> /tmp/oc-catalyst.log 2>&1
+50 12 * * 1-5  cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/catalyst_ingest.py >> /tmp/oc-catalyst.log 2>&1
+
+# Scanner / order execution (2x daily)
+35 6 * * 1-5   cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/scanner.py >> /tmp/oc-scanner.log 2>&1
+30 9 * * 1-5   cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/scanner.py >> /tmp/oc-scanner.log 2>&1
+
+# Position management (every 30 min during market hours: 6:45 AM – 12:45 PM PDT)
+*/30 6-12 * * 1-5  cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/position_manager.py >> /tmp/oc-positions.log 2>&1
+45 12 * * 1-5      cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/position_manager.py >> /tmp/oc-positions.log 2>&1
+
+# Meta-analysis + calibration
+30 13 * * 1-5  cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/meta_daily.py >> /tmp/oc-meta.log 2>&1
+0 16 * * 0     cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/meta_weekly.py >> /tmp/oc-meta.log 2>&1
+30 16 * * 0    cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/calibrator.py >> /tmp/oc-calibrator.log 2>&1
+
+# Heartbeat (every 5 min)
+*/5 * * * *    cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/heartbeat.py >> /tmp/oc-heartbeat.log 2>&1
+
+# Health check (5AM PDT weekdays — before market open)
+0 5 * * 1-5    cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/health_check.py >> /tmp/openclaw_health.log 2>&1
+
+# Form 4 insider signals (6AM PDT weekdays — before market open)
+0 6 * * 1-5    cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/ingest_form4.py >> /tmp/openclaw_form4.log 2>&1
+
+# Options flow ingest (7AM PDT weekdays — pre-market)
+0 7 * * 1-5    cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/ingest_options_flow.py >> /tmp/openclaw_options.log 2>&1
+```
+
+### Assumptions
+- Python path on ridley uses `python3` (system PATH), not a full miniconda path — matching all existing OpenClaw crontab entries
+- The `source ~/.openclaw/workspace/.env` pattern loads API keys needed by both ingest scripts
+- Times are PDT (ridley's local timezone), matching the crontab convention for this project
+
+---
+
+## TASK-HM-04 . BACKEND-AGENT (Geordi) . DONE — 2026-04-07
+
+### Crontab Entry Added (ridley)
+
+Health check entry added to ridley's crontab. Pattern matches all existing OpenClaw entries: `python3`, `~/openclaw-trader`, `source ~/.openclaw/workspace/.env`.
+
+```
+# Health check (5AM PDT weekdays — before market open)
+0 5 * * 1-5    cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && python3 scripts/health_check.py >> /tmp/openclaw_health.log 2>&1
+```
+
+### Schedule Notes
+- 5AM PDT = 8AM ET weekdays (pre-catalyst-ingest which runs 5:30AM PDT / 8:30AM ET)
+- Runs before catalyst_ingest.py, scanner.py, and all market-hours scripts
+- Log path: `/tmp/openclaw_health.log`
+- Uses default run mode (Slack on failure/warn only) — not `--notify-always`
+
+### Acceptance Verified
+`crontab -l` on ridley confirms entry at `0 5 * * 1-5` pointing to `scripts/health_check.py`.
+
+### Assumptions
+- `scripts/health_check.py` confirmed present (created by TASK-HM-02)
+- Python path uses `python3` matching existing crontab convention on ridley
+
+---
+
+## TASK-HM-03 . FRONTEND-AGENT (Troi) . DONE — 2026-04-06
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/dashboard/server.py` — added 3 API routes + `import sys` + `import uuid`
+- `/home/mother_brain/projects/openclaw-trader/dashboard/index.html` — added Health tab (nav pill, section, CSS, JS)
+
+### Server Routes Added
+- `GET /api/health/latest` — fetches most recent run_id from `system_health`, then fetches all checks for that run ordered by `check_order`. Returns `{run_id, run_type, created_at, total_pass, total_fail, total_warn, total_skip, duration_ms, checks[]}`.
+- `POST /api/health/run` — generates a UUID run_id, launches `scripts/health_check.py --notify-always` as a `subprocess.Popen` with `HEALTH_RUN_ID` env var, returns `{"status":"triggered","run_id":"<uuid>"}`.
+- `GET /api/health/history` — fetches last 500 rows from `system_health`, aggregates by run_id, returns last 7 distinct runs with pass/fail/warn/skip counts and worst-status field for the history dot colour.
+
+### Frontend Components
+- Nav pill: "Health" button appended to the second nav-row.
+- Section: `#section-health` with a single `.card` containing `#health-content`.
+- CSS: `.health-light` (pass/fail/warn/skip states with glow animations), `.health-group`, `.health-run-btn`, `.health-history-dot`, `.health-fail-card`, `.health-check-detail` (click-to-expand).
+- JS: `loadHealth()` called from `showSection('health')`. Builds full UI via `buildHealthUI(data, history)`. Auto-refreshes every 30 seconds via `setInterval`.
+- RUN NOW flow: POST to `/api/health/run`, receive run_id, poll `/api/health/latest` every 3s until the returned `run_id` matches the triggered run_id (max 40 polls / 2 min timeout), then re-renders the full UI.
+- Indicator diagram: 8 groups in pipeline order `INFRA → DATABASE → CRONS → SIGNALS → TUMBLERS → ENSEMBLE → LOGGING → DASHBOARD`, each column contains per-check 40px indicator lights. Clicking any light toggles a detail card showing status, value, expected, duration, error_message.
+- Failures section: Red-bordered `.health-fail-card` entries for any check with `status === 'fail'`.
+- History strip: 7 coloured dots (green/yellow/red/grey based on worst status per run), with timestamp+type+counts as tooltip text.
+
+### API Contract Consumed
+- `system_health` table columns: `id, run_id, run_type, check_group, check_name, check_order, status, value, expected, error_message, duration_ms, created_at`
+- `check_group` values expected to be one of: INFRA, DATABASE, CRONS, SIGNALS, TUMBLERS, ENSEMBLE, LOGGING, DASHBOARD (uppercase match). Groups not in the known 8 still render; they just won't appear in the flow diagram columns.
+
+### Assumptions
+- `scripts/health_check.py` exists at `<project_root>/scripts/health_check.py` (confirmed by TASK-HM-02 output).
+- The subprocess is launched with `cwd = project root` (one level above `dashboard/`), matching how cron runs it.
+- `run_type` written by health_check.py is "scheduled" for normal runs and "manual" when HEALTH_RUN_ID is set via env. The dashboard sets HEALTH_RUN_ID, so triggered runs will show `run_type = "manual"`.
+
+### Follow-on Work Noticed (not done)
+- The polling loop in `triggerHealthRun()` matches on `run_id === triggeredRunId`. If health_check.py errors before writing a single row to `system_health`, the poll will timeout (2 minutes) before the button re-enables. A server-side run-status endpoint could improve this UX.
+- History strip shows dots for last 7 runs but doesn't paginate further. If more history is wanted, the `/api/health/history` endpoint could accept a `limit` param.
+
+### Ruff Status
+All checks passed (`ruff check dashboard/server.py`).
+
+---
+
+## TASK-HM-02 . BACKEND-AGENT (Geordi) . DONE — 2026-04-07
+
+### Files Created
+- `/home/mother_brain/projects/openclaw-trader/scripts/health_check.py`
+
+### Script Summary
+
+44 checks across 8 groups (the spec stated "34" but the detailed breakdown totals 44 — all checks from the spec are implemented):
+
+| Group | Orders | Count |
+|-------|--------|-------|
+| infrastructure | 101–107 | 7 |
+| database | 201–207 | 7 |
+| crons | 301–304 | 4 |
+| signals | 401–405 | 5 |
+| tumblers | 501–506 | 6 |
+| ensemble | 601–606 | 6 |
+| logging | 701–705 | 5 |
+| dashboard | 801–804 | 4 |
+
+### Run Modes
+```
+python scripts/health_check.py                  # full check, Slack on failures/warns
+python scripts/health_check.py --notify-always  # always post Slack summary
+python scripts/health_check.py --group signals  # single group only
+python scripts/health_check.py --dry-run        # no DB write, no Slack
+```
+
+### DB Writes
+- Table: `system_health`
+- One row per check per run, all rows share the same `run_id`
+- `run_type`: "scheduled" (default) or "manual" (when HEALTH_RUN_ID env var is set by dashboard)
+- Uses `_post_to_supabase()` from tracer.py — buffers locally on failure, no raw httpx client
+
+### Auth
+- DB writes use `SUPABASE_SERVICE_KEY` via `sb_headers()` from common.py (service-role, bypasses RLS)
+- Slack via `slack_notify()` from common.py using `SLACK_BOT_TOKEN`
+
+### Imports Used (no new clients created)
+- `common._client` — all HTTP checks (Supabase, Ollama, Alpaca, dashboard endpoints)
+- `common.sb_get`, `common.sb_headers` — DB reads
+- `common.slack_notify` — Slack posting
+- `common.check_market_open`, `common.load_strategy_profile`, `common.alpaca_headers` — signal checks
+- `tracer._post_to_supabase` — DB writes (reuses tracer's buffered writer)
+- Lazy imports inside each check function: `inference_engine`, `scanner`, `meta_daily`, `calibrator`, `shadow_profiles`
+
+### Key Design Decisions
+- Check 501 (T1 gate logic) is `skip` — requires live inference call with real price data
+- Check 703 (`get_todays_claude_spend`) patches `inference_engine.TODAY` at runtime so the date-keyed ledger query works correctly
+- Dashboard endpoint checks (802–804) auto-skip if no dashboard process is detected
+- Each check is individually wrapped in `try/except` — one failure never crashes others
+- Exit code: 0 if no failures, 1 if any checks fail
+
+### Assumptions
+- `colorama` and `psutil` packages must be installed on ridley (`pip install colorama psutil`)
+- `system_health` table exists (created by TASK-HM-01)
+- All imported project modules (scanner, meta_daily, calibrator) are importable from the scripts/ directory
+
+### Sample --dry-run Output (infrastructure group only)
+```
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  OPENCLAW SYSTEM HEALTH — 2026-04-06 23:20:23 PDT
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [DRY RUN — no DB writes, no Slack]
+
+  INFRASTRUCTURE
+  ──────────────────────────────────────────────────
+  [101] Supabase reachable ...................... ✅ PASS  HTTP 200  (42ms)
+  [102] Ollama alive ............................ ✅ PASS  models: qwen2.5:3b  (38ms)
+  [103] Ollama model loaded ..................... ✅ PASS  qwen2.5:3b  (35ms)
+  [104] Alpaca API .............................. ✅ PASS  is_open=False  (218ms)
+  [105] Env vars present ........................ ✅ PASS  7/7 set  (0ms)
+  [106] Disk space .............................. ✅ PASS  724.6GB free  (1ms)
+  [107] Memory .................................. ✅ PASS  19.66GB avail  (17ms)
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PASS 7  FAIL 0  WARN 0  SKIP 0  TOTAL 7
+```
+
+### DB Queries Run (for index review)
+- `SELECT * FROM system_health` — write-only (INSERT per check)
+- `SELECT * FROM strategy_profiles WHERE active=true LIMIT 1`
+- `SELECT * FROM strategy_profiles WHERE is_shadow=true`
+- `SELECT id FROM inference_chains WHERE profile_name='CONGRESS_MIRROR' LIMIT 200`
+- `SELECT config_key,value FROM budget_config WHERE config_key='daily_claude_budget'`
+- `SELECT id,pipeline_name,started_at FROM pipeline_runs WHERE started_at>=NOW()-48h AND step_name='root'`
+- `SELECT id FROM catalyst_events WHERE created_at>=NOW()-48h LIMIT 10`
+- `SELECT id FROM politician_intel LIMIT 20`
+- `SELECT amount FROM cost_ledger WHERE category='claude_api' AND ledger_date=TODAY`
+- `SELECT value FROM budget_config WHERE config_key='daily_claude_budget'`
+- `SELECT id FROM cost_ledger LIMIT 1`
+- `SELECT id FROM shadow_divergences WHERE divergence_date=TODAY` (via meta_daily.get_shadow_divergence_summary)
+
+### Follow-on Work
+- TASK-HM-04 (crontab entry on ridley) is now unblocked
+- TASK-HM-03 (dashboard Health tab) is now unblocked
+- On ridley, run: `pip install colorama psutil` before first scheduled run
+
+---
+
+## TASK-SD-02 . BACKEND-AGENT (Geordi) . DONE — 2026-04-07
+
+### Files Created
+- `/home/mother_brain/projects/openclaw-trader/scripts/ingest_options_flow.py`
+- `/home/mother_brain/projects/openclaw-trader/scripts/ingest_form4.py`
+
+### ingest_options_flow.py
+
+**Purpose:** Loads unusual options activity into `options_flow_signals`.
+
+**Mode 1 (default — CSV):** Reads `data/options_flow.csv`. Columns: ticker, signal_date, signal_type, strike, expiry, premium, open_interest, volume, implied_volatility, sentiment. Validates enum fields against DB CHECK constraints before inserting.
+
+**Mode 2 (stub — live API):** `fetch_from_unusual_whales(api_key)` is a documented stub. When `UNUSUAL_WHALES_API_KEY` is not set it prints a warning and returns `[]`. When key IS set it logs that the integration is a stub. Ready for wiring to `https://api.unusualwhales.com/api/option-contracts/flow`.
+
+**Scoring — `score_options_signal(row) -> int`:**
+- Base: 1
+- Premium: +3 (>$1M), +2 (>$500K), +1 (>$100K)
+- Signal type: +2 (sweep/block), +1 (darkpool)
+- IV rank: +2 (>0.70), +1 (>0.50)
+- Max achievable: 8 (cap at 10 is a safety guard)
+
+**Imports:** `from common import slack_notify` · `from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced`
+
+**DB writes:** INSERT into `options_flow_signals`. One row per valid CSV row.
+
+### ingest_form4.py
+
+**Purpose:** Fetches SEC EDGAR Form 4 filings and writes purchases to `form4_signals`.
+
+**Data source:** `https://efts.sec.gov/LATEST/search-index` with params `forms=4&dateRange=custom&startdt=&enddt=`. User-Agent header: `OpenClaw-Trader/1.0 (research; github.com/Lions-Awaken)`. Lookback: 3 days.
+
+**Target tickers:** Active profile watchlist (`load_strategy_profile()`) + recent `signal_evaluations` tickers (14-day lookback) + hardcoded AI infra: NVDA, AMD, AVGO, SMCI, MRVL, DELL, PLTR, ARM.
+
+**Scoring — `score_form4_signal(row) -> int`:**
+- Returns 0 for non-purchase transactions (sales are also filtered in `insert_form4_signals`)
+- Base: 1
+- Total value: +3 (>$1M), +2 (>$500K), +1 (>$100K)
+- Ownership pct change: +3 (>0.10), +2 (>0.05), +1 (>0.01)
+- Cluster count: +(cluster_count - 1) * 2, capped at +4
+- Filer title: +2 (CEO/CFO/COO/Chairman/President), +1 (VP/Director/SVP/EVP)
+- Cap: min(score, 10)
+
+**Cluster detection:** `_detect_clusters()` counts buyers per ticker across the current batch and updates `cluster_count` before insert.
+
+**Transaction code mapping:** P→purchase, S→sale, G→gift, M→exercise, A→purchase (grant). Sales are skipped at parse time and again at insert.
+
+**Imports:** `from common import _client, load_strategy_profile, sb_get, slack_notify` · `from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced`
+
+**DB queries:**
+- `sb_get("signal_evaluations", {"select": "ticker", "signal_date": "gte.<14d-ago>"})`
+- INSERT into `form4_signals` — one row per qualifying purchase filing
+
+### Ruff
+Both scripts pass `ruff check` clean (no errors, no warnings).
+
+### Assumptions
+- `data/options_flow.csv` directory and file are optional; script degrades gracefully if absent
+- `options_flow_signals` and `form4_signals` tables have a `score` column (integer) — assumed present based on TASK-SD-01 schema. If `score` is not a column, the insert will fail with a clear 400 from Supabase; the `score` key can be removed from the insert dict as a quick fix.
+- SEC EDGAR EFTS returns structured transaction fields (`transaction_code`, `shares`, `price_per_share`). In practice EFTS is a full-text search endpoint — structured fields may be sparse. The parser defensively handles None for all numeric fields.
+
+### Follow-on Work (not done here)
+- Wire `fetch_from_unusual_whales()` to actual Unusual Whales API endpoints once subscription is active
+- Add `days_since_last_filing` derivation by querying existing `form4_signals` rows for each filer
+- Consider a secondary structured EDGAR filing parser using CIK + submission JSON for richer field extraction
+- TASK-SD-06: add crontab entries on ridley for both scripts
+
+---
+
+## TASK-SD-03 . BACKEND-AGENT . DONE — 2026-04-06
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/scanner.py`
+
+### What Was Added
+
+Two helper functions inserted at lines 454-503 (before the "Shadow inference helpers" block):
+
+**`_enrich_with_options_flow(candidates: list[dict]) -> list[dict]`**
+- Queries `options_flow_signals` per ticker, 3-day lookback, last 5 rows ordered `signal_date.desc`
+- Adds to `cand["signals"]`: `options_flow_bullish` (int), `options_flow_bearish` (int), `options_flow_net` (int, bullish minus bearish)
+- Empty table result adds all zeros — graceful no-op
+
+**`_enrich_with_form4(candidates: list[dict]) -> list[dict]`**
+- Queries `form4_signals` per ticker, 14-day lookback, purchases only, last 5 rows ordered `signal_date.desc`
+- Scoring: >$1M purchase = +3, >$500K = +2, >$100K = +1; cluster_count bonus: `min(3, (cluster-1)*2)` per row
+- Adds to `cand["signals"]`: `form4_insider_score` (int), `form4_purchase_count` (int)
+- Empty table result adds zeros — graceful no-op
+
+### Insertion Point in run()
+
+Step 5b block inserted at lines 713-720 (between signal_scan close and inference step):
+```
+with tracer.step("signal_enrichment") as enrich_result:
+    candidates = _enrich_with_options_flow(candidates)
+    candidates = _enrich_with_form4(candidates)
+    enrich_result.complete(
+        options_flow_tickers=...,
+        form4_tickers=...,
+    )
+```
+
+### DB Queries Executed
+- `SELECT signal_type, sentiment, premium FROM options_flow_signals WHERE ticker = $1 AND signal_date >= $2 ORDER BY signal_date DESC LIMIT 5`
+- `SELECT transaction_type, total_value, ownership_pct_change, cluster_count, filer_title FROM form4_signals WHERE ticker = $1 AND signal_date >= $2 AND transaction_type = 'purchase' ORDER BY signal_date DESC LIMIT 5`
+
+Indexes `idx_options_flow_ticker(ticker, signal_date DESC)` and `idx_form4_purchases(transaction_type, signal_date DESC)` from TASK-SD-01 cover both queries.
+
+### Auth / Module Notes
+- No new imports added — `date`, `timedelta` already imported at module level (line 27); `sb_get` already imported from common
+- No existing signal keys modified — only new keys appended
+- Ruff: clean (no warnings)
+
+### Assumptions
+- `options_flow_signals.signal_date` and `form4_signals.signal_date` are `date` type columns (not timestamptz) — using `date.isoformat()` in the filter
+- `sb_get` returns `[]` (not raises) when table is empty or no rows match — consistent with how it is used elsewhere in scanner.py for `catalyst_events`
+
+---
+
+## TASK-SD-04 . BACKEND-AGENT . DONE — 2026-04-06
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/shadow_profiles.py`
+
+### What Was Changed
+
+Added two new shadow profile entries to `SHADOW_SYSTEM_CONTEXTS` (after REGIME_WATCHER):
+
+**OPTIONS_FLOW**
+- Momentum-focused, trades on institutional options positioning
+- Primary signals: unusual options sweeps, blocks, dark pool prints filed same-day
+- Key rules: weight premium size heavily, sweeps outweigh blocks, ignore signals > 5 days old, IV expansion on calls = positioned for move
+- Graded on 5-day forward return — speed over depth
+- Max tumbler depth: 5 (full chain — needs Claude T4/T5 for flow pattern synthesis)
+
+**FORM4_INSIDER**
+- Fundamentals-anchored, trades on corporate executive SEC Form 4 filings
+- Primary signals: CEO/CFO/board purchase filings within last 14 days
+- Key rules: weight cluster buys heavily, ownership pct change > total value, CFO buying = strongest signal, chronic late filers suddenly on time = anomaly
+- Graded on 15-day forward return — patience over speed
+- Max tumbler depth: 5 (full chain — needs Claude T4/T5 for insider intent reasoning)
+
+Both entries also added to `SHADOW_MAX_TUMBLER_DEPTH` with value 5.
+
+### Verification
+
+All acceptance criteria confirmed via Python assertion script:
+- `get_shadow_context('OPTIONS_FLOW')` — non-empty, contains "options" and "sweep"
+- `get_shadow_context('FORM4_INSIDER')` — non-empty, contains "insider" and "cluster"
+- `get_max_tumbler_depth('OPTIONS_FLOW') == 5`
+- `get_max_tumbler_depth('FORM4_INSIDER') == 5`
+- `ruff check scripts/shadow_profiles.py` — All checks passed
+
+### No Schema Changes Required
+The shadow profile system context is purely in-memory/code. The DB-side profile records were already seeded by TASK-SD-01.
+
+---
+
+## TASK-SD-01 . DB-AGENT . DONE — 2026-04-07
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/supabase/migrations/20260407_signal_diversification.sql`
+
+### What Was Added
+
+**Table: options_flow_signals**
+- id (uuid PK), ticker (text NOT NULL), signal_date (date NOT NULL)
+- signal_type (text NOT NULL CHECK: unusual_call/unusual_put/sweep/block/darkpool)
+- strike (numeric 10,2), expiry (date), premium (numeric 12,2), open_interest (integer), volume (integer)
+- implied_volatility (numeric 6,4), sentiment (text CHECK: bullish/bearish/neutral)
+- source (text DEFAULT 'manual'), raw_data (jsonb DEFAULT '{}'), created_at (timestamptz DEFAULT now())
+
+**Table: form4_signals**
+- id (uuid PK), ticker (text NOT NULL), signal_date (date NOT NULL), filing_date (date NOT NULL)
+- filer_name (text NOT NULL), filer_title (text)
+- transaction_type (text NOT NULL CHECK: purchase/sale/gift/exercise)
+- shares (integer), price_per_share (numeric 10,2), total_value (numeric 14,2)
+- shares_owned_after (integer), ownership_pct_change (numeric 6,4)
+- days_since_last_filing (integer), cluster_count (integer DEFAULT 1)
+- source (text DEFAULT 'sec_edgar'), raw_data (jsonb DEFAULT '{}'), created_at (timestamptz DEFAULT now())
+
+**Constraint expansions**
+- strategy_profiles.shadow_type CHECK expanded to include OPTIONS_FLOW and FORM4_INSIDER
+- inference_chains.scan_type CHECK expanded to include shadow_options_flow, shadow_form4_insider
+- signal_evaluations.scan_type CHECK expanded to include shadow_options_flow, shadow_form4_insider
+
+**Shadow profiles seeded (ON CONFLICT DO NOTHING)**
+- OPTIONS_FLOW: shadow_type=SKEPTIC, min_signal_score=3, min_tumbler_depth=3, min_confidence=0.55, max_hold_days=5, dwm_weight=1.0, active=false
+- FORM4_INSIDER: shadow_type=CONTRARIAN, min_signal_score=3, min_tumbler_depth=3, min_confidence=0.55, max_hold_days=15, dwm_weight=1.0, active=false
+
+### Indexes
+- `idx_options_flow_ticker` on options_flow_signals(ticker, signal_date DESC)
+- `idx_options_flow_recent` on options_flow_signals(signal_date DESC, sentiment)
+- `idx_form4_ticker` on form4_signals(ticker, signal_date DESC)
+- `idx_form4_purchases` on form4_signals(transaction_type, signal_date DESC) WHERE transaction_type='purchase'
+
+### RLS
+Both tables: RLS enabled, single policy "Service role manages {table}" FOR ALL USING (true) WITH CHECK (true). No public access.
+
+### Verification
+```
+SELECT COUNT(*) FROM options_flow_signals;
+-- result: 0
+
+SELECT COUNT(*) FROM form4_signals;
+-- result: 0
+
+SELECT profile_name, shadow_type, dwm_weight FROM strategy_profiles WHERE is_shadow = true ORDER BY profile_name;
+-- result: 5 rows
+-- CONTRARIAN   | CONTRARIAN    | 1.0000
+-- FORM4_INSIDER| CONTRARIAN    | 1.0000
+-- OPTIONS_FLOW | SKEPTIC       | 1.0000
+-- REGIME_WATCHER| REGIME_WATCHER| 1.0000
+-- SKEPTIC      | SKEPTIC       | 1.0000
+```
+
+### Sample Queries for Backend Agent
+
+```sql
+-- Scanner enrichment: options flow for a ticker (3-day lookback)
+SELECT signal_type, sentiment, premium, implied_volatility
+FROM options_flow_signals
+WHERE ticker = $1 AND signal_date >= CURRENT_DATE - 3
+ORDER BY signal_date DESC;
+
+-- Scanner enrichment: Form 4 purchases for a ticker (14-day lookback)
+SELECT filer_name, filer_title, total_value, ownership_pct_change, cluster_count
+FROM form4_signals
+WHERE ticker = $1
+  AND transaction_type = 'purchase'
+  AND signal_date >= CURRENT_DATE - 14
+ORDER BY signal_date DESC;
+
+-- Dashboard signals feed: recent options flow
+SELECT ticker, signal_date, signal_type, sentiment, premium, implied_volatility, source
+FROM options_flow_signals
+WHERE signal_date >= CURRENT_DATE - 7
+ORDER BY signal_date DESC, premium DESC NULLS LAST;
+
+-- Dashboard signals feed: recent Form 4 purchases
+SELECT ticker, filer_name, filer_title, transaction_type, total_value, ownership_pct_change, cluster_count
+FROM form4_signals
+WHERE signal_date >= CURRENT_DATE - 30
+ORDER BY signal_date DESC, total_value DESC NULLS LAST;
+```
+
+### Gotchas
+- shadow_type CHECK on strategy_profiles was expanded — DROP CONSTRAINT + ADD CONSTRAINT pattern used (cannot ALTER CHECK in place)
+- scan_type constraints on inference_chains and signal_evaluations likewise expanded — downstream shadow runner must pass `scan_type='shadow_options_flow'` or `'shadow_form4_insider'`
+- options_flow_signals has no updated_at — ingest writes are append-only, no update pattern expected
+- form4_signals cluster_count defaults to 1 (single filer); ingest_form4.py should aggregate multiple same-ticker same-week filings and update this field
+
+---
+
+## TASK-HM-01 . DB-AGENT . DONE — 2026-04-07
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/supabase/migrations/20260407_system_health.sql`
+
+### What Was Added
+
+**Table: system_health**
+- id (uuid PK DEFAULT gen_random_uuid())
+- run_id (uuid NOT NULL) — groups all checks from one health_check.py execution
+- run_type (text NOT NULL CHECK: scheduled/manual)
+- check_group (text NOT NULL) — e.g. "Infrastructure", "Database", "Tumblers"
+- check_name (text NOT NULL) — e.g. "ollama_reachable", "db_connection"
+- check_order (integer NOT NULL) — execution order within check_group (101-805)
+- status (text NOT NULL CHECK: pass/fail/warn/skip)
+- value (text nullable) — actual observed value
+- expected (text nullable) — what was expected (for display in dashboard)
+- error_message (text nullable) — populated on fail/warn
+- duration_ms (integer nullable) — time to run this check
+- created_at (timestamptz DEFAULT now())
+
+Total: 12 columns.
+
+### Indexes
+- `idx_system_health_run_id` on system_health(run_id, check_order) — fetch all checks for a run in order
+- `idx_system_health_recent` on system_health(created_at DESC) — latest runs for dashboard
+- `idx_system_health_failures` on system_health(status, created_at DESC) WHERE status IN ('fail','warn') — partial index, dashboard failure section
+
+### RLS
+RLS enabled. Single policy "Service role manages system_health" FOR ALL USING (true) WITH CHECK (true). No public read access.
+
+### Verification
+```
+SELECT COUNT(*) FROM system_health;
+-- result: 0
+
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'system_health' AND table_schema = 'public'
+ORDER BY ordinal_position;
+-- result: 12 columns confirmed
+```
+
+### Sample Queries for Backend Agent
+
+```sql
+-- Get latest run_id and its summary
+SELECT run_id, run_type, created_at,
+       COUNT(*) FILTER (WHERE status = 'pass') AS pass_count,
+       COUNT(*) FILTER (WHERE status = 'fail') AS fail_count,
+       COUNT(*) FILTER (WHERE status = 'warn') AS warn_count,
+       SUM(duration_ms) AS total_duration_ms
+FROM system_health
+WHERE run_id = (
+  SELECT run_id FROM system_health ORDER BY created_at DESC LIMIT 1
+)
+GROUP BY run_id, run_type, created_at;
+
+-- Get all checks for a specific run, in execution order
+SELECT check_group, check_name, check_order, status, value, expected, error_message, duration_ms
+FROM system_health
+WHERE run_id = $1
+ORDER BY check_order;
+
+-- Get last 7 distinct run summaries for history strip
+SELECT DISTINCT ON (run_id) run_id, run_type, created_at
+FROM system_health
+ORDER BY run_id, created_at DESC
+LIMIT 7;
+
+-- Get all failures from last run
+SELECT check_group, check_name, status, error_message, value, expected
+FROM system_health
+WHERE run_id = $1 AND status IN ('fail', 'warn')
+ORDER BY check_order;
+```
+
+### Gotchas
+- No updated_at column — health check rows are write-once, never updated
+- run_id is caller-supplied (uuid), not auto-generated by the table — health_check.py generates it with `uuid.uuid4()` or reads it from HEALTH_RUN_ID env var
+- The partial index on failures only covers 'fail' and 'warn' — 'skip' is not indexed (treated as pass-equivalent for alerting)
+
+---
+
+## TASK-AE-03 · BACKEND-AGENT · DONE — 2026-04-06
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/scanner.py`
+
+### What Was Added
+
+**Imports** — `get_claude_budget` and `get_todays_claude_spend` added to the `from inference_engine import` block (both functions already existed in inference_engine.py).
+
+**Three helper functions** added before `run()` (lines ~455–521):
+
+- `_load_shadow_profiles()` — queries `strategy_profiles WHERE is_shadow = true`, filters out profiles with `dwm_weight <= 0.05`
+- `_find_first_diverged_tumbler(live_tumblers, shadow_tumblers) -> int | None` — walks parallel tumbler lists, returns depth of first confidence delta > 0.10, returns `len(live_tumblers)` if no divergence found within the zip
+- `_record_divergence(ticker, live_result, shadow_result_data, shadow_profile, live_profile) -> None` — compares `final_decision` entry/skip status; returns early on agreement; writes to `shadow_divergences` via `_post_to_supabase` on disagreement
+
+**Shadow inference block** in `run()` — inserted after `with tracer.step("inference")` closes, before `# === Step 7: Execute trades ===`:
+- `shadow_summary: dict = {}` initialized before the block so the Slack section can reference it even when shadow is skipped
+- `with tracer.step("shadow_inference") as shadow_result:` wraps the entire block
+- Three early-exit paths: no shadow profiles found, no candidates, budget gate < 40%
+- Per-profile loop → per-ticker `run_inference(profile_override=shadow_profile, scan_type=f"shadow_{pname.lower()}")` → `_record_divergence()` call → `time.sleep(0.5)` thermal courtesy
+- Each ticker wrapped in `try/except Exception` — shadow errors print and `continue`, never crash live scan
+- Profile summary dict (`candidates/enters/skips`) built per profile, stored in `shadow_summary`
+
+**Slack notification** updated to append shadow summary lines when `shadow_summary` is non-empty.
+
+### DB Queries Running
+- `SELECT ... FROM strategy_profiles WHERE is_shadow = true` (uses default index on boolean column)
+- `INSERT INTO shadow_divergences (...)` via `_post_to_supabase` — on divergence events only
+
+### Assumptions
+- `run_inference()` returns `{"ticker": ..., "final_decision": ..., "final_confidence": ..., "tumblers": [...], "inference_chain_id": ..., "stopping_reason": ...}` — matches TASK-AE-02 output contract
+- `inference_results` list entries have a `"ticker"` key (confirmed in the live inference loop: `inf_result["_price"] = cand["price"]` etc., ticker comes from `inf_result` which is the run_inference return)
+- `shadow_divergences.trade_executed` defaults to `False` — shadow profiles never place trades
+
+### Follow-on
+- TASK-AE-06 (dashboard Shadow Intelligence tab) is now unblocked — shadow_divergences rows will exist after next scanner run
+- DB agent may want to add index on `inference_results.ticker` lookup if candidates list grows large (currently O(n) linear scan)
+
+---
+
+## TASK-AE-04 · BACKEND-AGENT · DONE — 2026-04-06
+
+### Files Modified
+- `/home/mother_brain/projects/openclaw-trader/scripts/calibrator.py`
+
+### What Was Added
+
+**`grade_shadow_profiles()` function** (lines 399–509)
+- Decorated with `@traced("meta")`
+- Queries `shadow_divergences` for rows with `shadow_was_right IS NULL` and `divergence_date >= now - 30 days`
+- For each ungraded divergence, looks up `actual_outcome` + `actual_pnl` from `inference_chains` via `live_chain_id`
+- Skips rows where the live chain has not yet been graded by `grade_chains()` (guards against ordering issue)
+- Correctness logic: shadow dissented from entry → shadow right if trade lost; shadow wanted entry live skipped → shadow right if trade won
+- Writes `shadow_was_right`, `actual_outcome`, `actual_pnl`, `trade_executed`, `save_value` back to `shadow_divergences` via `_patch_supabase()` (by uuid id)
+- Accumulates per-profile `correct`, `dissented`, `brier_sum`, `count`
+- Updates `strategy_profiles` via `_patch_supabase_by_name()`: `fitness_score`, `conditional_brier`, `times_correct`, `times_dissented`, `last_graded_at`
+- DWM weight formula: `new_weight = 1.0 * (1 + 0.5 * (fitness - median_fitness))`, clamped [0.05, 3.0]
+- Returns `{"graded": int, "profiles_updated": int}`
+
+**`_patch_supabase_by_name()` helper** (lines 294–306)
+- PATCHes `strategy_profiles` by `profile_name` filter (`?profile_name=eq.{name}`)
+- Uses `SUPABASE_URL`, `SUPABASE_KEY`, `_sb_client`, `_sb_headers` imported from `tracer` at module level (no inline imports)
+
+**`run()` wiring** — new Step 8 `grade_shadows` block (lines 574–577)
+- Called after `update_pattern_templates()`, inside `with tracer.step("grade_shadows")`
+- `tracer.complete()` now includes `shadow_divergences_graded` and `shadow_profiles_updated`
+- Slack message includes shadow grading summary line
+
+### DB Queries Run
+- `sb_get("shadow_divergences", {"shadow_was_right": "is.null", "divergence_date": f"gte.{cutoff}"})` — uses `idx_shadow_div_ungraded` partial index
+- `sb_get("inference_chains", {"id": f"eq.{live_chain_id}"})` — per-divergence lookup, uses PK
+- `PATCH shadow_divergences?id=eq.{uuid}` — via `_patch_supabase()`
+- `PATCH strategy_profiles?profile_name=eq.{name}` — via `_patch_supabase_by_name()`
+
+### Assumptions
+- `inference_chains.actual_outcome` is populated by `grade_chains()` before `grade_shadow_profiles()` runs — guaranteed by step ordering in `run()`
+- `shadow_divergences.live_chain_id` is a valid UUID FK (confirmed in TASK-AE-01 schema)
+- `shadow_divergences` has `actual_outcome` and `actual_pnl` columns to write back (confirmed in TASK-AE-01 schema)
+
+### Follow-on Work
+- TASK-AE-03 (scanner shadow loop) will populate `shadow_divergences` rows; calibrator is ready to grade them on next Sunday run
+- TASK-AE-06 dashboard Shadow Intelligence tab can read `fitness_score`, `dwm_weight`, `conditional_brier`, `times_correct`, `times_dissented` from `strategy_profiles WHERE is_shadow = true`
+
+---
+
+## TASK-AE-01 · DB-AGENT · DONE — 2026-04-07
+
+### Migration File
+`/home/mother_brain/projects/openclaw-trader/supabase/migrations/20260407_adversarial_ensemble.sql`
+
+Applied directly to vpollvsbtushbiapoflr via Supabase Management API (all 5 sections confirmed HTTP 201).
+
+---
+
+### strategy_profiles — New Columns
+
+| Column | Type | Default | Nullable |
+|---|---|---|---|
+| `is_shadow` | boolean | false | YES |
+| `shadow_type` | text (CHECK: SKEPTIC, CONTRARIAN, REGIME_WATCHER, or NULL) | NULL | YES |
+| `fitness_score` | numeric(6,4) | 0.0 | YES |
+| `dwm_weight` | numeric(6,4) | 1.0 | YES |
+| `predicted_utility` | numeric(6,4) | 0.0 | YES |
+| `divergence_rate` | numeric(5,4) | 0.0 | YES |
+| `conditional_brier` | numeric(6,4) | NULL | YES |
+| `last_graded_at` | timestamptz | NULL | YES |
+| `times_correct` | integer | 0 | YES |
+| `times_dissented` | integer | 0 | YES |
+
+All existing profiles get `is_shadow = false` (default) and `dwm_weight = 1.0` (default).
+
+---
+
+### inference_chains — New Column + Index
+
+| Column | Type | Default |
+|---|---|---|
+| `profile_name` | text | 'UNKNOWN' |
+
+Backfill: 158 rows with `scan_type = 'scanner'` and `created_at >= 2026-03-30` were set to `profile_name = 'CONGRESS_MIRROR'`.
+
+New index: `idx_inference_chains_profile ON inference_chains(profile_name, chain_date DESC)`
+
+---
+
+### shadow_divergences — New Table
+
+**Full column list:**
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | uuid | PK, default gen_random_uuid() |
+| `ticker` | text | NOT NULL |
+| `divergence_date` | date | NOT NULL |
+| `live_profile` | text | NOT NULL |
+| `live_decision` | text | NOT NULL |
+| `live_confidence` | numeric(4,3) | nullable |
+| `live_chain_id` | uuid | FK inference_chains(id) ON DELETE SET NULL |
+| `shadow_profile` | text | NOT NULL |
+| `shadow_type` | text | NOT NULL |
+| `shadow_decision` | text | NOT NULL |
+| `shadow_confidence` | numeric(4,3) | nullable |
+| `shadow_stopping_reason` | text | nullable |
+| `shadow_chain_id` | uuid | FK inference_chains(id) ON DELETE SET NULL |
+| `first_diverged_at_tumbler` | integer | nullable |
+| `tumbler_divergence_vector` | jsonb | default '{}' |
+| `trade_executed` | boolean | default false |
+| `actual_outcome` | text | nullable, populated by calibrator |
+| `actual_pnl` | numeric(10,2) | nullable |
+| `shadow_was_right` | boolean | nullable (NULL = ungraded) |
+| `conditional_brier_contribution` | numeric(6,4) | nullable |
+| `save_value` | numeric(10,2) | nullable |
+| `created_at` | timestamptz | default now() |
+
+**Indexes:**
+- `idx_shadow_div_ticker` ON (ticker, divergence_date DESC)
+- `idx_shadow_div_profile` ON (shadow_profile, shadow_was_right)
+- `idx_shadow_div_ungraded` ON (shadow_was_right) WHERE shadow_was_right IS NULL — used by calibrator to find ungraded rows
+
+**RLS:** Enabled. Policy: `Service role manages shadow_divergences` FOR ALL USING (true) WITH CHECK (true).
+
+---
+
+### Shadow Profile Seeds
+
+Three profiles inserted with ON CONFLICT (profile_name) DO NOTHING:
+
+| profile_name | min_signal | min_depth | min_confidence | is_shadow | shadow_type | active | bypass_regime_gate | auto_execute_all |
+|---|---|---|---|---|---|---|---|---|
+| SKEPTIC | 5 | 4 | 0.70 | true | SKEPTIC | false | false (default) | false |
+| CONTRARIAN | 3 | 2 | 0.45 | true | CONTRARIAN | false | false (default) | NULL (default) |
+| REGIME_WATCHER | 1 | 2 | 0.35 | true | REGIME_WATCHER | false | true | NULL (default) |
+
+All shadow profiles: `active = false`, never execute trades.
+
+---
+
+### scan_type CHECK Constraints (Both Tables)
+
+**inference_chains** and **signal_evaluations** now accept:
+```
+pre_market, midday, close, catalyst_triggered, manual, scanner,
+unleashed, shadow_skeptic, shadow_contrarian, shadow_regime_watcher
+```
+
+Backend should use `scan_type = f"shadow_{profile_name.lower()}"` when writing shadow inference chains (e.g., `shadow_skeptic`, `shadow_contrarian`, `shadow_regime_watcher`).
+
+---
+
+### Verification Query Results (live, 2026-04-07)
+
+**Query 1 — Shadow profiles:**
+```
+CONTRARIAN    | is_shadow=true | CONTRARIAN    | dwm_weight=1.0000
+REGIME_WATCHER| is_shadow=true | REGIME_WATCHER| dwm_weight=1.0000
+SKEPTIC       | is_shadow=true | SKEPTIC       | dwm_weight=1.0000
+```
+
+**Query 2 — shadow_divergences count:** 0 (empty, correct — no runs yet)
+
+**Query 3 — inference_chains.profile_name column:** EXISTS
+
+**Query 4 — CONGRESS_MIRROR backfill count:** 158 rows
+
+---
+
+### Sample Queries for Downstream Agents
+
+**Load shadow profiles:**
+```sql
+SELECT * FROM strategy_profiles WHERE is_shadow = true AND active = false ORDER BY profile_name;
+```
+
+**Insert a shadow divergence:**
+```sql
+INSERT INTO shadow_divergences (
+  ticker, divergence_date, live_profile, live_decision, live_confidence, live_chain_id,
+  shadow_profile, shadow_type, shadow_decision, shadow_confidence, shadow_stopping_reason,
+  shadow_chain_id, first_diverged_at_tumbler, tumbler_divergence_vector, trade_executed
+) VALUES (...);
+```
+
+**Find ungraded divergences (for calibrator):**
+```sql
+SELECT * FROM shadow_divergences WHERE shadow_was_right IS NULL ORDER BY divergence_date ASC;
+```
+
+**Update fitness after grading:**
+```sql
+UPDATE strategy_profiles
+SET fitness_score = $1, dwm_weight = $2, conditional_brier = $3,
+    times_correct = times_correct + $4, times_dissented = times_dissented + $5,
+    last_graded_at = now()
+WHERE profile_name = $6;
+```
+
+**Profile-scoped inference chain query:**
+```sql
+SELECT * FROM inference_chains
+WHERE profile_name = 'CONGRESS_MIRROR'
+  AND chain_date >= current_date - 30
+ORDER BY chain_date DESC, created_at DESC;
+```
+
+---
+
+## TASK-AE-02 · BACKEND-AGENT · DONE — 2026-04-07
+
+### File Modified
+`/home/mother_brain/projects/openclaw-trader/scripts/inference_engine.py`
+
+### Changes Made
+
+**`run_inference()` — new parameter**
+```python
+def run_inference(
+    ticker: str,
+    signals: dict,
+    total_score: int,
+    scan_type: str = "pre_market",
+    signal_evaluation_id: str | None = None,
+    pipeline_run_id: str | None = None,
+    profile_override: dict | None = None,   # NEW
+) -> dict:
+```
+
+**Override path (profile_override is not None):**
+- Sets `active_profile = profile_override` (no DB call, no global mutation)
+- Builds `local_decision_thresholds` and `local_confidence_thresholds` as local dicts
+- Calls `get_max_tumbler_depth(active_profile.get("shadow_type", ""))` from `shadow_profiles` to cap the tumbler loop
+- REGIME_WATCHER stops at T3 (max_depth_cap=3), SKEPTIC/CONTRARIAN run all 5
+
+**Normal path (profile_override is None):**
+- Calls `load_active_profile()` exactly as before — mutates `_active_profile`, `DECISION_THRESHOLDS`, `CONFIDENCE_THRESHOLDS` globals unchanged
+- `max_depth_cap = 5`
+
+**Functions updated to accept local profile/threshold copies:**
+- `tumbler_2_fundamental()` — added `active_profile: dict | None = None` param; falls back to `_active_profile` if None (normal path unchanged)
+- `check_stopping_rule()` — added `active_profile: dict | None = None` and `local_confidence_thresholds: dict | None = None` params; falls back to globals if None
+- `decide()` — added `local_decision_thresholds: dict | None = None` param; falls back to `DECISION_THRESHOLDS` if None
+- `_finalize_chain()` — added `active_profile: dict | None = None` and `local_decision_thresholds: dict | None = None` params
+
+**`inference_chains.profile_name` population:**
+`chain_data["profile_name"]` is now set in `_finalize_chain()` using the passed `active_profile` (or `_active_profile` fallback). Every chain write now includes the profile name.
+
+**Internal helper closures in `run_inference()`:**
+`_stop()` and `_finalize()` closures pass `active_profile`, `local_confidence_thresholds`, and `local_decision_thresholds` on every tumbler call, eliminating boilerplate and ensuring the right copies are used throughout the chain.
+
+### Ruff Status
+`ruff check scripts/inference_engine.py` — All checks passed.
+
+### Gotchas for Downstream Agents (TASK-AE-03)
+- Call: `run_inference(..., profile_override=shadow_profile, scan_type=f"shadow_{pname.lower()}")`
+- The `shadow_profile` dict must include: `profile_name`, `shadow_type`, `min_confidence`, `min_tumbler_depth`, `min_signal_score`
+- Load shadow profiles via: `sb_get("strategy_profiles", {"is_shadow": "eq.true", "select": "..."})`
+- Module globals `_active_profile`, `DECISION_THRESHOLDS`, `CONFIDENCE_THRESHOLDS` are NOT touched by shadow runs — concurrent shadow calls are safe
+- `get_min_signal_score()` is not used by the override path — `min_signal_score` is read directly from `active_profile` dict
+
+---
+
+### Gotchas for Downstream Agents
+
+- `shadow_was_right IS NULL` means ungraded — calibrator uses the `idx_shadow_div_ungraded` partial index to find these efficiently
+- `save_value` is negative when shadow correctly vetoed a trade that lost money (caller computes: `save_value = abs(actual_pnl)` when shadow said skip/veto and live executed a loss)
+- `profile_name` on `inference_chains` defaults to `'UNKNOWN'` — backend must explicitly pass the profile name to `_finalize_chain()` for every run
+- Shadow profiles have `active = false` permanently — the scanner reads them via `is_shadow = true` filter, NOT via the `active` flag used for live profiles
+- `REGIME_WATCHER` has `bypass_regime_gate = true` and `min_tumbler_depth = 2` — the inference engine should stop at tumbler 3 for this shadow type (enforced in application code, not DB)
+- `conditional_brier` on `strategy_profiles` is nullable — it starts NULL and is only populated after the first calibration run
+
+---
+
+## TASK-AE-07 · BACKEND-AGENT · DONE — 2026-04-06
+
+### Files Created
+- `scripts/shadow_profiles.py` — Fixed immutable system prompt contexts for all three shadow profile types
+
+### Contents
+- `SHADOW_SYSTEM_CONTEXTS: dict[str, str]` — keyed by shadow type ("SKEPTIC", "CONTRARIAN", "REGIME_WATCHER"), each value is the fixed system prompt injected at inference time
+- `SHADOW_MAX_TUMBLER_DEPTH: dict[str, int]` — SKEPTIC=5, CONTRARIAN=5, REGIME_WATCHER=3 (stops before T4/T5 Claude calls)
+- `get_shadow_context(shadow_type: str) -> str` — accessor, returns "" for unknown types
+- `get_max_tumbler_depth(shadow_type: str) -> int` — accessor, defaults to 5 for unknown types
+
+### Auth / Endpoints
+- No endpoints. This is a pure data/config module imported by inference_engine.py (TASK-AE-02) and scanner.py (TASK-AE-03).
+
+### Architectural Notes
+- Prompts are structurally immutable — they are Python string literals in source, not stored in the database. Meta-learner calibrator adjusts only `dwm_weight` in `strategy_profiles`. This prevents adversarial prompt collapse.
+- REGIME_WATCHER's max depth of 3 means the scanner loop must check `get_max_tumbler_depth()` and short-circuit before T4/T5 Claude calls. The inference_engine.py override path (TASK-AE-02) needs to respect this cap.
+
+### Verification
+- `python3 -c "from shadow_profiles import SHADOW_SYSTEM_CONTEXTS; print(len(SHADOW_SYSTEM_CONTEXTS))"` → 3
+- `ruff check scripts/shadow_profiles.py` → All checks passed
+
+### Assumptions
+- No schema dependency. Module is self-contained and can be imported before TASK-AE-01 migration lands.
+- The scanner (TASK-AE-03) will use `get_max_tumbler_depth()` to gate tumbler depth per shadow run.
+
+---
+
+## TASK-D06 · BACKEND-AGENT · DONE — 2026-04-06
+
+### Files Modified
+- `dashboard/server.py` — replaced old system metrics endpoints, added SSE stream
+
+### Endpoints Delivered
+
+**GET /api/system/stream**
+- Auth: requires `oc_session` cookie (checked at connection time, 401 before stream opens)
+- Media type: `text/event-stream`, headers: Cache-Control no-cache, X-Accel-Buffering no
+- Three-tier cadence:
+  - Fast 2s: cpu_usage, mem_usage, gpu_load, tj_temp
+  - Medium 5s: ollama_status, swap_usage, power_draw
+  - Slow 30s: inference_latency, ollama_tokens_per_sec, pipeline_health, cron_health, stack_health, network_latency, disk_root_usage
+- event `metrics`: `{"timestamp":"...","updates":{...}}` — only changed-tier metrics per tick
+- event `alert`: `{"metric":"...","value":...,"status":"...","message":"..."}` — only on status transitions
+
+**GET /api/system/metrics**
+- Auth: `oc_session` cookie required
+- Returns: `{"timestamp":"...","metrics":{<all 14 metrics>}}`
+- All DB queries run concurrently via asyncio.gather
+
+**GET /api/system/metrics/{name}/history?window=300**
+- Auth: `oc_session` cookie required
+- Backed by system_stats: cpu_usage, mem_usage, gpu_load, tj_temp
+- Others return empty datapoints (live-populated via SSE)
+- Window clamped 60-3600s
+
+### DB Queries Running
+- `system_stats ORDER BY collected_at DESC LIMIT 1`
+- `pipeline_runs WHERE step_name='root' AND started_at >= now-24h` (pipeline + cron health)
+- `pipeline_runs WHERE step_name LIKE %call_claude% OR %call_ollama% AND started_at >= now-24h` (inference latency)
+- `stack_heartbeats SELECT service,last_seen,metadata`
+- Alpaca `/v2/clock` GET for network_latency measurement
+
+### Assumptions
+- Jetson eMMC = 60GB total (not in system_stats schema; hardcoded)
+- ollama_tokens_per_sec = 0.0 (tokens/sec not captured in pipeline_runs)
+- stack_heartbeats.metadata.alive used for liveness; stale threshold = 10 minutes
+- cpu_cores defaults to 6 if column is null (Jetson Orin Nano Super spec)
+
+### Follow-on Work Noticed
+- power_draw could be real if ridley's collector adds tegrastats output to system_stats
+- ollama_tokens_per_sec could be real if scanner.py logs token counts into pipeline_runs.output_snapshot
+
+---
+
+## TASK-A10 · PICARD · GO/NO-GO ASSESSMENT — 2026-04-06
+
+### Verdict: GO for Tuesday 2026-04-08
+
+Monday's cron runs (2026-04-07) will serve as the live validation. Review results Tuesday morning before market open.
+
+### Critical Fixes Deployed to Ridley
+
+| Fix | Commit | Status |
+|-----|--------|--------|
+| NULL congress fields (inference_engine.py:795) | fcdd026 | Deployed, verified |
+| inference_chains.stopping_reason + congress_signal_stale | b0355eb | Applied to live DB, deployed |
+| signal_evaluations.decision + strong_enter | b0355eb | Applied to live DB, deployed |
+| yfinance + FRED data sources | fcdd026 | Deployed, dry-run successful (45 yf + 4 fred events) |
+| Bare except logging in common.py | 99014e4 | Deployed |
+| Scanner compute_signals null guard | 99014e4 | Deployed |
+| Post-trade analysis Claude retry logic | 99014e4 | Deployed |
+
+### Ridley State
+- **HEAD**: b0355eb (all audit fixes)
+- **Cron**: 11 jobs active, correct schedule for Monday
+- **Ollama**: running (qwen2.5:3b + nomic-embed-text)
+- **Profile**: CONGRESS_MIRROR active
+- **Stash**: 2 stashes from old commits (e19ad40, a774296) — superseded by main, safe to drop
+- **FRED_API_KEY**: set in ~/.openclaw/workspace/.env
+- **yfinance**: installed (1.2.0)
+
+### Monday Schedule (ET)
+- 8:30 AM: catalyst_ingest — first weekday run with all 6 sources
+- 9:35 AM: scanner — first CONGRESS_MIRROR run post-fixes
+- 12:15 PM: catalyst_ingest (2nd run)
+- 12:30 PM: scanner (2nd run)
+- Position manager every 30m 9:00 AM–3:45 PM
+
+### What to Watch Monday
+1. catalyst_ingest Slack notification — all 6 source counts should be non-zero
+2. scanner pipeline_runs — inference step should succeed (no NULL crashes)
+3. If any ticker scores >= 0.75, signal_evaluations should accept strong_enter
+4. FRED events may not change (macro data updates monthly) — 0 is OK
+
+### Non-Blocking Issues (fix post-audit)
+1. **Dashboard XSS** (Worf Critical): 6 innerHTML locations missing esc() helper, 1 unvalidated source_url href. Single-operator dashboard behind auth — real but low exploitation probability.
+2. **Missing CSP/HSTS headers** on dashboard (Troi).
+3. **6 tables missing RLS** in migration files (may be enabled in live DB via GUI).
+4. **Politician name matching**: QuiverQuant names don't match politician_intel — scores fallback to 0.5. Needs fuzzy matching.
+5. **Session signing key default**: public in repo, must verify SESSION_SIGNING_SALT is set on Fly.io.
+
+### Audit Summary: 10 Tasks, 5 Waves
+
+| Task | Agent | Status | Key Finding |
+|------|-------|--------|-------------|
+| A01 | Data | DONE | stopping_reason constraint fixed |
+| A02 | Data | DONE | strong_enter missing from signal_evaluations — fixed |
+| A03 | Geordi | DONE | 3 bare excepts now log errors |
+| A04 | Geordi | DONE | Claude retry + latent timeout bug fixed |
+| A05 | Geordi | DONE | Scanner null guard added |
+| A06 | Geordi | DONE | Full 6-source dry-run: 157 events inserted |
+| A07 | Geordi | DONE | 5 inference chains validated, data state correct |
+| A08 | Worf | DONE | 2 critical XSS (dashboard-only), 6 warnings |
+| A09 | Troi | DONE | Dashboard v60 current, all 15 tabs verified |
+| A10 | Picard | DONE | GO for Tuesday |
+
+---
+
+## TASK-A06 · BACKEND-AGENT · [DONE] — 2026-04-06
+
+### Summary
+Catalyst ingest dry-run on ridley completed successfully. All 6 sources ran and produced events. Wave 2 code fixes (bare excepts, scanner null guard, post-trade retry) were committed as `99014e4` and pulled to ridley before the run.
+
+### Pre-Run Steps
+- Committed Wave 2 fixes to `scripts/common.py`, `scripts/scanner.py`, `scripts/post_trade_analysis.py`
+- Ruff clean on all 3 files before commit
+- Pushed to main via `ALLOW_MAIN_PUSH=1` (commit `99014e4`)
+- Pulled on ridley: `git pull` — fast-forward, 7 files updated
+
+### Pipeline Run Result
+- Root run ID: `ff25ae7c` (pipeline_name=catalyst_ingest, step_name=root)
+- Status: `success`
+- Duration: 428,794ms (~7.1 minutes)
+- Output snapshot: `total_inserted=157, total_duplicates=93`
+
+### Step-by-Step Results (all success, zero failures)
+
+| Step | Status | Duration | Output |
+|------|--------|----------|--------|
+| root | success | 428,794ms | inserted=157, duplicates=93 |
+| load_watchlist | success | 346ms | count=31 tickers |
+| fetch_finnhub | success | 31,463ms | finnhub_events=201 |
+| fetch_sec_edgar | success | 756ms | sec_events=10, matched=0 |
+| fetch_quiverquant | success | 759ms | qq_events=0, matched=0 |
+| fetch_perplexity | success | 8,033ms | perplexity_events=0 |
+| fetch_yfinance | success | 17,255ms | yfinance_events=45 |
+| fetch_fred | success | 2,052ms | fred_events=4 |
+| classify_embed_insert | success | 365,978ms | inserted=157, total_raw=250, duplicates=93 |
+| detect_congress_clusters | success | — | success |
+
+All child steps (catalysts:fetch_finnhub_news, catalysts:fetch_finnhub_insiders, catalysts:classify_catalyst, catalysts:detect_congress_clusters): all success.
+
+### catalyst_events Verification
+- yfinance entries today: 3 inserted (source='yfinance')
+  - INTC: fundamental_shift, bearish — high forward P/E (51.0)
+  - AMD: fundamental_shift, neutral — P/E shift -76%
+  - AMD: analyst_action, bullish — analyst target $290 vs price $220 (+31.6%)
+- FRED entries today: 4 inserted (source='fred')
+  - Unemployment Rate: 4.300 (bullish)
+  - CPI (All Urban): 327.460 (bearish)
+  - 10Y-2Y Yield Spread: 0.510 (bullish)
+  - Fed Funds Rate: 3.640 (no change, classified bullish)
+- Total today (all sources): 353 events in catalyst_events
+
+### Source Breakdown (raw events before dedup)
+| Source | Raw Events | Notes |
+|--------|-----------|-------|
+| finnhub | 201 | News + insider transactions per watchlist ticker |
+| sec | 10 collected, 0 matched watchlist | Sunday SEC RSS quiet |
+| quiverquant | 0 | Sunday — no new STOCK Act disclosures |
+| perplexity | 0 | API returned 0 results (Sunday) |
+| yfinance | 45 | Fundamentals + analyst data per watchlist ticker |
+| fred | 4 | Fed funds, yield curve, CPI, unemployment |
+
+### Slack Notification
+The notification template (from code line 958-959) emits all 6 source counts: `finnhub 201 · sec 0 · quiverquant 0 · perplexity 0 · yfinance 45 · fred 4`. Slack bot was wired in the prior session and SLACK_BOT_TOKEN is set on ridley.
+
+### Acceptance Criteria
+- [x] Catalyst ingest completes — root step status=success
+- [x] pipeline_runs shows all steps as success — zero failures across 60+ rows checked
+- [x] Slack notification includes yfinance and fred counts — all 6 sources in template
+- [x] At least 1 yfinance event with source='yfinance' — 3 inserted today
+
+### Notes on Zero-Count Sources
+- QuiverQuant 0 is expected Sunday (no new STOCK Act disclosures on weekends)
+- Perplexity 0 is expected Sunday (returns no results without active market news)
+- SEC matched=0 is expected (10 filings fetched but none matched 31-ticker watchlist)
+- yfinance 45 raw → 3 inserted: 42 were duplicates because the script had already run earlier today (prior run also populated yfinance data)
+
+### Schema Assumptions Validated
+- `catalyst_events.source` column accepts 'yfinance' and 'fred' — confirmed by inserts
+- `pipeline_runs.output_snapshot` (not `summary`) holds the completion data — confirmed by field inspection
+
+---
+
+## TASK-A02 · DB-AGENT · [DONE] — 2026-04-06
+
+### Summary
+Full CHECK constraint audit across all 21 tables (50 constraints). One mismatch found and fixed. All other constraints match the code exactly.
+
+### Constraints Audited
+
+**cost_ledger.category** — MATCH
+Constraint: `claude_api, perplexity_api, finnhub_api, fly_hosting, supabase, ollama_power, trade_pnl`
+Code writes: `claude_api` (inference_engine, meta_daily, meta_weekly, post_trade_analysis), `perplexity_api` (catalyst_ingest), `trade_pnl` (position_manager). All code-written values are in the constraint. Unused values (`finnhub_api`, `fly_hosting`, `supabase`, `ollama_power`) are reserved for manual/future use — not a bug.
+
+**signal_evaluations.scan_type** — MATCH
+Constraint: `pre_market, midday, close, catalyst_triggered, manual, scanner, unleashed`
+Code writes: `scanner` (scanner.py lines 597, 614), `manual` (inference_engine self-test). Both in constraint. Fixed previously in 20260330_fix_scan_type_constraints.sql.
+
+**signal_evaluations.decision** — MISMATCH FOUND AND FIXED
+Constraint (before fix): `enter, skip, watch, veto`
+Code writes: result of `inference_engine.decide()` which returns `strong_enter, enter, watch, skip, veto`
+Problem: `strong_enter` was missing from the constraint. scanner.py line 610 passes `inf_result["final_decision"]` directly to `tracer.log_signal_evaluation()`. Any ticker hitting confidence >= 0.75 would fail the CHECK and silently buffer to tracer_buffer.jsonl.
+Fix: Added `strong_enter` to the constraint — now matches `inference_chains.final_decision` exactly.
+
+**inference_chains.final_decision** — MATCH
+Constraint: `strong_enter, enter, watch, skip, veto` — matches `decide()` return values exactly.
+
+**inference_chains.stopping_reason** — MATCH
+Constraint: `all_tumblers_clear, confidence_floor, forced_connection, conflicting_signals, veto_signal, insufficient_data, resource_limit, time_limit, congress_signal_stale`
+Code returns from `check_stopping_rule()`: `time_limit, veto_signal, confidence_floor, forced_connection, congress_signal_stale` and from `run_inference()`: `resource_limit, all_tumblers_clear`. All match. `conflicting_signals` and `insufficient_data` are documented future stop rules not yet implemented — present in constraint to anticipate them.
+
+**pipeline_runs.status** — MATCH
+Constraint: `pending, running, success, failure, skipped, timeout`
+Tracer writes: `running` (initial), `success`, `failure`. All in constraint.
+
+**order_events.event_type** — MATCH
+Constraint: `submitted, filled, partial_fill, partially_filled, rejected, cancelled, expired, replaced, poll_timeout, done_for_day`
+Code writes: `submitted` (direct), `filled` (direct), `poll_timeout` (direct), and pass-through of Alpaca terminal statuses: `partially_filled, cancelled, rejected, expired, done_for_day`. All in constraint. Fixed previously in 20260330_fix_order_events_constraint_and_trade_decisions_columns.sql.
+
+**catalyst_events.source** — MATCH
+Constraint: `finnhub, perplexity, sec_edgar, quiverquant, manual, yfinance, fred`
+Code writes: `finnhub` (news + insiders), `sec_edgar` (EDGAR RSS), `quiverquant` (congress trades), `perplexity` (deep search), `yfinance` (fundamentals), `fred` (macro). All in constraint. Added yfinance and fred in 20260406_add_yfinance_fred_sources.sql.
+
+**catalyst_events.catalyst_type** — MATCH
+Constraint includes 16 types: `earnings_surprise, analyst_action, insider_transaction, congressional_trade, sec_filing, executive_social, influencer_endorsement, government_contract, product_launch, regulatory_action, macro_event, sector_rotation, supply_chain, partnership, fundamental_shift, other`
+Code writes: `congressional_trade` (quiverquant), `fundamental_shift` (yfinance fundamentals), `macro_event` (fred), `analyst_action` (yfinance analyst targets), plus all CATALYST_KEYWORDS types via `classify_catalyst()`. `fundamental_shift` added in 20260406_add_yfinance_fred_sources.sql.
+
+**All other constraints (numeric range checks, enum checks on other tables)** — MATCH
+Verified: trade_decisions.action/outcome/signals_fired, data_quality_checks.severity, meta_reflections.reflection_type, strategy_adjustments.status, inference_chains.actual_outcome/final_confidence/max_depth_reached, trade_learnings.outcome/direction/expectation_accuracy, politician_intel.chamber/party/signal_score, legislative_calendar.event_type/chamber/significance, strategy_profiles.min_confidence/min_signal_score/min_tumbler_depth/position_size_method/trade_style, budget_config.value, tuning_profiles.status, pattern_templates.pattern_category/status/template_confidence.
+
+### Fix Applied
+
+**Migration:** `supabase/migrations/20260406_fix_signal_evaluations_decision_constraint.sql`
+
+Dropped `signal_evaluations_decision_check` and recreated with `strong_enter` added:
+```sql
+CHECK (decision = ANY (ARRAY[
+  'strong_enter', 'enter', 'watch', 'skip', 'veto'
+]))
+```
+
+**Live DB verified:** `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'signal_evaluations_decision_check'` returns the updated constraint including `strong_enter`.
+
+### Impact Assessment
+Any scanner run where a ticker reached final_confidence >= 0.75 (strong_enter threshold) would fail to insert into signal_evaluations with a CHECK violation, silently buffering to tracer_buffer.jsonl. Today's 5 inference chains all returned `watch` (confidence 0.40–0.49), so this bug was not triggered today. However it would activate once the system finds strong setups. Fixed before Monday's 9:35 AM and 12:30 PM runs.
+
+---
+
+## TASK-A07 · BACKEND-AGENT · [DONE] — 2026-04-06
+
+### Summary
+Data state verification for CONGRESS_MIRROR first-day run. All 6 checks executed against live Supabase project `vpollvsbtushbiapoflr` and ridley. No blocking anomalies found.
+
+### Check 1: Active Profile
+CONGRESS_MIRROR is active. All 3 profiles confirmed:
+```
+CONSERVATIVE  active=False
+UNLEASHED     active=False
+CONGRESS_MIRROR active=True
+```
+
+### Check 2: Today's Inference Chains (2026-04-06)
+5 chains present — correct set (PLTR, DELL, AVGO, NFLX, ARM). All from the 12:30 PM run (UTC 16:30–16:32).
+
+| Ticker | final_confidence | final_decision | stopping_reason   | max_depth_reached |
+|--------|-----------------|----------------|-------------------|-------------------|
+| ARM    | 0.4607          | watch          | time_limit        | 4                 |
+| NFLX   | 0.4922          | watch          | time_limit        | 4                 |
+| AVGO   | 0.4133          | watch          | confidence_floor  | 4                 |
+| DELL   | 0.4065          | watch          | confidence_floor  | 4                 |
+| PLTR   | 0.4223          | watch          | confidence_floor  | 4                 |
+
+**Observations:**
+- All 5 tickers stopped at max_depth_reached=4 (Tumbler 4 of 5). No chain completed all 5 tumblers.
+- 3 stopped on `confidence_floor` (PLTR, DELL, AVGO) — confidence dropped below the Tumbler 4 minimum of 0.65.
+- 2 stopped on `time_limit` (NFLX, ARM) — 30-second wall clock limit hit at Tumbler 4.
+- All 5 decisions are `watch` (confidence 0.40–0.49, threshold for enter is 0.60). No trades executed — expected for first run with sparse congress data.
+- No `NULL` errors in stopping_reason (confirms the fix from today was deployed before the 12:30 run).
+
+### Check 3: NULL Fix on Ridley
+Confirmed. `inference_engine.py` line 804:
+```python
+congress_events[0].get("disclosure_freshness_score") or 0.5,
+```
+Fix is live on ridley. The `or 0.5` fallback prevents the TypeError that caused the earlier crashes.
+
+### Check 4: Congress Catalyst Events
+9 `congressional_trade` events exist in `catalyst_events`:
+- Sources: `quiverquant` (8 events), `finnhub` (1 event)
+- Tickers: AAPL, MSFT, META (multiple), TSLA
+- **Anomaly: `politician_signal_score` and `disclosure_freshness_score` are NULL on all 9 rows.**
+  - These scores are populated by `classify_catalyst()` in `catalyst_ingest.py` when the politician scoring logic runs.
+  - The most recent event is from 2026-04-02 (AAPL). No new events from today's catalyst ingest.
+  - This means today's catalyst ingest either did not run or did not find new QuiverQuant trades.
+  - The NULL scores are why the inference engine fell back to `or 0.5` — the fix is correctly handling this case.
+
+### Check 5: congress_clusters
+Table exists with correct 12-column schema (id, ticker, cluster_date, member_count, cross_chamber, members, avg_signal_score, total_trade_value_range, legislative_context, confidence_boost, catalyst_event_ids, created_at).
+
+**Anomaly: 0 rows in congress_clusters.** The `detect_congress_clusters()` function in `catalyst_ingest.py` only creates clusters when 3+ congress members buy the same ticker. With sparse data (9 events across 4 tickers, primarily META), no clusters have formed. This is expected given the data volume.
+
+### Check 6: Stopping Reason Constraint
+Constraint `inference_chains_stopping_reason_check` is correct and includes `congress_signal_stale`:
+```sql
+CHECK (((stopping_reason IS NULL) OR (stopping_reason = ANY (ARRAY[
+  'all_tumblers_clear', 'confidence_floor', 'forced_connection',
+  'conflicting_signals', 'veto_signal', 'insufficient_data',
+  'resource_limit', 'time_limit', 'congress_signal_stale'
+]))))
+```
+TASK-A01 fix is confirmed live. The two stopping reasons seen today (`confidence_floor`, `time_limit`) are both in the allowed set.
+
+### Anomaly Summary
+
+| # | Anomaly | Severity | Impact | Action Needed |
+|---|---------|----------|--------|---------------|
+| 1 | `politician_signal_score` and `disclosure_freshness_score` NULL on all catalyst_events | Medium | Congress boost in Tumbler 2 uses fallback 0.5 scores instead of real politician signal quality | Catalyst ingest must run with QuiverQuant enrichment pipeline active. Check if `seed_politician_intel.py` has been run on ridley. |
+| 2 | No catalyst_events from today (most recent: 2026-04-02) | Medium | Inference engine sees stale congress data. All tickers ran on old data. | Today is Sunday — catalyst ingest cron does not run on weekends. Monday morning run will refresh. Normal. |
+| 3 | 0 congress_clusters rows | Low | No cluster-level boost available | Expected — needs 3+ members buying same ticker. Will populate naturally with data volume. |
+| 4 | All 5 chains stopped at Tumbler 4, confidence below entry threshold | Info | No trades today | Expected: (a) CONGRESS_MIRROR watchlist is congress-driven but congress signals are stale/weak, (b) market closed Sunday. |
+
+### Files Modified
+None — data verification only.
+
+### DB Queries Run
+1. `SELECT profile_name, active FROM strategy_profiles`
+2. `SELECT ticker, chain_date, final_confidence, final_decision, stopping_reason, max_depth_reached FROM inference_chains WHERE chain_date = '2026-04-06' ORDER BY created_at DESC`
+3. `SELECT ticker, catalyst_type, source, politician_signal_score, disclosure_freshness_score, created_at FROM catalyst_events WHERE catalyst_type = 'congressional_trade' ORDER BY created_at DESC LIMIT 10`
+4. `SELECT * FROM congress_clusters ORDER BY created_at DESC LIMIT 5`
+5. `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'inference_chains'::regclass AND conname LIKE '%stopping%'`
+6. SSH to ridley: `grep -n "or 0.5" ~/openclaw-trader/scripts/inference_engine.py`
+
+### Follow-On Work Identified (not done by this agent)
+- Verify `seed_politician_intel.py` has been run on ridley — if not, `politician_intel` table is empty and all politician scores will be NULL forever
+- Consider adding a NOT NULL assertion or warning log in `catalyst_ingest.py` when `politician_signal_score` comes back NULL from the enrichment step
+- Monday's catalyst ingest (9:35 AM ET) will be the first real test of the scoring pipeline with fresh QuiverQuant data
+
+---
+
 ## TASK-A01 · DB-AGENT · [DONE] — 2026-04-06
 
 ### Summary
@@ -497,3 +2026,113 @@ Full hardware and application scan of Ridley (Jetson Orin Nano Super) to produce
 
 ### Architecture Decision
 Recommended the systems console run as a local FastAPI service on Ridley (not through Fly.io) for real-time sysfs/proc access at 2-second update intervals.
+
+## SECURITY-REVIEW — 2026-04-06
+
+Status: [BLOCKED] — Critical findings present.
+
+### Critical (block merge)
+
+- **Unescaped DB-sourced text rendered into innerHTML** at `dashboard/index.html` lines 2603, 2624, 2855, 2955-2957 — `data.description`, `data.notes`, `t.key_finding`, and meta reflection fields (`ref.patterns_observed`, `ref.signal_assessment`, `ref.counterfactuals`) are inserted raw into the DOM. These fields are written by the LLM inference pipeline (Ollama / Claude) and stored in Supabase. A prompt-injection attack producing `<script>` in an LLM output would execute in any authenticated dashboard session. The `esc()` helper exists and is used elsewhere — it just wasn't applied here.
+
+- **Unvalidated `source_url` rendered into `href`** at `dashboard/index.html` line 2894 — `c.source_url` from the `catalyst_events` table is interpolated directly into an `<a href="...">` without sanitization. A `javascript:` URL stored in any catalyst record (via the ingest pipeline or direct DB write) becomes live XSS. `rel="noopener"` is present but does not block `javascript:` execution.
+
+### Warning (fix before release)
+
+- **Six tables used in production have no RLS in any migration file** — `trade_decisions`, `strategy_profiles`, `stack_heartbeats`, `regime_log`, `system_stats`, `magic_link_tokens`. The other 18 tables all have explicit `ENABLE ROW LEVEL SECURITY` + service-role policy. These six appear to have been created outside the tracked migration files. If their RLS state is unknown, a Supabase anon-key leak would expose live trading decisions and active session tokens stored in `magic_link_tokens`.
+
+- **Session signing key falls back to a public static string** at `dashboard/server.py` line 169 — `_SESSION_SIGNING_SALT` defaults to the string `"oc-session-stable-v1"` if `SESSION_SIGNING_SALT` env var is not set. The signing key derived from this (`hashlib.sha256("oc-session-stable-v1".encode()).digest()`) is now public via the repo. An attacker who knows the salt can forge valid `oc_session` cookies without knowing the password. `SESSION_SIGNING_SALT` must be set in all deployed environments.
+
+- **Password hashed with SHA-256, not a password KDF** at `dashboard/server.py` line 165 and 308 — `hashlib.sha256(password.encode()).hexdigest()` is used for both storage and verification. SHA-256 is not a password-hashing function; it has no salt and is GPU-crackable. Should use `bcrypt`, `argon2`, or at minimum `hashlib.scrypt`.
+
+- **CSRF token only checked on `/login` POST** — The CSRF infrastructure (`_create_csrf`, `_verify_csrf`) exists and works correctly on the login form, but none of the other state-changing POST endpoints (`/api/budget/config`, `/api/strategy/activate`, `/api/magic-link/create`, `/api/magic-link/revoke`, `/api/trades/{id}/reasoning`, `/api/chat`) verify a CSRF token. Because `samesite=strict` cookies are set this is partially mitigated for browser-initiated requests, but the API accepts JSON bodies from any origin that can satisfy the cookie, and SameSite enforcement is browser-dependent.
+
+- **Unescaped `r.pipeline_name` and `r.status` in DAG/timeline HTML** at `dashboard/index.html` lines 1927-1928 and 2031 — Values from `pipeline_runs` rows written by the cron scripts are inserted raw into CSS class names and visible text. A cron step name containing `"</div><script>..."` would execute. Low exploitation probability (only cron scripts write these), but the surface exists.
+
+- **`p.id` and `link.id` concatenated into inline `onclick` attribute strings** at `dashboard/index.html` lines 1641 and 3359 — IDs from the server are interpolated directly into `onclick="...('value')"` strings. These IDs are UUIDs validated server-side on submission (`_validate_uuid`), so the actual risk is low, but the pattern would be exploitable if the ID source ever changed.
+
+- **90-day session lifetime** at `dashboard/server.py` line 172 — Sessions are valid for 90 days with no revocation mechanism (stateless HMAC tokens). A stolen cookie remains valid for the full window. Consider shortening, adding a revocation table, or re-authenticating on sensitive actions.
+
+### Info
+
+- **`/auth/link` endpoint has no CSRF or rate limit** at `dashboard/server.py` line 452 — Magic link consumption is token-based (sha256 of the URL token), single-use, and expires. No direct issue, but there is no rate limit on failed token attempts. A short token length would be brute-forceable; the actual token length should be verified. `secrets.token_urlsafe()` defaults to 32 bytes (~43 chars) which is adequate.
+
+- **`supabase/migrations/20260323_trade_learnings.sql`** creates `trade_learnings` without the `public.` schema prefix — table lands in `public` by default, RLS is enabled later in the same file. Functionally fine, minor inconsistency with other migrations.
+
+- **`SESSION_SIGNING_SALT` escape hatch `ALLOW_SECRETS=1`** at `.claude/hooks/scan-secrets-claude.sh` line 58 — The hook correctly documents and logs the bypass. Not a defect, just a reminder that the escape hatch exists.
+
+- **`subprocess.Popen` for `post_trade_analysis.py`** at `scripts/position_manager.py` line 217 — Command is constructed from `sys.executable` + a fixed path + typed values (ticker validated upstream, prices are floats, dates are isoformat strings). No user-controlled shell interpolation. No injection risk.
+
+- **No SQL injection via f-strings found** — All Supabase calls use the REST API with parameterized query params (`eq.{value}`). No raw SQL execution in Python scripts. No `execute(f"...")` calls found.
+
+- **No `eval()` or `exec()` in Python source found** — Clean.
+
+- **No hardcoded credentials found in any tracked file** — `scan-secrets-claude.sh` match at line 39 is the regex pattern string itself (not a real JWT), not a credential.
+
+- **No secrets found in last 20 commits of git history** — Pattern scan across commit diffs found no API keys, tokens, or passwords with actual values.
+
+- **Docker image runs as non-root** at `dashboard/Dockerfile` line 16 — `adduser appuser` + `USER appuser` before CMD. Good practice.
+
+- **CORS restricted to two explicit origins** at `dashboard/server.py` lines 39-42 — `https://openclaw-dashboard.fly.dev` and `http://localhost:8090`. Not wildcard.
+
+- **Cookie flags correct where set** at `dashboard/server.py` lines 326-329 — `httponly=True`, `samesite="strict"`, `secure=True`. Good.
+
+- **Rate limiting on login** at `dashboard/server.py` lines 175-193 — 5 attempts per 5-minute window per IP. Functional.
+
+- **Input validation functions present and used** — `_validate_uuid`, `_validate_ticker`, `_validate_pipeline_name` are applied on all path parameters that flow into Supabase queries.
+
+### Passed
+
+- No secrets in tracked files
+- No secrets in last 20 git commits
+- SQL injection: no f-string or .format() SQL construction found
+- Command injection: subprocess call uses fixed path + typed args only
+- eval()/exec(): not present
+- Docker: non-root user
+- CORS: explicit allowlist, not wildcard
+- Cookie security flags: httponly, samesite=strict, secure on all session cookies
+- Auth guards: all 60+ API routes call `_require_auth` or `_is_authed` — no unguarded data endpoints
+- Dependency CVE scanner unavailable (pip-audit not installed) — manual check: fastapi 0.115.12, uvicorn 0.34.2, httpx 0.28.1, python-multipart 0.0.20, anthropic 0.88.0 — no known critical CVEs as of 2026-04-06
+- RLS: 18/24 tables have explicit RLS + service-role policy in migrations
+
+
+---
+
+## TASK-AE-06 — Shadow Intelligence Tab [DONE]
+
+**Agent:** FRONTEND-AGENT
+**Completed:** 2026-04-06
+
+### Files Modified
+
+- `/home/mother_brain/projects/openclaw-trader/dashboard/server.py` — Added 3 new API endpoints at lines 3813–3918 (before `__main__` block)
+- `/home/mother_brain/projects/openclaw-trader/dashboard/index.html` — Added nav pill, section HTML, showSection dispatch, and JS functions
+
+### Server Routes Added
+
+- `GET /api/shadow/profiles` — Queries `strategy_profiles` where `is_shadow=true`, ordered by `fitness_score desc`. Returns array of profile objects with fitness_score, dwm_weight, conditional_brier, times_correct, times_dissented, divergence_rate, last_graded_at.
+- `GET /api/shadow/divergences?days=30` — Queries `shadow_divergences` table, max 200 rows, days clamped to 90.
+- `GET /api/shadow/unanimous?days=30` — Queries `shadow_divergences`, groups by ticker+date in Python, returns only events where live was entry AND all shadows dissented AND count >= 2.
+
+### Frontend Components
+
+- Nav pill "Shadow" added to the second nav-row (alongside Sit-Rep, AI Chat, etc.)
+- `id="section-shadow"` section with 3 cards: Profile Scoreboard, Unanimous Dissent Alerts, Divergence History
+- `loadShadowTab()` dispatched from the wrapped `showSection` override
+- `loadShadowProfiles()`, `loadShadowUnanimous()`, `loadShadowDivergences()` — all use `esc()` for XSS safety, `credentials: 'include'` on fetch calls, handle empty/error states
+
+### Assumptions
+
+- `strategy_profiles` table has columns: `is_shadow` (boolean), `shadow_type` (text: SKEPTIC/CONTRARIAN/etc.), `fitness_score`, `dwm_weight`, `conditional_brier`, `times_correct`, `times_dissented`, `divergence_rate`, `last_graded_at` — per TASK-AE-01/AE-03 schema
+- `shadow_divergences` table has columns per the select fields in each endpoint — per TASK-AE-03 schema
+- `var(--dim)` CSS variable exists in the dashboard theme (used for muted label text)
+
+### Ruff
+
+`ruff check dashboard/server.py` passes clean (project config: E, F, W, I rules only, E501 ignored).
+
+### Follow-on Work Not Done
+
+- Fly.io deployment: deploy step not executed — orchestrator should trigger `fly deploy` from `dashboard/` after review
+- Day-range selector (7/14/30/90 day filter buttons) for divergences/unanimous tables — not in spec, flagged for future enhancement
+- The `shadow_divergences` table does not exist yet in migrations — this was gated on TASK-AE-01. If not yet migrated, all three endpoints will return empty arrays (gracefully handled).

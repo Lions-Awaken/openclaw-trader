@@ -561,6 +561,228 @@
     .trade-table { font-size: 0.78rem; }
     .heatmap-grid { font-size: 0.7rem; }
   }
+
+  /* Health Tab */
+  .health-light {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: inline-block; margin: 8px auto;
+    transition: all 0.3s ease; cursor: pointer;
+  }
+  .health-light.pass { background: #00ff88; box-shadow: 0 0 15px #00ff88; animation: pulse 2s infinite; }
+  .health-light.fail { background: #ff3366; box-shadow: 0 0 20px #ff3366; }
+  .health-light.warn { background: #ffaa00; box-shadow: 0 0 15px #ffaa00; animation: pulse 2s infinite; }
+  .health-light.skip { background: #444; }
+
+  .health-group {
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 120px; flex: 1;
+  }
+  .health-group-header {
+    font-size: 14px; font-weight: 900; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--cyan);
+    margin-bottom: 12px; text-align: center;
+  }
+  .health-check-item {
+    display: flex; flex-direction: column; align-items: center;
+    margin-bottom: 12px; width: 100%;
+  }
+  .health-check-name {
+    font-size: 16px; color: var(--text); text-align: center;
+    margin-top: 4px; font-weight: 600; word-break: break-word;
+  }
+  .health-check-value {
+    font-size: 14px; color: var(--dim); text-align: center; margin-top: 2px;
+  }
+  .health-check-detail {
+    display: none; background: rgba(139,92,246,0.08);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; margin: 8px 4px 4px; font-size: 16px;
+    line-height: 1.7; text-align: left; width: 100%;
+  }
+  .health-check-detail.open { display: block; }
+  .health-check-detail .dkey { color: var(--purple); font-weight: 700; }
+  .health-run-btn {
+    padding: 14px 40px; font-size: 20px; font-weight: 900;
+    letter-spacing: 3px; text-transform: uppercase;
+    background: transparent; border: 2px solid var(--cyan);
+    color: var(--cyan); border-radius: 10px; cursor: pointer;
+    box-shadow: 0 0 20px rgba(34,211,238,0.3); transition: all 0.2s;
+    font-family: 'Orbitron', sans-serif;
+  }
+  .health-run-btn:hover { box-shadow: 0 0 30px rgba(34,211,238,0.6); background: rgba(34,211,238,0.06); }
+  .health-run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .health-history-dot {
+    width: 18px; height: 18px; border-radius: 50%;
+    display: inline-block; cursor: default; margin: 0 4px;
+    transition: transform 0.15s;
+  }
+  .health-history-dot:hover { transform: scale(1.3); }
+  .health-history-dot.pass { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+  .health-history-dot.warn { background: #ffaa00; box-shadow: 0 0 8px #ffaa00; }
+  .health-history-dot.fail { background: #ff3366; box-shadow: 0 0 8px #ff3366; }
+  .health-history-dot.skip { background: #444; }
+  .health-flow-arrow {
+    color: var(--dim); font-size: 20px; align-self: center;
+    padding: 0 4px; flex-shrink: 0;
+  }
+  .health-fail-card {
+    border: 2px solid var(--red); border-radius: 10px;
+    padding: 16px 20px; margin-bottom: 12px;
+    background: rgba(255,51,102,0.05);
+  }
+  .health-fail-card .hfc-name { font-size: 20px; font-weight: 700; color: var(--red); margin-bottom: 6px; }
+  .health-fail-card .hfc-body { font-size: 16px; color: var(--text); line-height: 1.6; }
+  .health-fail-card .hfc-error { font-size: 14px; color: var(--dim); margin-top: 6px; font-family: monospace; }
+
+  /* ── Preflight Panel ─────────────────────────────────────────────────────── */
+  .preflight-btn {
+    background: transparent;
+    border: 2px solid #00ff88;
+    color: #00ff88;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    padding: 16px 48px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+    border-radius: 8px;
+  }
+  .preflight-btn:hover {
+    background: rgba(0, 255, 136, 0.1);
+    box-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+  }
+  .preflight-btn:disabled {
+    border-color: #666;
+    color: #666;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  .preflight-status { font-family: 'Courier New', monospace; }
+  .preflight-go { color: #00ff88; text-shadow: 0 0 10px #00ff88; }
+  .preflight-nogo { color: #ff3366; text-shadow: 0 0 10px #ff3366; }
+  .preflight-scrub { color: #ffaa00; }
+  .preflight-standby { color: #666; }
+  .preflight-polling { color: #00d4ff; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Preflight grid table */
+  .preflight-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Courier New', monospace;
+    font-size: 16px;
+  }
+  .preflight-table th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--dim);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'Courier New', monospace;
+  }
+  .preflight-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(30,30,46,0.3);
+    vertical-align: middle;
+    font-size: 16px;
+  }
+  .preflight-table tr:hover { background: rgba(0,255,136,0.02); }
+  .preflight-group-header td {
+    padding: 16px 12px 6px 12px;
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--cyan);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-family: 'Orbitron', sans-serif;
+    border-bottom: 1px solid rgba(34,211,238,0.2);
+  }
+  .preflight-dot {
+    width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+    margin-right: 8px; vertical-align: middle;
+  }
+  .preflight-dot.go { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+  .preflight-dot.nogo { background: #ff3366; box-shadow: 0 0 8px #ff3366; }
+  .preflight-dot.scrub { background: #ffaa00; }
+  .preflight-dot.standby { background: #444; }
+  .preflight-dot.polling { background: #00d4ff; animation: pulse 1s infinite; }
+
+  /* Preflight error expand */
+  .preflight-error-row { display: none; }
+  .preflight-error-row.open { display: table-row; }
+  .preflight-error-content {
+    padding: 10px 16px 10px 40px;
+    font-size: 14px;
+    color: #ff8888;
+    font-family: 'Courier New', monospace;
+    line-height: 1.7;
+    background: rgba(255,51,102,0.05);
+    border-radius: 6px;
+    margin: 4px 0;
+  }
+
+  /* Preflight header banner */
+  .preflight-banner {
+    border: 1px solid rgba(0,255,136,0.3);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 28px;
+    background: rgba(0,255,136,0.03);
+    font-family: 'Courier New', monospace;
+  }
+  .preflight-banner .pf-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 22px;
+    font-weight: 900;
+    color: #00ff88;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  .preflight-banner .pf-meta {
+    font-size: 16px;
+    color: var(--dim);
+    margin-bottom: 4px;
+  }
+  .preflight-banner .pf-verdict {
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    margin-top: 8px;
+  }
+
+  /* Flight status table */
+  .flight-status-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 16px;
+  }
+  .flight-status-table th {
+    text-align: left;
+    padding: 10px 12px;
+    color: var(--dim);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+  }
+  .flight-status-table td {
+    padding: 12px;
+    border-bottom: 1px solid rgba(30,30,46,0.4);
+    vertical-align: middle;
+  }
+  .flight-status-table tr:hover { background: rgba(34,211,238,0.02); }
+  .flight-status-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    display: inline-block; margin-right: 8px; vertical-align: middle;
+  }
+  .flight-status-dot.ran { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+  .flight-status-dot.stale { background: #ff3366; box-shadow: 0 0 6px #ff3366; }
+  .flight-status-dot.pending { background: #555; }
+  .flight-status-dot.missing { background: #888; }
 </style>
 </head>
 <body>
@@ -693,6 +915,9 @@
         <button class="nav-pill" onclick="showSection('about')">How It Works</button>
         <button class="nav-pill" onclick="showSection('logging')">LOGGING</button>
         <button class="nav-pill" onclick="showSection('shadow')">Shadow</button>
+        <button class="nav-pill" onclick="showSection('health')">Health</button>
+        <button class="nav-pill" onclick="showSection('signalfeed')">Signals</button>
+        <button class="nav-pill" onclick="showSection('preflight')">Preflight</button>
       </div>
     </div>
   </div>
@@ -1299,6 +1524,33 @@
     </div>
   </div>
 
+  <!-- HEALTH -->
+  <div id="section-health" class="section">
+    <div class="card">
+      <h2 style="font-size: 24px;">SYSTEM HEALTH</h2>
+      <p style="color: var(--cyan); margin-bottom: 1.5rem; font-size: 16px;">Pre-market health check — 8 groups, pipeline order</p>
+      <div id="health-content">Loading...</div>
+    </div>
+  </div>
+
+  <!-- SIGNAL FEED -->
+  <div id="section-signalfeed" class="section">
+    <div class="card">
+      <h2 style="font-size: 24px;">SIGNAL SOURCES</h2>
+      <p style="color: var(--cyan); margin-bottom: 1.5rem; font-size: 16px;">Options flow, insider filings, and shadow profile fitness</p>
+      <div id="signalfeed-content">Loading...</div>
+    </div>
+  </div>
+
+  <!-- PREFLIGHT -->
+  <div id="section-preflight" class="section">
+    <div class="card">
+      <h2 style="font-size: 24px;">PREFLIGHT — GO / NO-GO</h2>
+      <p style="color: var(--cyan); margin-bottom: 1.5rem; font-size: 16px;">NASA-style system verification — every function tested end-to-end</p>
+      <div id="preflight-content">Loading...</div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -1313,6 +1565,8 @@ function showSection(name) {
   if (name === 'predictions') loadPredictions();
   if (name === 'congress') loadCongressTab();
   if (name === 'logging') loadLoggingTab();
+  if (name === 'health') loadHealth();
+  if (name === 'preflight') loadPreflight();
 }
 
 // XSS prevention — escape all API data before innerHTML insertion
@@ -1734,6 +1988,7 @@ showSection = function(name) {
   if (name === 'buildlog') loadBuildLog();
   if (name === 'sitrep') loadSitRep();
   if (name === 'shadow') loadShadowTab();
+  if (name === 'signalfeed') loadSignalFeed();
 };
 
 // === SYSTEM MONITOR ===
@@ -4013,6 +4268,754 @@ async function loadShadowDivergences() {
   } catch(e) {
     el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
   }
+}
+
+// ============================================================================
+// Health Tab
+// ============================================================================
+
+const HEALTH_GROUPS_ORDER = ['INFRA','DATABASE','CRONS','SIGNALS','TUMBLERS','ENSEMBLE','LOGGING','DASHBOARD'];
+let _healthAutoRefreshTimer = null;
+let _healthCurrentRunId = null;
+let _healthPollTimer = null;
+
+async function loadHealth() {
+  const el = document.getElementById('health-content');
+  el.innerHTML = '<div class="loading">Loading health data...</div>';
+  try {
+    const [data, history] = await Promise.all([
+      fetch('/api/health/latest', {credentials:'include'}).then(r => r.json()),
+      fetch('/api/health/history', {credentials:'include'}).then(r => r.json()),
+    ]);
+    _healthCurrentRunId = data.run_id || null;
+    el.innerHTML = buildHealthUI(data, history);
+    // Set up auto-refresh every 30s
+    if (_healthAutoRefreshTimer) clearInterval(_healthAutoRefreshTimer);
+    _healthAutoRefreshTimer = setInterval(loadHealth, 30000);
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state">Could not load health data: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function buildHealthUI(data, history) {
+  let html = '';
+
+  // Summary bar
+  const ts = data.created_at ? new Date(data.created_at).toLocaleString() : '--';
+  const durSec = data.duration_ms ? (data.duration_ms / 1000).toFixed(1) + 's' : '--';
+  const runType = data.run_type || '--';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:center;margin-bottom:24px;padding:16px;background:rgba(34,211,238,0.04);border:1px solid var(--border);border-radius:10px">';
+  html += '<div><span style="font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Last Run</span><div style="font-size:20px;font-weight:700;margin-top:4px">' + esc(ts) + '</div></div>';
+  html += '<div><span style="font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Type</span><div style="font-size:20px;font-weight:700;color:var(--cyan);margin-top:4px">' + esc(runType) + '</div></div>';
+  html += '<div><span style="font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Duration</span><div style="font-size:20px;font-weight:700;margin-top:4px">' + esc(durSec) + '</div></div>';
+  html += '<div style="display:flex;gap:16px;flex-wrap:wrap">';
+  html += '<div style="text-align:center"><div style="font-size:24px;font-weight:900;color:#00ff88">' + (data.total_pass || 0) + '</div><div style="font-size:14px;color:var(--dim)">PASS</div></div>';
+  html += '<div style="text-align:center"><div style="font-size:24px;font-weight:900;color:#ff3366">' + (data.total_fail || 0) + '</div><div style="font-size:14px;color:var(--dim)">FAIL</div></div>';
+  html += '<div style="text-align:center"><div style="font-size:24px;font-weight:900;color:#ffaa00">' + (data.total_warn || 0) + '</div><div style="font-size:14px;color:var(--dim)">WARN</div></div>';
+  html += '<div style="text-align:center"><div style="font-size:24px;font-weight:900;color:var(--dim)">' + (data.total_skip || 0) + '</div><div style="font-size:14px;color:var(--dim)">SKIP</div></div>';
+  html += '</div>';
+  html += '</div>';
+
+  // RUN NOW button
+  html += '<div style="text-align:center;margin-bottom:32px">';
+  html += '<button class="health-run-btn" id="health-run-btn" onclick="triggerHealthRun()">RUN NOW</button>';
+  html += '<div id="health-run-status" style="margin-top:12px;font-size:16px;color:var(--dim);min-height:24px"></div>';
+  html += '</div>';
+
+  // Indicator light diagram — 8 groups in pipeline order
+  const checks = data.checks || [];
+  const byGroup = {};
+  HEALTH_GROUPS_ORDER.forEach(g => { byGroup[g] = []; });
+  checks.forEach(c => {
+    const g = (c.check_group || 'UNKNOWN').toUpperCase();
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push(c);
+  });
+
+  html += '<div style="overflow-x:auto;margin-bottom:32px">';
+  html += '<div style="display:flex;align-items:flex-start;gap:0;min-width:900px;padding:8px 0">';
+
+  HEALTH_GROUPS_ORDER.forEach((group, idx) => {
+    html += '<div class="health-group">';
+    html += '<div class="health-group-header">' + esc(group) + '</div>';
+    const groupChecks = byGroup[group] || [];
+    if (!groupChecks.length) {
+      html += '<div style="color:var(--dim);font-size:14px;text-align:center">—</div>';
+    } else {
+      groupChecks.forEach((c, ci) => {
+        const st = (c.status || 'skip').toLowerCase();
+        const checkId = 'hc-' + esc(c.id || (group + '-' + ci));
+        html += '<div class="health-check-item">';
+        html += '<span class="health-light ' + st + '" onclick="toggleHealthDetail(\'' + checkId + '\')" title="' + esc(c.check_name) + ': ' + esc(c.status) + '"></span>';
+        html += '<div class="health-check-name">' + esc(c.check_name || '') + '</div>';
+        if (c.value != null) html += '<div class="health-check-value">' + esc(String(c.value)) + '</div>';
+        html += '<div class="health-check-detail" id="' + checkId + '">';
+        html += '<span class="dkey">Status:</span> <strong style="color:' + healthStatusColor(st) + '">' + esc(c.status || '') + '</strong><br>';
+        html += '<span class="dkey">Group:</span> ' + esc(c.check_group || '') + '<br>';
+        if (c.value != null) html += '<span class="dkey">Value:</span> ' + esc(String(c.value)) + '<br>';
+        if (c.expected != null) html += '<span class="dkey">Expected:</span> ' + esc(String(c.expected)) + '<br>';
+        if (c.duration_ms != null) html += '<span class="dkey">Duration:</span> ' + esc(String(c.duration_ms)) + 'ms<br>';
+        if (c.error_message) html += '<span class="dkey">Error:</span> <span style="color:var(--red)">' + esc(c.error_message) + '</span>';
+        html += '</div>';
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+    if (idx < HEALTH_GROUPS_ORDER.length - 1) {
+      html += '<div class="health-flow-arrow">&#8594;</div>';
+    }
+  });
+
+  html += '</div></div>';
+
+  // Failures section
+  const failures = checks.filter(c => c.status === 'fail');
+  if (failures.length) {
+    html += '<div style="margin-bottom:32px">';
+    html += '<h3 style="font-size:20px;color:var(--red);margin-bottom:16px;letter-spacing:1px">FAILURES (' + failures.length + ')</h3>';
+    failures.forEach(c => {
+      html += '<div class="health-fail-card">';
+      html += '<div class="hfc-name">' + esc(c.check_group || '') + ' / ' + esc(c.check_name || '') + '</div>';
+      html += '<div class="hfc-body">';
+      if (c.value != null) html += '<strong>Value:</strong> ' + esc(String(c.value)) + ' &nbsp; ';
+      if (c.expected != null) html += '<strong>Expected:</strong> ' + esc(String(c.expected));
+      html += '</div>';
+      if (c.error_message) html += '<div class="hfc-error">' + esc(c.error_message) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // History strip
+  if (history && history.length) {
+    html += '<div style="margin-top:8px">';
+    html += '<h3 style="font-size:20px;color:var(--dim);margin-bottom:12px;letter-spacing:1px">HISTORY (last ' + history.length + ' runs)</h3>';
+    html += '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">';
+    history.forEach(run => {
+      const worst = run.worst || 'skip';
+      const ts2 = run.created_at ? new Date(run.created_at).toLocaleString() : '--';
+      const label = esc(ts2) + ' | ' + esc(run.run_type || '--') + ' | pass:' + (run.pass || 0) + ' fail:' + (run.fail || 0) + ' warn:' + (run.warn || 0);
+      html += '<span class="health-history-dot ' + esc(worst) + '" title="' + label + '"></span>';
+    });
+    html += '</div>';
+    html += '</div>';
+  }
+
+  return html;
+}
+
+function healthStatusColor(st) {
+  if (st === 'pass') return '#00ff88';
+  if (st === 'fail') return '#ff3366';
+  if (st === 'warn') return '#ffaa00';
+  return 'var(--dim)';
+}
+
+function toggleHealthDetail(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('open');
+}
+
+async function triggerHealthRun() {
+  const btn = document.getElementById('health-run-btn');
+  const statusEl = document.getElementById('health-run-status');
+  if (!btn || !statusEl) return;
+  btn.disabled = true;
+  btn.textContent = 'RUNNING...';
+  statusEl.textContent = 'Triggering health check...';
+
+  try {
+    const res = await fetch('/api/health/run', {method:'POST', credentials:'include'});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Trigger failed');
+    const triggeredRunId = data.run_id;
+    statusEl.textContent = 'Health check started. Waiting for results...';
+
+    // Poll every 3 seconds until a new run_id appears
+    if (_healthPollTimer) clearInterval(_healthPollTimer);
+    let polls = 0;
+    _healthPollTimer = setInterval(async () => {
+      polls++;
+      try {
+        const latest = await fetch('/api/health/latest', {credentials:'include'}).then(r => r.json());
+        if (latest.run_id && latest.run_id === triggeredRunId) {
+          clearInterval(_healthPollTimer);
+          statusEl.textContent = 'Health check complete.';
+          _healthCurrentRunId = latest.run_id;
+          const history = await fetch('/api/health/history', {credentials:'include'}).then(r => r.json());
+          document.getElementById('health-content').innerHTML = buildHealthUI(latest, history);
+          return;
+        }
+      } catch(_e) { /* continue polling */ }
+      if (polls >= 40) {
+        clearInterval(_healthPollTimer);
+        statusEl.textContent = 'Timed out waiting for results. Refresh manually.';
+        btn.disabled = false;
+        btn.textContent = 'RUN NOW';
+      }
+    }, 3000);
+  } catch(e) {
+    statusEl.textContent = 'Error: ' + esc(String(e));
+    btn.disabled = false;
+    btn.textContent = 'RUN NOW';
+  }
+}
+
+// ============================================================================
+// Signal Feed Tab
+// ============================================================================
+
+function fmtPremium(val) {
+  if (val == null || isNaN(val)) return '--';
+  const n = parseFloat(val);
+  if (n >= 1000000) return '$' + (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return '$' + (n / 1000).toFixed(0) + 'K';
+  return '$' + n.toFixed(0);
+}
+
+function fmtPct(val) {
+  if (val == null || isNaN(val)) return '--';
+  return (parseFloat(val) * 100).toFixed(1) + '%';
+}
+
+function fmtPctChange(val) {
+  if (val == null || isNaN(val)) return '--';
+  const n = parseFloat(val);
+  return (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
+}
+
+function signalTypeColor(t) {
+  if (!t) return 'var(--text)';
+  const s = t.toLowerCase();
+  if (s === 'sweep') return 'var(--cyan)';
+  if (s === 'block') return 'var(--purple)';
+  return 'var(--text)';
+}
+
+function sentimentColor(s) {
+  if (!s) return 'var(--dim)';
+  const v = s.toLowerCase();
+  if (v === 'bullish') return 'var(--green)';
+  if (v === 'bearish') return 'var(--red)';
+  return 'var(--dim)';
+}
+
+function txnColor(t) {
+  if (!t) return 'var(--dim)';
+  const v = t.toLowerCase();
+  if (v === 'purchase' || v === 'buy') return 'var(--green)';
+  if (v === 'sale' || v === 'sell') return 'var(--red)';
+  if (v === 'exercise') return 'var(--gold)';
+  return 'var(--dim)';
+}
+
+async function loadSignalFeed() {
+  const el = document.getElementById('signalfeed-content');
+  el.innerHTML = '<div class="loading" style="font-size:16px">Loading signal data...</div>';
+  try {
+    const [flow, form4, profiles] = await Promise.all([
+      fetch('/api/signals/options-flow?days=7', {credentials:'include'}).then(r => r.json()),
+      fetch('/api/signals/form4?days=30', {credentials:'include'}).then(r => r.json()),
+      fetch('/api/shadow/profiles', {credentials:'include'}).then(r => r.json()),
+    ]);
+    el.innerHTML = buildSignalFeedUI(flow, form4, profiles);
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state" style="font-size:16px">Could not load signal data: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function buildSignalFeedUI(flow, form4, profiles) {
+  let html = '';
+
+  // ── OPTIONS FLOW ──────────────────────────────────────────────────────────
+  html += '<div style="margin-bottom:40px">';
+  html += '<h3 style="font-size:20px;font-weight:800;color:var(--cyan);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Options Flow</h3>';
+  html += '<p style="font-size:16px;color:var(--dim);margin-bottom:16px">Unusual options activity — last 7 days</p>';
+
+  if (!flow || flow.length === 0) {
+    html += '<div class="empty-state" style="font-size:16px">No options flow data yet</div>';
+  } else {
+    html += '<div style="overflow-x:auto">';
+    html += '<table class="trade-table" style="font-size:16px">';
+    html += '<thead><tr>';
+    html += '<th style="font-size:14px">Ticker</th>';
+    html += '<th style="font-size:14px">Date</th>';
+    html += '<th style="font-size:14px">Type</th>';
+    html += '<th style="font-size:14px">Sentiment</th>';
+    html += '<th style="font-size:14px">Premium</th>';
+    html += '<th style="font-size:14px">IV</th>';
+    html += '</tr></thead><tbody>';
+    flow.forEach(function(r) {
+      const typeColor = signalTypeColor(r.signal_type);
+      const sentColor = sentimentColor(r.sentiment);
+      html += '<tr>';
+      html += '<td style="font-weight:700;color:var(--cyan);font-size:16px">' + esc(r.ticker) + '</td>';
+      html += '<td style="font-size:16px">' + esc(r.signal_date || '') + '</td>';
+      html += '<td style="color:' + typeColor + ';font-weight:600;font-size:16px">' + esc(r.signal_type || '--') + '</td>';
+      html += '<td style="color:' + sentColor + ';font-weight:600;font-size:16px;text-transform:capitalize">' + esc(r.sentiment || '--') + '</td>';
+      html += '<td style="font-size:20px;font-weight:700;font-variant-numeric:tabular-nums">' + fmtPremium(r.premium) + '</td>';
+      html += '<td style="font-size:16px">' + fmtPct(r.implied_volatility) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // ── FORM 4 INSIDER ────────────────────────────────────────────────────────
+  html += '<div style="margin-bottom:40px">';
+  html += '<h3 style="font-size:20px;font-weight:800;color:var(--purple);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Form 4 Insider Filings</h3>';
+  html += '<p style="font-size:16px;color:var(--dim);margin-bottom:16px">SEC Form 4 insider transactions — last 30 days</p>';
+
+  if (!form4 || form4.length === 0) {
+    html += '<div class="empty-state" style="font-size:16px">No Form 4 filings yet</div>';
+  } else {
+    html += '<div style="overflow-x:auto">';
+    html += '<table class="trade-table" style="font-size:16px">';
+    html += '<thead><tr>';
+    html += '<th style="font-size:14px">Ticker</th>';
+    html += '<th style="font-size:14px">Filer</th>';
+    html += '<th style="font-size:14px">Transaction</th>';
+    html += '<th style="font-size:14px">Total Value</th>';
+    html += '<th style="font-size:14px">Ownership Change</th>';
+    html += '<th style="font-size:14px">Cluster</th>';
+    html += '</tr></thead><tbody>';
+    form4.forEach(function(r) {
+      const tColor = txnColor(r.transaction_type);
+      const cluster = parseInt(r.cluster_count) || 1;
+      const clusterBadge = cluster > 1
+        ? '<span style="display:inline-block;background:rgba(34,211,238,0.15);border:1px solid var(--cyan);color:var(--cyan);border-radius:10px;padding:1px 8px;font-size:14px;margin-left:4px">' + esc(String(cluster)) + 'x</span>'
+        : '<span style="color:var(--dim);font-size:16px">1</span>';
+      html += '<tr>';
+      html += '<td style="font-weight:700;color:var(--cyan);font-size:16px">' + esc(r.ticker) + '</td>';
+      html += '<td style="font-size:16px">' + esc(r.filer_name || '--') + '<br><span style="font-size:14px;color:var(--dim)">' + esc(r.filer_title || '') + '</span></td>';
+      html += '<td style="color:' + tColor + ';font-weight:600;font-size:16px;text-transform:capitalize">' + esc(r.transaction_type || '--') + '</td>';
+      html += '<td style="font-size:20px;font-weight:700;font-variant-numeric:tabular-nums">' + fmtPremium(r.total_value) + '</td>';
+      html += '<td style="font-size:16px">' + fmtPctChange(r.ownership_pct_change) + '</td>';
+      html += '<td style="font-size:16px">' + clusterBadge + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // ── SHADOW PROFILE FITNESS ─────────────────────────────────────────────────
+  html += '<div>';
+  html += '<h3 style="font-size:20px;font-weight:800;color:var(--cyan);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Shadow Profile Fitness</h3>';
+  html += '<p style="font-size:16px;color:var(--dim);margin-bottom:24px">Fitness score (cyan) and DWM weight (purple) per shadow profile</p>';
+
+  if (!profiles || profiles.length === 0) {
+    html += '<div class="empty-state" style="font-size:16px">No shadow profile data</div>';
+  } else {
+    const maxFit = Math.max(...profiles.map(function(p) { return parseFloat(p.fitness_score) || 0; }), 1);
+    const maxDwm = Math.max(...profiles.map(function(p) { return parseFloat(p.dwm_weight) || 0; }), 1);
+    const scaleMax = Math.max(maxFit, maxDwm, 1);
+
+    profiles.forEach(function(p) {
+      const name = p.shadow_type || p.profile_name || 'UNKNOWN';
+      const fit = parseFloat(p.fitness_score) || 0;
+      const dwm = parseFloat(p.dwm_weight) || 0;
+      const fitPct = ((fit / scaleMax) * 100).toFixed(1);
+      const dwmPct = ((dwm / scaleMax) * 100).toFixed(1);
+
+      html += '<div style="margin-bottom:28px">';
+      html += '<div style="font-size:18px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">' + esc(name) + '</div>';
+
+      // fitness_score bar
+      html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">';
+      html += '<div style="width:160px;font-size:16px;color:var(--dim);text-align:right;flex-shrink:0">Fitness</div>';
+      html += '<div style="flex:1;background:rgba(34,211,238,0.08);border-radius:4px;height:22px;overflow:hidden">';
+      html += '<div style="width:' + fitPct + '%;background:var(--cyan);height:100%;border-radius:4px;box-shadow:0 0 8px rgba(34,211,238,0.4);transition:width 0.4s"></div>';
+      html += '</div>';
+      html += '<div style="width:60px;font-size:20px;font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums;text-align:right">' + fit.toFixed(2) + '</div>';
+      html += '</div>';
+
+      // dwm_weight bar
+      html += '<div style="display:flex;align-items:center;gap:12px">';
+      html += '<div style="width:160px;font-size:16px;color:var(--dim);text-align:right;flex-shrink:0">DWM Weight</div>';
+      html += '<div style="flex:1;background:rgba(139,92,246,0.08);border-radius:4px;height:22px;overflow:hidden">';
+      html += '<div style="width:' + dwmPct + '%;background:var(--purple);height:100%;border-radius:4px;box-shadow:0 0 8px rgba(139,92,246,0.4);transition:width 0.4s"></div>';
+      html += '</div>';
+      html += '<div style="width:60px;font-size:20px;font-weight:700;color:var(--purple);font-variant-numeric:tabular-nums;text-align:right">' + dwm.toFixed(2) + '</div>';
+      html += '</div>';
+
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+
+  return html;
+}
+
+// ============================================================================
+// Preflight Tab — NASA Go/No-Go Panel
+// ============================================================================
+
+const PREFLIGHT_TESTS = [
+  {group: 'MODULE INTEGRITY', tests: [{id:'A1',name:'manifest imports'},{id:'A2',name:'function signatures'}]},
+  {group: 'GROUND SYSTEMS', tests: [{id:'B1',name:'table inventory'},{id:'B2',name:'shadow_divergences'},{id:'B3',name:'shadow profiles'},{id:'B4',name:'profile_name backfill'},{id:'B5',name:'signal tables'},{id:'B6',name:'system_health table'}]},
+  {group: 'ADVERSARIAL ARRAY', tests: [{id:'C1',name:'shadow contexts'},{id:'C2',name:'tumbler depth caps'}]},
+  {group: 'SIGNAL ACQUISITION', tests: [{id:'D1',name:'active profile'},{id:'D2',name:'compute_signals'},{id:'D3',name:'options flow enrich'},{id:'D4',name:'form4 enrich'}]},
+  {group: 'TUMBLER CHAIN', tests: [{id:'E1',name:'inference (SKEPTIC)'},{id:'E2',name:'depth cap (RW)'},{id:'E3',name:'stopping rule null'},{id:'E4',name:'shadow context inject'}]},
+  {group: 'ENSEMBLE SYSTEMS', tests: [{id:'F1',name:'load shadow profiles'},{id:'F2',name:'record divergence'},{id:'F3',name:'grade profiles'},{id:'F4',name:'divergence summary'}]},
+  {group: 'ECONOMICS', tests: [{id:'G1',name:'claude spend today'},{id:'G2',name:'claude budget'},{id:'G3',name:'cost attribution'},{id:'G4',name:'daily budget estimate'}]},
+  {group: 'END-TO-END FLOW', tests: [{id:'H1',name:'inject test catalyst'},{id:'H2',name:'signal scan'},{id:'H3',name:'enrichment pipeline'},{id:'H4',name:'inference chain'},{id:'H5',name:'divergence record'},{id:'H6',name:'cleanup'}]},
+  {group: 'DASHBOARD COMMS', tests: [{id:'I1',name:'/api/shadow/profiles'},{id:'I2',name:'/api/shadow/divergences'},{id:'I3',name:'/api/health/latest'},{id:'I4',name:'/api/signals/options-flow'},{id:'I5',name:'/api/signals/form4'}]},
+];
+
+let _preflightPollTimer = null;
+let _preflightRunId = null;
+let _preflightResults = {}; // check_name -> check object
+let _preflightComplete = false;
+let _preflightFlightRefreshTimer = null;
+
+async function loadPreflight() {
+  const el = document.getElementById('preflight-content');
+  el.innerHTML = '<div class="loading" style="font-size:16px">Loading preflight data...</div>';
+
+  // Check for most recent simulator run
+  try {
+    const data = await fetch('/api/simulator/status', {credentials:'include'}).then(r => r.json());
+    if (data.run_id && data.checks && data.checks.length > 0) {
+      _preflightRunId = data.run_id;
+      _preflightResults = {};
+      data.checks.forEach(function(c) { _preflightResults[c.check_name] = c; });
+      _preflightComplete = data.summary.complete || false;
+    } else {
+      _preflightRunId = null;
+      _preflightResults = {};
+      _preflightComplete = false;
+    }
+  } catch(e) {
+    _preflightRunId = null;
+    _preflightResults = {};
+    _preflightComplete = false;
+  }
+
+  el.innerHTML = buildPreflightUI();
+
+  // Load flight status separately
+  loadFlightStatus();
+
+  // Set up auto-refresh of flight status every 30s
+  if (_preflightFlightRefreshTimer) clearInterval(_preflightFlightRefreshTimer);
+  _preflightFlightRefreshTimer = setInterval(loadFlightStatus, 30000);
+}
+
+function buildPreflightUI() {
+  let html = '';
+
+  // Banner
+  const hasResults = Object.keys(_preflightResults).length > 0;
+  const lastRunTs = hasResults ? _getLastRunTimestamp() : null;
+  const tsStr = lastRunTs ? new Date(lastRunTs).toLocaleString() : 'Never';
+
+  let verdict = 'AWAITING PREFLIGHT';
+  let verdictColor = 'var(--dim)';
+  if (hasResults && _preflightComplete) {
+    const nogoCount = Object.values(_preflightResults).filter(c => c.status === 'fail').length;
+    if (nogoCount === 0) {
+      verdict = 'ALL STATIONS GO';
+      verdictColor = '#00ff88';
+    } else {
+      verdict = 'NO-GO — ' + nogoCount + ' FAILURE' + (nogoCount === 1 ? '' : 'S');
+      verdictColor = '#ff3366';
+    }
+  } else if (hasResults && !_preflightComplete) {
+    verdict = 'PREFLIGHT IN PROGRESS...';
+    verdictColor = '#00d4ff';
+  }
+
+  html += '<div class="preflight-banner">';
+  html += '<div class="pf-title">OPENCLAW PREFLIGHT — GO / NO-GO</div>';
+  html += '<div class="pf-meta">Last run: ' + esc(tsStr) + '</div>';
+  html += '<div class="pf-verdict" style="color:' + verdictColor + '">' + esc(verdict) + '</div>';
+  html += '</div>';
+
+  // INITIATE PREFLIGHT button
+  html += '<div style="text-align:center;margin-bottom:36px">';
+  html += '<button class="preflight-btn" id="preflight-init-btn" onclick="initiatePreflight()">INITIATE PREFLIGHT</button>';
+  html += '<div id="preflight-seq-status" style="margin-top:14px;font-size:16px;color:var(--dim);font-family:\'Courier New\',monospace;min-height:24px"></div>';
+  html += '</div>';
+
+  // Go/No-Go board
+  html += '<div style="overflow-x:auto;margin-bottom:40px">';
+  html += '<table class="preflight-table">';
+  html += '<thead><tr>';
+  html += '<th style="width:60px">ID</th>';
+  html += '<th>SUBSYSTEM</th>';
+  html += '<th style="width:120px">STATUS</th>';
+  html += '<th style="width:160px">VALUE</th>';
+  html += '<th style="width:80px">TIME</th>';
+  html += '</tr></thead><tbody id="preflight-grid">';
+
+  PREFLIGHT_TESTS.forEach(function(group) {
+    // Group header row
+    html += '<tr class="preflight-group-header"><td colspan="5">' + esc(group.group) + '</td></tr>';
+    group.tests.forEach(function(test) {
+      const result = _preflightResults[test.id] || null;
+      html += _buildTestRow(test, result, false);
+    });
+  });
+
+  html += '</tbody></table>';
+  html += '</div>';
+
+  // Flight Status section
+  html += '<div style="margin-bottom:12px">';
+  html += '<h3 style="font-size: 22px; font-family: Orbitron, sans-serif; color: var(--cyan); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px;">FLIGHT STATUS — TODAY\'S SCHEDULED RUNS</h3>';
+  html += '<p style="font-size:16px;color:var(--dim);margin-bottom:16px">Last refreshed every 30 seconds</p>';
+  html += '<div id="flight-status-content"><div class="loading" style="font-size:16px">Loading flight status...</div></div>';
+  html += '</div>';
+
+  return html;
+}
+
+function _getLastRunTimestamp() {
+  const checks = Object.values(_preflightResults);
+  if (!checks.length) return null;
+  // Find the most recent created_at
+  let latest = null;
+  checks.forEach(function(c) {
+    if (c.created_at && (!latest || c.created_at > latest)) latest = c.created_at;
+  });
+  return latest;
+}
+
+function _buildTestRow(test, result, isPolling) {
+  let statusLabel, statusClass, dotClass;
+  let valueStr = '';
+  let durationStr = '';
+
+  if (result) {
+    const st = result.status;
+    if (st === 'pass') {
+      statusLabel = 'GO';
+      statusClass = 'preflight-go';
+      dotClass = 'go';
+    } else if (st === 'fail') {
+      statusLabel = 'NO-GO';
+      statusClass = 'preflight-nogo';
+      dotClass = 'nogo';
+    } else {
+      statusLabel = 'SCRUB';
+      statusClass = 'preflight-scrub';
+      dotClass = 'scrub';
+    }
+    valueStr = esc(result.value || '');
+    durationStr = result.duration_ms != null ? esc(String(result.duration_ms)) + 'ms' : '';
+  } else if (isPolling) {
+    statusLabel = 'POLLING';
+    statusClass = 'preflight-polling';
+    dotClass = 'polling';
+  } else {
+    statusLabel = 'STANDBY';
+    statusClass = 'preflight-standby';
+    dotClass = 'standby';
+  }
+
+  const rowId = 'pf-row-' + esc(test.id);
+  const errRowId = 'pf-err-' + esc(test.id);
+  const hasError = result && result.status === 'fail' && (result.error_message || result.expected);
+
+  let rowHtml = '<tr id="' + rowId + '"' +
+    (hasError ? ' style="cursor:pointer" onclick="togglePreflightError(\'' + esc(test.id) + '\')"' : '') + '>';
+  rowHtml += '<td style="color:var(--dim);font-size:14px;font-weight:700">' + esc(test.id) + '</td>';
+  rowHtml += '<td style="font-size:16px">' + esc(test.name) + '</td>';
+  rowHtml += '<td><span class="preflight-dot ' + dotClass + '"></span><span class="' + statusClass + '" style="font-size:16px;font-weight:700">' + statusLabel + '</span></td>';
+  rowHtml += '<td style="font-size:16px;color:var(--text)">' + valueStr + '</td>';
+  rowHtml += '<td style="font-size:14px;color:var(--dim)">' + durationStr + '</td>';
+  rowHtml += '</tr>';
+
+  if (hasError) {
+    rowHtml += '<tr id="' + errRowId + '" class="preflight-error-row">';
+    rowHtml += '<td colspan="5"><div class="preflight-error-content">';
+    if (result.error_message) rowHtml += 'Error: ' + esc(result.error_message) + '<br>';
+    if (result.expected) rowHtml += 'Expected: ' + esc(String(result.expected));
+    rowHtml += '</div></td>';
+    rowHtml += '</tr>';
+  }
+
+  return rowHtml;
+}
+
+function togglePreflightError(testId) {
+  const errRow = document.getElementById('pf-err-' + testId);
+  if (errRow) errRow.classList.toggle('open');
+}
+
+async function initiatePreflight() {
+  const btn = document.getElementById('preflight-init-btn');
+  const statusEl = document.getElementById('preflight-seq-status');
+  if (!btn || !statusEl) return;
+
+  btn.disabled = true;
+  statusEl.textContent = 'Initiating preflight sequence...';
+
+  try {
+    const res = await fetch('/api/simulator/run', {method:'POST', credentials:'include'});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Trigger failed');
+
+    _preflightRunId = data.run_id;
+    _preflightResults = {};
+    _preflightComplete = false;
+
+    statusEl.textContent = 'PREFLIGHT SEQUENCE INITIATED — monitoring stations...';
+
+    // Rebuild grid to STANDBY state
+    _rebuildPreflightGrid(false, '');
+
+    // Start polling
+    if (_preflightPollTimer) clearInterval(_preflightPollTimer);
+    let polls = 0;
+    const maxPolls = 90; // 180 seconds at 2s intervals
+    _preflightPollTimer = setInterval(async function() {
+      polls++;
+      try {
+        const statusData = await fetch('/api/simulator/status?run_id=' + encodeURIComponent(_preflightRunId), {credentials:'include'}).then(r => r.json());
+        _preflightResults = {};
+        (statusData.checks || []).forEach(function(c) { _preflightResults[c.check_name] = c; });
+        _preflightComplete = statusData.summary && statusData.summary.complete;
+
+        _rebuildPreflightGrid(true, statusEl);
+
+        if (_preflightComplete || polls >= maxPolls) {
+          clearInterval(_preflightPollTimer);
+          _preflightComplete = true;
+          btn.disabled = false;
+
+          // Final verdict
+          const checks = Object.values(_preflightResults);
+          const nogoCount = checks.filter(c => c.status === 'fail').length;
+          if (nogoCount === 0) {
+            statusEl.textContent = 'ALL STATIONS GO — PREFLIGHT COMPLETE';
+            statusEl.style.color = '#00ff88';
+          } else {
+            statusEl.textContent = 'NO-GO — ' + nogoCount + ' FAILURE' + (nogoCount === 1 ? '' : 'S') + ' DETECTED';
+            statusEl.style.color = '#ff3366';
+          }
+          // Refresh the banner
+          _updatePreflightBanner();
+        }
+      } catch(_e) { /* continue polling */ }
+    }, 2000);
+
+  } catch(e) {
+    statusEl.textContent = 'Error: ' + esc(String(e));
+    btn.disabled = false;
+  }
+}
+
+function _rebuildPreflightGrid(showPolling, statusEl) {
+  const tbody = document.getElementById('preflight-grid');
+  if (!tbody) return;
+
+  let html = '';
+  let foundPolling = false;
+
+  PREFLIGHT_TESTS.forEach(function(group) {
+    html += '<tr class="preflight-group-header"><td colspan="5">' + esc(group.group) + '</td></tr>';
+    group.tests.forEach(function(test) {
+      const result = _preflightResults[test.id] || null;
+      const isPolling = showPolling && !result && !foundPolling;
+      if (isPolling) foundPolling = true;
+      html += _buildTestRow(test, result, isPolling);
+    });
+  });
+
+  tbody.innerHTML = html;
+}
+
+function _updatePreflightBanner() {
+  const banner = document.querySelector('.preflight-banner');
+  if (!banner) return;
+  const lastRunTs = _getLastRunTimestamp();
+  const tsStr = lastRunTs ? new Date(lastRunTs).toLocaleString() : 'Never';
+  let verdict = 'AWAITING PREFLIGHT';
+  let verdictColor = 'var(--dim)';
+  if (_preflightComplete) {
+    const nogoCount = Object.values(_preflightResults).filter(c => c.status === 'fail').length;
+    if (nogoCount === 0) { verdict = 'ALL STATIONS GO'; verdictColor = '#00ff88'; }
+    else { verdict = 'NO-GO — ' + nogoCount + ' FAILURE' + (nogoCount === 1 ? '' : 'S'); verdictColor = '#ff3366'; }
+  }
+  banner.querySelector('.pf-meta').textContent = 'Last run: ' + tsStr;
+  const vEl = banner.querySelector('.pf-verdict');
+  vEl.textContent = verdict;
+  vEl.style.color = verdictColor;
+}
+
+// ── Flight Status ──────────────────────────────────────────────────────────
+
+async function loadFlightStatus() {
+  const el = document.getElementById('flight-status-content');
+  if (!el) return;
+  try {
+    const data = await fetch('/api/health/flight-status', {credentials:'include'}).then(r => r.json());
+    el.innerHTML = buildFlightStatusUI(data);
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state" style="font-size:16px">Could not load flight status: ' + esc(String(e)) + '</div>';
+  }
+}
+
+function buildFlightStatusUI(entries) {
+  if (!entries || !entries.length) {
+    return '<div class="empty-state" style="font-size:16px">No flight manifest data</div>';
+  }
+
+  let html = '<div style="overflow-x:auto">';
+  html += '<table class="flight-status-table">';
+  html += '<thead><tr>';
+  html += '<th>FUNCTION</th>';
+  html += '<th>SCHEDULE</th>';
+  html += '<th>LAST FIRED</th>';
+  html += '<th style="width:140px">STATUS</th>';
+  html += '<th style="width:100px">CRITICALITY</th>';
+  html += '</tr></thead><tbody>';
+
+  entries.forEach(function(e) {
+    const status = e.status || 'missing';
+    let dotClass, statusLabel, statusColor;
+    if (status === 'ran') {
+      dotClass = 'ran';
+      statusLabel = 'RAN';
+      statusColor = '#00ff88';
+    } else if (status === 'stale') {
+      dotClass = 'stale';
+      statusLabel = 'STALE';
+      statusColor = '#ff3366';
+    } else {
+      dotClass = 'pending';
+      statusLabel = 'PENDING';
+      statusColor = '#888';
+    }
+
+    const critColor = e.criticality === 'high' ? 'var(--red)' : e.criticality === 'medium' ? 'var(--yellow)' : 'var(--dim)';
+
+    let lastFiredStr = 'never';
+    if (e.last_run_at) {
+      const dt = new Date(e.last_run_at);
+      const ageMs = Date.now() - dt.getTime();
+      const ageMin = Math.floor(ageMs / 60000);
+      if (ageMin < 60) lastFiredStr = ageMin + 'm ago';
+      else if (ageMin < 1440) lastFiredStr = Math.floor(ageMin / 60) + 'h ago';
+      else lastFiredStr = Math.floor(ageMin / 1440) + 'd ago';
+    }
+
+    html += '<tr>';
+    html += '<td style="font-weight:700;color:var(--cyan);font-size:16px">' + esc(e.name) + '</td>';
+    html += '<td style="font-size:15px;color:var(--dim)">' + esc(e.schedule) + '</td>';
+    html += '<td style="font-size:16px">' + esc(lastFiredStr) + '</td>';
+    html += '<td><span class="flight-status-dot ' + dotClass + '"></span><span style="font-weight:700;font-size:16px;color:' + statusColor + '">' + statusLabel + '</span></td>';
+    html += '<td style="font-size:14px;color:' + critColor + ';text-transform:uppercase;font-weight:700">' + esc(e.criticality || '--') + '</td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  html += '</div>';
+  return html;
 }
 </script>
 </div><!-- end app-layout -->

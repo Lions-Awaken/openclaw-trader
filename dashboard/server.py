@@ -14,7 +14,10 @@ import json
 import os
 import re
 import secrets
+import subprocess
+import sys
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -3944,6 +3947,376 @@ async def get_shadow_unanimous(
                 }
             )
     return sorted(unanimous, key=lambda x: x["date"], reverse=True)
+
+
+# ============================================================================
+# System Health API Routes
+# ============================================================================
+
+
+@app.get("/api/health/latest")
+async def get_health_latest(request: Request, oc_session: str = Cookie(None)):
+    """Most recent health check run results, grouped by check_group."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {"run_id": None, "checks": []}
+
+    client = get_http()
+
+    # Get the most recent run_id
+    latest_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_health",
+        headers=sb_headers(),
+        params={
+            "select": "run_id,run_type,created_at",
+            "order": "created_at.desc",
+            "limit": "1",
+        },
+    )
+    if latest_resp.status_code != 200 or not latest_resp.json():
+        return {"run_id": None, "checks": []}
+
+    latest = latest_resp.json()[0]
+    run_id = latest["run_id"]
+    run_type = latest["run_type"]
+    run_created_at = latest["created_at"]
+
+    # Fetch all rows for that run_id
+    rows_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_health",
+        headers=sb_headers(),
+        params={
+            "run_id": f"eq.{run_id}",
+            "order": "check_order.asc",
+        },
+    )
+    if rows_resp.status_code != 200:
+        return {"run_id": run_id, "checks": []}
+
+    rows = rows_resp.json()
+
+    total_pass = sum(1 for r in rows if r.get("status") == "pass")
+    total_fail = sum(1 for r in rows if r.get("status") == "fail")
+    total_warn = sum(1 for r in rows if r.get("status") == "warn")
+    total_skip = sum(1 for r in rows if r.get("status") == "skip")
+    total_duration_ms = sum(int(r.get("duration_ms") or 0) for r in rows)
+
+    return {
+        "run_id": run_id,
+        "run_type": run_type,
+        "created_at": run_created_at,
+        "total_pass": total_pass,
+        "total_fail": total_fail,
+        "total_warn": total_warn,
+        "total_skip": total_skip,
+        "duration_ms": total_duration_ms,
+        "checks": rows,
+    }
+
+
+@app.post("/api/health/run")
+async def trigger_health_run(request: Request, oc_session: str = Cookie(None)):
+    """Trigger health_check.py as a subprocess with a new run_id."""
+    _require_auth(request, oc_session)
+    run_id = str(uuid.uuid4())
+    scripts_dir = Path(__file__).parent.parent / "scripts" / "health_check.py"
+    subprocess_env = {**os.environ, "HEALTH_RUN_ID": run_id}
+    subprocess.Popen(
+        [sys.executable, str(scripts_dir), "--notify-always"],
+        env=subprocess_env,
+        cwd=str(Path(__file__).parent.parent),
+    )
+    return {"status": "triggered", "run_id": run_id}
+
+
+@app.get("/api/health/history")
+async def get_health_history(request: Request, oc_session: str = Cookie(None)):
+    """Last 7 health check runs as summary rows for the history strip."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+
+    client = get_http()
+
+    # Get enough rows to cover 7 distinct runs
+    rows_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_health",
+        headers=sb_headers(),
+        params={
+            "select": "run_id,run_type,status,created_at",
+            "order": "created_at.desc",
+            "limit": "500",
+        },
+    )
+    if rows_resp.status_code != 200:
+        return []
+
+    rows = rows_resp.json()
+
+    # Aggregate by run_id — preserve insertion order (desc by created_at)
+    seen: dict[str, dict] = {}
+    for r in rows:
+        rid = r["run_id"]
+        if rid not in seen:
+            seen[rid] = {
+                "run_id": rid,
+                "run_type": r.get("run_type"),
+                "created_at": r.get("created_at"),
+                "pass": 0,
+                "fail": 0,
+                "warn": 0,
+                "skip": 0,
+                "worst": "pass",
+            }
+        entry = seen[rid]
+        status = r.get("status", "skip")
+        entry[status] = entry.get(status, 0) + 1
+        # Track worst status for the run dot colour
+        if status == "fail":
+            entry["worst"] = "fail"
+        elif status == "warn" and entry["worst"] != "fail":
+            entry["worst"] = "warn"
+
+    runs = list(seen.values())[:7]
+    return runs
+
+
+@app.get("/api/signals/options-flow")
+async def get_signals_options_flow(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 7,
+) -> list:
+    _require_auth(request, oc_session)
+    days = min(days, 90)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/options_flow_signals",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,signal_date,signal_type,strike,expiry,premium,"
+                      "open_interest,volume,implied_volatility,sentiment,source,created_at",
+            "signal_date": f"gte.{cutoff}",
+            "order": "signal_date.desc,created_at.desc",
+            "limit": "100",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@app.get("/api/signals/form4")
+async def get_signals_form4(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    days: int = 30,
+) -> list:
+    _require_auth(request, oc_session)
+    days = min(days, 180)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/form4_signals",
+        headers=sb_headers(),
+        params={
+            "select": "id,ticker,signal_date,filing_date,filer_name,filer_title,"
+                      "transaction_type,shares,price_per_share,total_value,"
+                      "shares_owned_after,ownership_pct_change,days_since_last_filing,"
+                      "cluster_count,source,created_at",
+            "signal_date": f"gte.{cutoff}",
+            "order": "signal_date.desc,created_at.desc",
+            "limit": "100",
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+# ============================================================================
+# Simulator / Preflight API Routes
+# ============================================================================
+
+FLIGHT_MANIFEST = [
+    {"name": "health_check", "pipeline_name": "health_check", "schedule": "5:00 AM weekdays", "criticality": "high", "freshness_hours": 26, "writes_pipeline_runs": False},
+    {"name": "catalyst_ingest", "pipeline_name": "catalyst_ingest", "schedule": "5:30/9:15/12:50 weekdays", "criticality": "high", "freshness_hours": 26, "writes_pipeline_runs": True},
+    {"name": "ingest_form4", "pipeline_name": "ingest", "schedule": "6:00 AM weekdays", "criticality": "medium", "freshness_hours": 26, "writes_pipeline_runs": True},
+    {"name": "scanner", "pipeline_name": "scanner", "schedule": "6:35/9:30 weekdays", "criticality": "high", "freshness_hours": 26, "writes_pipeline_runs": True},
+    {"name": "ingest_options_flow", "pipeline_name": "ingest", "schedule": "7:00 AM weekdays", "criticality": "medium", "freshness_hours": 26, "writes_pipeline_runs": True},
+    {"name": "position_manager", "pipeline_name": "position_manager", "schedule": "Every 30m market hours", "criticality": "high", "freshness_hours": 2, "writes_pipeline_runs": True},
+    {"name": "meta_daily", "pipeline_name": "meta_daily", "schedule": "1:30 PM weekdays", "criticality": "high", "freshness_hours": 26, "writes_pipeline_runs": True},
+    {"name": "meta_weekly", "pipeline_name": "meta_weekly", "schedule": "4:00 PM Sundays", "criticality": "medium", "freshness_hours": 170, "writes_pipeline_runs": True},
+    {"name": "calibrator", "pipeline_name": "calibrator", "schedule": "4:30 PM Sundays", "criticality": "medium", "freshness_hours": 170, "writes_pipeline_runs": True},
+    {"name": "heartbeat", "pipeline_name": "heartbeat", "schedule": "Every 5 min", "criticality": "low", "freshness_hours": 1, "writes_pipeline_runs": True},
+]
+
+
+@app.post("/api/simulator/run")
+async def trigger_simulator(request: Request, oc_session: str = Cookie(None)):
+    """Trigger test_system.py as a subprocess. Returns a run_id for polling."""
+    _require_auth(request, oc_session)
+    run_id = str(uuid.uuid4())
+    subprocess.Popen(
+        [sys.executable, "scripts/test_system.py"],
+        env={**os.environ, "SIMULATOR_RUN_ID": run_id},
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    )
+    return {"status": "triggered", "run_id": run_id}
+
+
+@app.get("/api/simulator/status")
+async def get_simulator_status(
+    request: Request,
+    oc_session: str = Cookie(None),
+    run_id: str = "",
+):
+    """Return all test results written so far for a given simulator run_id.
+
+    If run_id is omitted, returns the most recent simulator run summary.
+    """
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return {"run_id": None, "checks": [], "summary": {}}
+
+    client = get_http()
+
+    if not run_id:
+        # Return the most recent simulator run_id
+        latest_resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/system_health",
+            headers=sb_headers(),
+            params={
+                "select": "run_id,created_at",
+                "run_type": "eq.simulator",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if latest_resp.status_code != 200 or not latest_resp.json():
+            return {"run_id": None, "checks": [], "summary": {}}
+        run_id = latest_resp.json()[0]["run_id"]
+
+    run_id = _validate_uuid(run_id)
+
+    rows_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/system_health",
+        headers=sb_headers(),
+        params={
+            "run_id": f"eq.{run_id}",
+            "run_type": "eq.simulator",
+            "order": "check_order.asc",
+        },
+    )
+    if rows_resp.status_code != 200:
+        return {"run_id": run_id, "checks": [], "summary": {}}
+
+    checks = rows_resp.json()
+    total = len(checks)
+    go_count = sum(1 for c in checks if c.get("status") == "pass")
+    nogo_count = sum(1 for c in checks if c.get("status") == "fail")
+    scrub_count = sum(1 for c in checks if c.get("status") == "skip")
+    # The simulator has 37 total tests — consider complete if all have reported
+    complete = total >= 37
+
+    return {
+        "run_id": run_id,
+        "checks": checks,
+        "summary": {
+            "total": total,
+            "go": go_count,
+            "nogo": nogo_count,
+            "scrub": scrub_count,
+            "complete": complete,
+        },
+    }
+
+
+@app.get("/api/health/flight-status")
+async def get_flight_status(request: Request, oc_session: str = Cookie(None)):
+    """Manifest vs reality for today's scheduled functions."""
+    _require_auth(request, oc_session)
+    if not SUPABASE_URL:
+        return []
+
+    client = get_http()
+    now = datetime.now(timezone.utc)
+
+    async def _check_entry(entry: dict) -> dict:
+        name = entry["name"]
+        pipeline_name = entry["pipeline_name"]
+        freshness_hours = entry["freshness_hours"]
+        writes_pipeline_runs = entry["writes_pipeline_runs"]
+
+        last_run_at: str | None = None
+        freshness_ok = False
+
+        if writes_pipeline_runs:
+            try:
+                resp = await client.get(
+                    f"{SUPABASE_URL}/rest/v1/pipeline_runs",
+                    headers=sb_headers(),
+                    params={
+                        "select": "started_at,status",
+                        "pipeline_name": f"eq.{pipeline_name}",
+                        "step_name": "eq.root",
+                        "order": "started_at.desc",
+                        "limit": "1",
+                    },
+                )
+                rows = resp.json() if resp.status_code == 200 else []
+                if rows:
+                    last_run_at = rows[0].get("started_at")
+            except Exception:
+                pass
+        else:
+            # health_check — query system_health table
+            try:
+                resp = await client.get(
+                    f"{SUPABASE_URL}/rest/v1/system_health",
+                    headers=sb_headers(),
+                    params={
+                        "select": "created_at",
+                        "run_type": "eq.scheduled",
+                        "order": "created_at.desc",
+                        "limit": "1",
+                    },
+                )
+                rows = resp.json() if resp.status_code == 200 else []
+                if rows:
+                    last_run_at = rows[0].get("created_at")
+            except Exception:
+                pass
+
+        # Compute status
+        if last_run_at:
+            try:
+                last_dt = datetime.fromisoformat(last_run_at.replace("Z", "+00:00"))
+                age_h = (now - last_dt).total_seconds() / 3600
+                freshness_ok = age_h <= freshness_hours
+                if freshness_ok:
+                    status = "ran"
+                elif age_h <= freshness_hours * 1.5:
+                    status = "stale"
+                else:
+                    status = "stale"
+            except (ValueError, AttributeError):
+                status = "missing"
+                freshness_ok = False
+        else:
+            status = "missing"
+            freshness_ok = False
+
+        return {
+            "name": name,
+            "schedule": entry["schedule"],
+            "pipeline_name": pipeline_name,
+            "criticality": entry["criticality"],
+            "last_run_at": last_run_at,
+            "status": status,
+            "freshness_ok": freshness_ok,
+            "freshness_hours": freshness_hours,
+        }
+
+    results = await asyncio.gather(*[_check_entry(e) for e in FLIGHT_MANIFEST])
+    return list(results)
 
 
 if __name__ == "__main__":

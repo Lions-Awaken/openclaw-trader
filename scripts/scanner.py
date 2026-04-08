@@ -452,6 +452,58 @@ def execute_trade(
 
 
 # ---------------------------------------------------------------------------
+# Alternative signal enrichment helpers
+# ---------------------------------------------------------------------------
+def _enrich_with_options_flow(candidates: list[dict]) -> list[dict]:
+    """Add options flow score to candidate list from options_flow_signals table."""
+    lookback = (date.today() - timedelta(days=3)).isoformat()
+    for cand in candidates:
+        ticker = cand["ticker"]
+        rows = sb_get("options_flow_signals", {
+            "select": "signal_type,sentiment,premium",
+            "ticker": f"eq.{ticker}",
+            "signal_date": f"gte.{lookback}",
+            "order": "signal_date.desc",
+            "limit": "5",
+        })
+        bullish = sum(1 for r in rows if r.get("sentiment") == "bullish")
+        bearish = sum(1 for r in rows if r.get("sentiment") == "bearish")
+        cand["signals"]["options_flow_bullish"] = bullish
+        cand["signals"]["options_flow_bearish"] = bearish
+        cand["signals"]["options_flow_net"] = bullish - bearish
+    return candidates
+
+
+def _enrich_with_form4(candidates: list[dict]) -> list[dict]:
+    """Add Form 4 insider purchase score to candidate list."""
+    lookback = (date.today() - timedelta(days=14)).isoformat()
+    for cand in candidates:
+        ticker = cand["ticker"]
+        rows = sb_get("form4_signals", {
+            "select": "transaction_type,total_value,ownership_pct_change,cluster_count,filer_title",
+            "ticker": f"eq.{ticker}",
+            "signal_date": f"gte.{lookback}",
+            "transaction_type": "eq.purchase",
+            "order": "signal_date.desc",
+            "limit": "5",
+        })
+        insider_score = 0
+        for r in rows:
+            val = float(r.get("total_value") or 0)
+            if val > 1_000_000:
+                insider_score += 3
+            elif val > 500_000:
+                insider_score += 2
+            elif val > 100_000:
+                insider_score += 1
+            cluster = int(r.get("cluster_count") or 1)
+            insider_score += min(3, (cluster - 1) * 2)
+        cand["signals"]["form4_insider_score"] = insider_score
+        cand["signals"]["form4_purchase_count"] = len(rows)
+    return candidates
+
+
+# ---------------------------------------------------------------------------
 # Shadow inference helpers
 # ---------------------------------------------------------------------------
 def _load_shadow_profiles() -> list[dict]:
@@ -657,6 +709,15 @@ def run():
                 "top": [{"ticker": c["ticker"], "score": c["total_score"]} for c in candidates[:5]],
             })
             print(f"[scanner] Candidates: {len(candidates)} tickers pass signal threshold ({min_signal}+)")
+
+        # === Step 5b: Enrich with alternative signals ===
+        with tracer.step("signal_enrichment") as enrich_result:
+            candidates = _enrich_with_options_flow(candidates)
+            candidates = _enrich_with_form4(candidates)
+            enrich_result.complete(
+                options_flow_tickers=len([c for c in candidates if c["signals"].get("options_flow_net", 0) != 0]),
+                form4_tickers=len([c for c in candidates if c["signals"].get("form4_insider_score", 0) > 0]),
+            )
 
         # === Step 6: Run inference on candidates ===
         inference_results = []
