@@ -536,6 +536,243 @@ body {
   .detail-zone { grid-template-columns: 1fr; }
   .modal-content { min-width: unset; }
 }
+
+/* ================================================================
+   PREFLIGHT PANEL
+   ================================================================ */
+.preflight-zone {
+  margin-bottom: 12px;
+}
+.preflight-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  position: relative;
+}
+.preflight-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.preflight-panel-label {
+  font-size: 0.55rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+.preflight-header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.preflight-status-text {
+  font-size: 0.45rem;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+}
+.preflight-btn {
+  background: transparent;
+  border: 1px solid var(--cyan);
+  border-radius: 5px;
+  color: var(--cyan);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.55rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 8px 20px;
+  cursor: pointer;
+  position: relative;
+  transition: box-shadow 0.2s ease, background 0.2s ease;
+  box-shadow: 0 0 10px rgba(0,255,238,0.25), inset 0 0 10px rgba(0,255,238,0.04);
+}
+.preflight-btn:hover:not(:disabled) {
+  background: rgba(0,255,238,0.08);
+  box-shadow: 0 0 20px rgba(0,255,238,0.5), inset 0 0 14px rgba(0,255,238,0.08);
+}
+.preflight-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+}
+@keyframes preflight-btn-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(0,255,238,0.3), inset 0 0 10px rgba(0,255,238,0.04); }
+  50%       { box-shadow: 0 0 24px rgba(0,255,238,0.7), inset 0 0 18px rgba(0,255,238,0.10); }
+}
+.preflight-btn.running { animation: preflight-btn-pulse 1.6s ease-in-out infinite; }
+
+/* Board layout */
+.preflight-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 1100px) { .preflight-board { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 768px)  { .preflight-board { grid-template-columns: 1fr; } }
+
+.preflight-group {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 6px;
+  padding: 10px;
+}
+.preflight-group-name {
+  font-size: 0.4rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+/* Individual check rows */
+.preflight-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  cursor: default;
+  transition: background 0.15s ease;
+  border-radius: 3px;
+}
+.preflight-row:last-child { border-bottom: none; }
+.preflight-row.has-error { cursor: pointer; }
+.preflight-row.has-error:hover { background: rgba(255,51,51,0.06); }
+
+.preflight-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #404050;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+.preflight-dot.standby { background: #404050; box-shadow: none; }
+.preflight-dot.polling { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+.preflight-dot.go      { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.preflight-dot.nogo    { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+.preflight-dot.scrub   { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+
+@keyframes dot-poll {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.25; }
+}
+.preflight-dot.polling { animation: dot-poll 0.9s ease-in-out infinite; }
+
+.preflight-test-id {
+  font-size: 0.42rem;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  width: 22px;
+  flex-shrink: 0;
+  text-transform: none;
+}
+.preflight-test-name {
+  font-size: 0.42rem;
+  color: var(--text);
+  letter-spacing: 0.3px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 400;
+}
+.preflight-test-status {
+  font-size: 0.38rem;
+  font-weight: 900;
+  letter-spacing: 1px;
+  width: 52px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.preflight-test-status.standby { color: #404050; }
+.preflight-test-status.polling { color: var(--cyan); }
+.preflight-test-status.go      { color: var(--green); }
+.preflight-test-status.nogo    { color: var(--red); }
+.preflight-test-status.scrub   { color: var(--amber); }
+
+.preflight-test-val {
+  font-size: 0.38rem;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: none;
+  font-weight: 400;
+  width: 50px;
+  text-align: right;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preflight-test-dur {
+  font-size: 0.36rem;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: none;
+  font-weight: 400;
+  width: 38px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Error detail expansion */
+.preflight-error-row {
+  display: none;
+  padding: 5px 8px 5px 30px;
+  font-size: 0.38rem;
+  color: var(--red);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  border-bottom: 1px solid rgba(255,51,51,0.15);
+  word-break: break-all;
+  line-height: 1.5;
+  background: rgba(255,51,51,0.05);
+  border-radius: 0 0 3px 3px;
+}
+.preflight-error-row.visible { display: block; }
+
+/* Summary / verdict bar */
+.preflight-summary {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.preflight-verdict {
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 3px;
+}
+.preflight-verdict.all-go { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.5); }
+.preflight-verdict.no-go  { color: var(--red);   text-shadow: 0 0 12px rgba(255,51,51,0.5); }
+.preflight-verdict.pending { color: var(--text-dim); }
+.preflight-tally {
+  display: flex;
+  gap: 16px;
+  font-size: 0.42rem;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: none;
+  color: var(--text-dim);
+}
+.preflight-tally .tally-go   { color: var(--green); }
+.preflight-tally .tally-nogo { color: var(--red); }
+.preflight-tally .tally-scrub { color: var(--amber); }
 </style>
 </head>
 <body>
@@ -677,6 +914,26 @@ body {
             <span class="sub-value">ms</span>
           </div>
           <div class="sparkline-canvas-wrap"><canvas id="sparkNetwork"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preflight Zone -->
+  <div class="preflight-zone">
+    <div class="preflight-panel">
+      <div class="preflight-panel-header">
+        <div class="preflight-panel-label">Preflight &mdash; Go / No-Go</div>
+        <div class="preflight-header-right">
+          <span class="preflight-status-text" id="preflightStatusText">Ready</span>
+          <button class="preflight-btn" id="preflightBtn" onclick="initiatePreflightRun()">Initiate Preflight</button>
+        </div>
+      </div>
+      <div class="preflight-board" id="preflightBoard"></div>
+      <div class="preflight-summary">
+        <div class="preflight-verdict pending" id="preflightVerdict">Awaiting Launch Sequence</div>
+        <div class="preflight-tally" id="preflightTally">
+          <span>&#8212;</span>
         </div>
       </div>
     </div>
@@ -2071,6 +2328,480 @@ body {
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
+  }
+
+})();
+
+/* ================================================================
+   PREFLIGHT PANEL — Go / No-Go board
+   Standalone (not inside the main IIFE so initiatePreflightRun()
+   is accessible from the inline onclick attribute).
+   ================================================================ */
+(function() {
+  'use strict';
+
+  // -- Test groups definition -----------------------------------------
+  var PREFLIGHT_GROUPS = [
+    {name: 'MODULE INTEGRITY', tests: [
+      {id: 'A1', name: 'manifest imports',      order: 100},
+      {id: 'A2', name: 'key functions callable',order: 110}
+    ]},
+    {name: 'GROUND SYSTEMS', tests: [
+      {id: 'B1', name: 'table inventory',       order: 200},
+      {id: 'B2', name: 'shadow_divergences',    order: 210},
+      {id: 'B3', name: 'shadow profiles',       order: 220},
+      {id: 'B4', name: 'profile_name backfill', order: 230},
+      {id: 'B5', name: 'signal tables',         order: 240},
+      {id: 'B6', name: 'system_health table',   order: 250}
+    ]},
+    {name: 'ADVERSARIAL ARRAY', tests: [
+      {id: 'C1', name: 'shadow contexts',       order: 300},
+      {id: 'C2', name: 'tumbler depth caps',    order: 310}
+    ]},
+    {name: 'SIGNAL ACQUISITION', tests: [
+      {id: 'D1', name: 'active profile',        order: 400},
+      {id: 'D2', name: 'compute_signals',       order: 410},
+      {id: 'D3', name: 'options flow enrich',   order: 420},
+      {id: 'D4', name: 'form4 enrich',          order: 430}
+    ]},
+    {name: 'TUMBLER CHAIN', tests: [
+      {id: 'E1', name: 'inference (SKEPTIC)',   order: 500},
+      {id: 'E2', name: 'depth cap (RW)',        order: 510},
+      {id: 'E3', name: 'stopping rule null',    order: 520},
+      {id: 'E4', name: 'shadow context inject', order: 530}
+    ]},
+    {name: 'ENSEMBLE SYSTEMS', tests: [
+      {id: 'F1', name: 'load shadow profiles',  order: 600},
+      {id: 'F2', name: 'record divergence',     order: 610},
+      {id: 'F3', name: 'grade profiles',        order: 620},
+      {id: 'F4', name: 'divergence summary',    order: 630}
+    ]},
+    {name: 'ECONOMICS', tests: [
+      {id: 'G1', name: 'claude spend today',    order: 700},
+      {id: 'G2', name: 'claude budget',         order: 710},
+      {id: 'G3', name: 'cost attribution',      order: 720},
+      {id: 'G4', name: 'daily budget estimate', order: 730}
+    ]},
+    {name: 'END-TO-END FLOW', tests: [
+      {id: 'H1', name: 'inject test catalyst',  order: 800},
+      {id: 'H2', name: 'signal scan',           order: 810},
+      {id: 'H3', name: 'enrichment pipeline',   order: 820},
+      {id: 'H4', name: 'inference chain',       order: 830},
+      {id: 'H5', name: 'divergence record',     order: 840},
+      {id: 'H6', name: 'cleanup',               order: 850}
+    ]},
+    {name: 'DASHBOARD COMMS', tests: [
+      {id: 'I1', name: '/api/shadow/profiles',       order: 900},
+      {id: 'I2', name: '/api/shadow/divergences',    order: 910},
+      {id: 'I3', name: '/api/health/latest',         order: 920},
+      {id: 'I4', name: '/api/signals/options-flow',  order: 930},
+      {id: 'I5', name: '/api/signals/form4',         order: 940}
+    ]}
+  ];
+
+  // Flat ordered test list (for first-POLLING detection)
+  var ALL_TESTS = [];
+  for (var gi = 0; gi < PREFLIGHT_GROUPS.length; gi++) {
+    var grp = PREFLIGHT_GROUPS[gi];
+    for (var ti = 0; ti < grp.tests.length; ti++) {
+      ALL_TESTS.push(grp.tests[ti]);
+    }
+  }
+  ALL_TESTS.sort(function(a, b) { return a.order - b.order; });
+
+  // -- State -----------------------------------------------------------
+  var pf = {
+    running:    false,
+    runId:      null,
+    pollTimer:  null,
+    startedAt:  0,
+    results:    {},  // keyed by test id (A1, B2 ...)
+    expanded:   {}   // which NO-GO rows are expanded
+  };
+
+  // -- Helpers ---------------------------------------------------------
+  function setStatus(text) {
+    var el = document.getElementById('preflightStatusText');
+    if (el) el.textContent = text;
+  }
+
+  function setBtn(disabled, running) {
+    var btn = document.getElementById('preflightBtn');
+    if (!btn) return;
+    btn.disabled = disabled;
+    if (running) {
+      btn.classList.add('running');
+      btn.textContent = 'Running...';
+    } else {
+      btn.classList.remove('running');
+      btn.textContent = 'Initiate Preflight';
+    }
+  }
+
+  // Map API check_name (which contains the test ID) to our id key
+  // check_name may look like "A1: manifest imports" or just "A1"
+  function extractTestId(checkName) {
+    if (!checkName) return null;
+    var m = checkName.match(/^([A-Z]\d+)/);
+    return m ? m[1] : null;
+  }
+
+  function statusClass(status) {
+    if (status === 'pass') return 'go';
+    if (status === 'fail') return 'nogo';
+    if (status === 'skip') return 'scrub';
+    return 'standby';
+  }
+
+  function statusLabel(status) {
+    if (status === 'pass') return 'GO';
+    if (status === 'fail') return 'NO-GO';
+    if (status === 'skip') return 'SCRUB';
+    return 'STANDBY';
+  }
+
+  // -- Build board DOM -------------------------------------------------
+  function buildBoard() {
+    var board = document.getElementById('preflightBoard');
+    if (!board) return;
+    board.innerHTML = '';
+
+    for (var gi = 0; gi < PREFLIGHT_GROUPS.length; gi++) {
+      var group = PREFLIGHT_GROUPS[gi];
+      var grpEl = document.createElement('div');
+      grpEl.className = 'preflight-group';
+
+      var nameEl = document.createElement('div');
+      nameEl.className = 'preflight-group-name';
+      nameEl.textContent = group.name;
+      grpEl.appendChild(nameEl);
+
+      for (var ti = 0; ti < group.tests.length; ti++) {
+        var test = group.tests[ti];
+
+        var row = document.createElement('div');
+        row.className = 'preflight-row';
+        row.id = 'pf-row-' + test.id;
+        row.setAttribute('data-testid', test.id);
+
+        var dot = document.createElement('div');
+        dot.className = 'preflight-dot standby';
+        dot.id = 'pf-dot-' + test.id;
+
+        var testId = document.createElement('div');
+        testId.className = 'preflight-test-id';
+        testId.textContent = test.id;
+
+        var testName = document.createElement('div');
+        testName.className = 'preflight-test-name';
+        testName.textContent = test.name;
+
+        var testStatus = document.createElement('div');
+        testStatus.className = 'preflight-test-status standby';
+        testStatus.id = 'pf-status-' + test.id;
+        testStatus.textContent = 'STANDBY';
+
+        var testVal = document.createElement('div');
+        testVal.className = 'preflight-test-val';
+        testVal.id = 'pf-val-' + test.id;
+        testVal.textContent = '';
+
+        var testDur = document.createElement('div');
+        testDur.className = 'preflight-test-dur';
+        testDur.id = 'pf-dur-' + test.id;
+        testDur.textContent = '';
+
+        row.appendChild(dot);
+        row.appendChild(testId);
+        row.appendChild(testName);
+        row.appendChild(testStatus);
+        row.appendChild(testVal);
+        row.appendChild(testDur);
+
+        // Error expansion row
+        var errRow = document.createElement('div');
+        errRow.className = 'preflight-error-row';
+        errRow.id = 'pf-err-' + test.id;
+
+        grpEl.appendChild(row);
+        grpEl.appendChild(errRow);
+      }
+
+      board.appendChild(grpEl);
+    }
+
+    // Click handler for NO-GO expansion
+    board.addEventListener('click', function(e) {
+      var row = e.target.closest('.preflight-row.has-error');
+      if (!row) return;
+      var id = row.getAttribute('data-testid');
+      pf.expanded[id] = !pf.expanded[id];
+      var errEl = document.getElementById('pf-err-' + id);
+      if (errEl) errEl.classList.toggle('visible', !!pf.expanded[id]);
+    });
+  }
+
+  // -- Apply a single result to the board ------------------------------
+  function applyResult(testId, result) {
+    var cls = statusClass(result.status);
+    var lbl = statusLabel(result.status);
+
+    var dot = document.getElementById('pf-dot-' + testId);
+    if (dot) {
+      dot.className = 'preflight-dot ' + cls;
+    }
+
+    var statusEl = document.getElementById('pf-status-' + testId);
+    if (statusEl) {
+      statusEl.className = 'preflight-test-status ' + cls;
+      statusEl.textContent = lbl;
+    }
+
+    var valEl = document.getElementById('pf-val-' + testId);
+    if (valEl) {
+      var val = result.value != null ? String(result.value) : '';
+      valEl.textContent = val.length > 8 ? val.substring(0, 7) + '\u2026' : val;
+      valEl.title = val;
+    }
+
+    var durEl = document.getElementById('pf-dur-' + testId);
+    if (durEl) {
+      durEl.textContent = result.duration_ms != null ? Math.round(result.duration_ms) + 'ms' : '';
+    }
+
+    var row = document.getElementById('pf-row-' + testId);
+    var errEl = document.getElementById('pf-err-' + testId);
+    if (row && errEl) {
+      if (result.status === 'fail' && result.error_message) {
+        row.classList.add('has-error');
+        errEl.textContent = result.error_message;
+        // Keep expanded state
+        errEl.classList.toggle('visible', !!pf.expanded[testId]);
+      } else {
+        row.classList.remove('has-error');
+        errEl.classList.remove('visible');
+        errEl.textContent = '';
+        delete pf.expanded[testId];
+      }
+    }
+  }
+
+  // -- Mark next pending test as POLLING -------------------------------
+  function markNextPolling(completedIds) {
+    // Find first test (by order) not yet in completedIds
+    for (var i = 0; i < ALL_TESTS.length; i++) {
+      var t = ALL_TESTS[i];
+      if (!completedIds[t.id]) {
+        var dot = document.getElementById('pf-dot-' + t.id);
+        var statusEl = document.getElementById('pf-status-' + t.id);
+        if (dot) dot.className = 'preflight-dot polling';
+        if (statusEl) {
+          statusEl.className = 'preflight-test-status polling';
+          statusEl.textContent = 'POLLING';
+        }
+        break;
+      }
+    }
+  }
+
+  // -- Reset all rows to STANDBY ---------------------------------------
+  function resetBoard() {
+    for (var i = 0; i < ALL_TESTS.length; i++) {
+      var t = ALL_TESTS[i];
+      var dot = document.getElementById('pf-dot-' + t.id);
+      var statusEl = document.getElementById('pf-status-' + t.id);
+      var valEl = document.getElementById('pf-val-' + t.id);
+      var durEl = document.getElementById('pf-dur-' + t.id);
+      var row = document.getElementById('pf-row-' + t.id);
+      var errEl = document.getElementById('pf-err-' + t.id);
+      if (dot) dot.className = 'preflight-dot standby';
+      if (statusEl) { statusEl.className = 'preflight-test-status standby'; statusEl.textContent = 'STANDBY'; }
+      if (valEl) valEl.textContent = '';
+      if (durEl) durEl.textContent = '';
+      if (row) row.classList.remove('has-error');
+      if (errEl) { errEl.classList.remove('visible'); errEl.textContent = ''; }
+    }
+    pf.results = {};
+    pf.expanded = {};
+
+    var verdictEl = document.getElementById('preflightVerdict');
+    var tallyEl   = document.getElementById('preflightTally');
+    if (verdictEl) { verdictEl.className = 'preflight-verdict pending'; verdictEl.textContent = 'Awaiting Launch Sequence'; }
+    if (tallyEl)   { tallyEl.innerHTML = '<span>\u2014</span>'; }
+  }
+
+  // -- Update summary / verdict ----------------------------------------
+  function updateVerdict(summary, complete) {
+    var tallyEl   = document.getElementById('preflightTally');
+    var verdictEl = document.getElementById('preflightVerdict');
+    if (!tallyEl || !verdictEl) return;
+
+    var go    = summary.go    || 0;
+    var nogo  = summary.nogo  || 0;
+    var scrub = summary.scrub || 0;
+    var total = summary.total || 0;
+
+    tallyEl.innerHTML =
+      '<span class="tally-go">GO: ' + go + '</span>' +
+      '<span class="tally-nogo">NO-GO: ' + nogo + '</span>' +
+      '<span class="tally-scrub">SCRUB: ' + scrub + '</span>' +
+      '<span>' + go + '/' + total + ' checks</span>';
+
+    if (complete) {
+      if (nogo === 0) {
+        verdictEl.className = 'preflight-verdict all-go';
+        verdictEl.textContent = 'All Stations GO';
+      } else {
+        verdictEl.className = 'preflight-verdict no-go';
+        verdictEl.textContent = 'NO-GO \u2014 ' + nogo + ' Failure' + (nogo !== 1 ? 's' : '');
+      }
+    } else {
+      verdictEl.className = 'preflight-verdict pending';
+      verdictEl.textContent = 'Sequence Running\u2026';
+    }
+  }
+
+  // -- Poll a run for results ------------------------------------------
+  function pollResults(runId) {
+    var url = '/api/simulator/status?run_id=' + encodeURIComponent(runId);
+    fetch(url, {credentials: 'include'})
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        if (!data) return;
+
+        var checks = data.checks || [];
+        var summary = data.summary || {};
+        var complete = !!(summary.complete);
+
+        // Track which tests have results
+        var completedIds = {};
+        for (var i = 0; i < checks.length; i++) {
+          var chk = checks[i];
+          var tid = extractTestId(chk.check_name || '');
+          if (tid) {
+            completedIds[tid] = true;
+            pf.results[tid] = chk;
+            applyResult(tid, chk);
+          }
+        }
+
+        updateVerdict(summary, complete);
+
+        // Timeout: 180s
+        var elapsed = (Date.now() - pf.startedAt) / 1000;
+        if (complete || elapsed > 180) {
+          stopPolling();
+          setBtn(false, false);
+          if (complete) {
+            setStatus('Sequence complete');
+          } else {
+            setStatus('Timed out after 3 min');
+          }
+          return;
+        }
+
+        // Mark next pending check as POLLING
+        markNextPolling(completedIds);
+        setStatus('Running\u2026 ' + Math.round(elapsed) + 's');
+      })
+      .catch(function(err) {
+        console.warn('Preflight poll error:', err);
+      });
+  }
+
+  function stopPolling() {
+    if (pf.pollTimer) {
+      clearInterval(pf.pollTimer);
+      pf.pollTimer = null;
+    }
+    pf.running = false;
+  }
+
+  // -- Load most recent run on page load ------------------------------
+  function loadMostRecentRun() {
+    fetch('/api/simulator/status', {credentials: 'include'})
+      .then(function(r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function(data) {
+        if (!data) return;
+        var checks = data.checks || [];
+        var summary = data.summary || {};
+        if (!checks.length) return;
+
+        for (var i = 0; i < checks.length; i++) {
+          var chk = checks[i];
+          var tid = extractTestId(chk.check_name || '');
+          if (tid) {
+            pf.results[tid] = chk;
+            applyResult(tid, chk);
+          }
+        }
+        updateVerdict(summary, !!(summary.complete));
+        if (summary.complete) {
+          setStatus('Last run: ' + (data.run_id ? data.run_id.substring(0, 8) : '?'));
+        }
+      })
+      .catch(function() {
+        // Silently ignore — first deploy may have no runs
+      });
+  }
+
+  // -- Public entry point (called by inline onclick) ------------------
+  window.initiatePreflightRun = function() {
+    if (pf.running) return;
+
+    resetBoard();
+    pf.running   = true;
+    pf.startedAt = Date.now();
+    setBtn(true, true);
+    setStatus('Initiating sequence\u2026');
+
+    fetch('/api/simulator/run', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({})
+    })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        pf.runId = data.run_id || data.id || null;
+        if (!pf.runId) throw new Error('No run_id in response');
+        setStatus('Preflight initiated \u2014 run ' + pf.runId.substring(0, 8));
+
+        // Start polling every 2s
+        pf.pollTimer = setInterval(function() {
+          pollResults(pf.runId);
+        }, 2000);
+
+        // First poll immediately
+        pollResults(pf.runId);
+      })
+      .catch(function(err) {
+        console.error('Preflight initiation failed:', err);
+        setStatus('Error: ' + err.message);
+        setBtn(false, false);
+        pf.running = false;
+      });
+  };
+
+  // -- Init: build board, load last run --------------------------------
+  function initPreflight() {
+    buildBoard();
+    loadMostRecentRun();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPreflight);
+  } else {
+    initPreflight();
   }
 
 })();
