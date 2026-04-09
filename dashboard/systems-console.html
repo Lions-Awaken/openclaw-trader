@@ -819,6 +819,32 @@ body {
 .preflight-tally .tally-go    { color: var(--green); }
 .preflight-tally .tally-nogo  { color: var(--red); }
 .preflight-tally .tally-scrub { color: var(--amber); }
+
+/* Sparkline visualizations for P-group hardware stress tests */
+.preflight-sparkline {
+  margin-top: 8px;
+  padding: 8px 0;
+}
+.preflight-sparkline svg {
+  border-radius: 4px;
+  background: rgba(0,0,0,0.3);
+}
+.sparkline-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.sparkline-label {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.sparkline-range {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: 'Courier New', monospace;
+}
 </style>
 </head>
 <body>
@@ -2643,6 +2669,57 @@ body {
     return d.innerHTML;
   }
 
+  // -- Sparkline SVG builder for P-group hardware stress traces --------
+  function buildSparkline(testId, data, label) {
+    if (!data || data.length < 3) return '';
+
+    var w = 400;
+    var h = 60;
+    var max = Math.max.apply(null, data);
+    var min = Math.min.apply(null, data);
+    var range = max - min || 1;
+
+    // Build polyline points
+    var points = [];
+    for (var i = 0; i < data.length; i++) {
+      var x = (i / (data.length - 1)) * w;
+      var y = h - ((data[i] - min) / range) * (h - 4) - 2;
+      points.push(x.toFixed(1) + ',' + y.toFixed(1));
+    }
+
+    // Closed area fill path
+    var areaPoints = points.slice();
+    areaPoints.push(w + ',' + h);
+    areaPoints.push('0,' + h);
+
+    // Color by label content
+    var color = 'var(--cyan)';
+    if (label.indexOf('CPU') >= 0) color = 'var(--green)';
+    if (label.indexOf('RAM') >= 0) color = 'var(--cyan)';
+    if (label.indexOf('temp') >= 0 || label.indexOf('Temp') >= 0) color = 'var(--amber)';
+
+    // Peak marker position
+    var peakIdx = data.indexOf(max);
+    var peakX = (peakIdx / (data.length - 1)) * w;
+    var peakY = h - ((max - min) / range) * (h - 4) - 2;
+
+    var cleanLabel = label.replace(/peak .*/i, '').trim();
+
+    var svg = '<div class="preflight-sparkline">';
+    svg += '<div class="sparkline-header">';
+    svg += '<span class="sparkline-label">' + esc(cleanLabel) + ' TIMELINE</span>';
+    svg += '<span class="sparkline-range">min=' + min + ' max=' + max + '</span>';
+    svg += '</div>';
+    svg += '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="display:block;width:100%;max-width:' + w + 'px;">';
+    svg += '<polygon points="' + areaPoints.join(' ') + '" fill="' + color + '" fill-opacity="0.1"/>';
+    svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round"/>';
+    svg += '<circle cx="' + peakX.toFixed(1) + '" cy="' + peakY.toFixed(1) + '" r="3" fill="' + color + '"/>';
+    svg += '<text x="' + (peakX + 6).toFixed(1) + '" y="' + (peakY - 4).toFixed(1) + '" fill="' + color + '" font-size="10" font-family="monospace">' + max + '</text>';
+    svg += '</svg>';
+    svg += '</div>';
+    return svg;
+  }
+
   // -- Apply a single result to the board ------------------------------
   function applyResult(testId, result) {
     var cls = statusClass(result.status);
@@ -2696,6 +2773,13 @@ body {
         detailHtml += '<span class="detail-label" style="color:#ffaa00">REASON</span><span class="detail-value" style="color:#ffaa00">' + esc(reasonStr) + '</span>';
       }
       detailHtml += '</div>';
+
+      // Append sparkline for any test whose error_message carries a trace
+      var traceMatch = (result.error_message || '').match(/trace:\[([^\]]+)\]/);
+      if (traceMatch) {
+        var traceData = traceMatch[1].split(',').map(Number);
+        detailHtml += buildSparkline(testId, traceData, result.check_name || '');
+      }
 
       errEl.innerHTML = detailHtml;
 

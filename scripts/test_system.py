@@ -120,6 +120,9 @@ class StressMetrics:
         self.peak_cpu_pct: float = 0.0
         self.peak_temp_c: float = 0.0
         self.peak_swap_mb: float = 0.0
+        self.cpu_samples: list[float] = []
+        self.ram_samples: list[float] = []
+        self.temp_samples: list[float] = []
         self._lock = threading.Lock()
         self._sampling = False
         self._sample_thread: threading.Thread | None = None
@@ -169,6 +172,9 @@ class StressMetrics:
                     self.peak_swap_mb = max(self.peak_swap_mb, swap.used / 1024 / 1024)
                     if temp > 0:
                         self.peak_temp_c = max(self.peak_temp_c, temp)
+                    self.cpu_samples.append(round(cpu, 1))
+                    self.ram_samples.append(round(ram_used_mb))
+                    self.temp_samples.append(round(temp, 1) if temp > 0 else 0)
             except Exception:
                 pass
             time.sleep(0.1)  # Sample 10x/sec to catch short bursts
@@ -1768,16 +1774,28 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int, global_metr
         stress_metrics.peak_swap_mb = max(stress_metrics.peak_swap_mb, global_metrics.peak_swap_mb)
         if global_metrics.peak_temp_c > 0:
             stress_metrics.peak_temp_c = max(stress_metrics.peak_temp_c, global_metrics.peak_temp_c)
+        # Merge sample histories (global first, then stress burst appended)
+        stress_metrics.cpu_samples = global_metrics.cpu_samples + stress_metrics.cpu_samples
+        stress_metrics.ram_samples = global_metrics.ram_samples + stress_metrics.ram_samples
+        stress_metrics.temp_samples = global_metrics.temp_samples + stress_metrics.temp_samples
 
-    # P1: Peak RAM
+    # P1: Peak RAM — include sample trace
     peak_ram = stress_metrics.peak_ram_mb
     ram_pct = (peak_ram / total_ram_mb) * 100 if total_ram_mb > 0 else 0
+    # Merge sample histories from global + stress
+    all_ram = (global_metrics.ram_samples if global_metrics else []) + stress_metrics.ram_samples
+    ram_trace = all_ram
+    if len(ram_trace) > 60:
+        step = len(ram_trace) // 60
+        ram_trace = ram_trace[::step][:60]
+    ram_trace_str = f"trace:[{','.join(str(int(v)) for v in ram_trace)}]" if ram_trace else ""
+    ram_detail = f"peak={peak_ram:.0f}MB samples={len(all_ram)} {ram_trace_str}"
     if ram_pct > 90:
         r = TestResult(
             "P1", group, "peak RAM", "NO-GO",
             f"{peak_ram:.0f}MB/{total_ram_mb:.0f}MB ({ram_pct:.0f}%)",
             "< 90% of total RAM",
-            f"RAM at {ram_pct:.0f}% — risk of OOM",
+            f"RAM at {ram_pct:.0f}% — risk of OOM. {ram_detail}",
             0, 1600,
         )
     elif ram_pct > 75:
@@ -1785,35 +1803,46 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int, global_metr
             "P1", group, "peak RAM", "GO",
             f"{peak_ram:.0f}MB/{total_ram_mb:.0f}MB ({ram_pct:.0f}%) TIGHT",
             "< 90% of total RAM",
-            None, 0, 1600,
+            ram_detail,
+            0, 1600,
         )
     else:
         r = TestResult(
             "P1", group, "peak RAM", "GO",
             f"{peak_ram:.0f}MB/{total_ram_mb:.0f}MB ({ram_pct:.0f}%)",
             "< 90% of total RAM",
-            None, 0, 1600,
+            ram_detail,
+            0, 1600,
         )
     _print_result(r)
     _write_result(r, run_id, dry_run)
     results.append(r)
 
-    # P2: Peak CPU
+    # P2: Peak CPU — include sample trace for dashboard sparkline
     peak_cpu = stress_metrics.peak_cpu_pct
+    cpu_trace = stress_metrics.cpu_samples
+    # Compact trace: downsample to max 60 points, encode as comma-separated
+    if len(cpu_trace) > 60:
+        step = len(cpu_trace) // 60
+        cpu_trace = cpu_trace[::step][:60]
+    trace_str = f"trace:[{','.join(str(int(v)) for v in cpu_trace)}]" if cpu_trace else ""
+    avg_cpu = sum(stress_metrics.cpu_samples) / len(stress_metrics.cpu_samples) if stress_metrics.cpu_samples else 0
+    detail = f"avg={avg_cpu:.0f}% peak={peak_cpu:.0f}% samples={len(stress_metrics.cpu_samples)} {trace_str}"
     if peak_cpu > 95:
         r = TestResult(
             "P2", group, "peak CPU", "NO-GO",
-            f"{peak_cpu:.0f}%",
+            f"{peak_cpu:.0f}% (avg {avg_cpu:.0f}%)",
             "< 95%",
-            f"CPU saturated at {peak_cpu:.0f}%",
+            f"CPU saturated. {detail}",
             0, 1610,
         )
     else:
         r = TestResult(
             "P2", group, "peak CPU", "GO",
-            f"{peak_cpu:.0f}%",
+            f"{peak_cpu:.0f}% (avg {avg_cpu:.0f}%)",
             "< 95%",
-            None, 0, 1610,
+            detail,
+            0, 1610,
         )
     _print_result(r)
     _write_result(r, run_id, dry_run)
