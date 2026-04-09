@@ -144,7 +144,7 @@ body {
 /* Grid zones */
 .primary-zone {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -189,7 +189,7 @@ body {
 .panel canvas { display: block; }
 
 /* Gauge panels -- taller */
-.primary-zone .panel { min-height: 240px; }
+.primary-zone .panel { min-height: 200px; }
 .secondary-zone .panel { min-height: 170px; }
 .detail-zone .panel { min-height: 140px; }
 
@@ -525,8 +525,11 @@ body {
 .modal-mem-value { font-family: 'JetBrains Mono', monospace; text-transform: none; }
 
 /* Responsive */
+@media (max-width: 1200px) {
+  .primary-zone { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 1024px) {
-  .primary-zone .panel { min-height: 180px; }
+  .primary-zone .panel { min-height: 160px; }
   .secondary-zone .panel { min-height: 140px; }
   .header-title { font-size: 0.9rem; }
 }
@@ -883,18 +886,22 @@ body {
     </div>
   </header>
 
-  <!-- Primary Zone: 3 Radial Gauges -->
+  <!-- Primary Zone: 4 Radial Gauges -->
   <div class="primary-zone">
     <div class="panel clickable" id="panelCpu" data-drill="cpu">
-      <div class="panel-label">CPU Utilization</div>
+      <div class="panel-label">CPU</div>
       <div class="panel-body"><canvas id="gaugeCpu"></canvas></div>
     </div>
+    <div class="panel clickable" id="panelGpu" data-drill="gpu">
+      <div class="panel-label">GPU</div>
+      <div class="panel-body"><canvas id="gaugeGpu"></canvas></div>
+    </div>
     <div class="panel clickable" id="panelMem" data-drill="mem">
-      <div class="panel-label">Memory Pressure</div>
+      <div class="panel-label">Memory</div>
       <div class="panel-body"><canvas id="gaugeMem"></canvas></div>
     </div>
     <div class="panel clickable" id="panelTemp" data-drill="temp">
-      <div class="panel-label">Junction Temperature</div>
+      <div class="panel-label">Temperature</div>
       <div class="panel-body"><canvas id="gaugeTemp"></canvas></div>
     </div>
   </div>
@@ -1511,11 +1518,7 @@ body {
     // Ignore first CPU reading of 0% (needs two samples)
     if (cpu.value === 0 && Date.now() < firstCpuIgnoreUntil) return;
 
-    var gpu = metrics.gpu_load;
-    var gpuVal = gpu ? gpu.value : 0;
-
     gaugeAnimated.cpu = lerp(gaugeAnimated.cpu, cpu.value, 0.12);
-    gaugeAnimated.gpu = lerp(gaugeAnimated.gpu, gpuVal, 0.12);
 
     var color = statusColor(cpu.status);
     drawRadialGauge('gaugeCpu', {
@@ -1523,13 +1526,32 @@ body {
       min: 0, max: 100,
       color: color,
       unit: '%',
-      secondaryValue: gaugeAnimated.gpu,
-      secondaryMax: 100,
-      secondaryColor: BLUE,
       annotation: cpu.freq_mhz ? cpu.freq_mhz + ' MHz' : ''
     });
 
     updatePanelStatus('panelCpu', cpu.status);
+  }
+
+  function updateGpuGauge() {
+    var gpu = metrics.gpu_load;
+    if (!gpu) {
+      drawRadialGauge('gaugeGpu', {
+        value: 0, min: 0, max: 100,
+        color: BLUE, unit: '%',
+        annotation: 'awaiting data'
+      });
+      return;
+    }
+    gaugeAnimated.gpu = lerp(gaugeAnimated.gpu, gpu.value, 0.12);
+    var color = statusColor(gpu.status || 'ok');
+    drawRadialGauge('gaugeGpu', {
+      value: gaugeAnimated.gpu,
+      min: 0, max: 100,
+      color: color,
+      unit: '%',
+      annotation: gpu.freq_mhz ? gpu.freq_mhz + ' MHz' : ''
+    });
+    updatePanelStatus('panelGpu', gpu.status || 'ok');
   }
 
   function updateMemGauge() {
@@ -1890,6 +1912,9 @@ body {
     if (type === 'cpu') {
       title.textContent = 'CPU Detail';
       renderCpuDrilldown(body);
+    } else if (type === 'gpu') {
+      title.textContent = 'GPU Detail';
+      renderGpuDrilldown(body);
     } else if (type === 'mem') {
       title.textContent = 'Memory Breakdown';
       renderMemDrilldown(body);
@@ -1962,6 +1987,52 @@ body {
     html += '</div>';
 
     body.innerHTML = html;
+  }
+
+  function renderGpuDrilldown(body) {
+    var gpu = metrics.gpu_load;
+    if (!gpu) {
+      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:14px;">No GPU data available</p>';
+      return;
+    }
+
+    var html = '';
+
+    // GPU load
+    html += '<div class="modal-section">';
+    html += '<div class="modal-section-title">GPU Utilization</div>';
+    var loadColor = statusColor(gpu.status || 'ok');
+    html += '<div class="modal-bar-row">';
+    html += '<div class="modal-bar-label">Load</div>';
+    html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp(gpu.value, 0, 100) + '%;background:' + loadColor + '"></div></div>';
+    html += '<div class="modal-bar-value" style="color:' + loadColor + '">' + gpu.value.toFixed(1) + '%</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // GPU frequency
+    if (gpu.freq_mhz !== undefined) {
+      html += '<div class="modal-section">';
+      html += '<div class="modal-section-title">GPU Frequency</div>';
+      html += '<div class="modal-bar-row">';
+      html += '<div class="modal-bar-label">Freq</div>';
+      html += '<div class="modal-bar-track"><div class="modal-bar-fill" style="width:' + clamp((gpu.freq_mhz || 0) / 1020 * 100, 0, 100) + '%;background:' + BLUE + '"></div></div>';
+      html += '<div class="modal-bar-value" style="color:' + BLUE + '">' + (gpu.freq_mhz || 0) + ' / 1020 MHz</div>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // Sparkline history
+    html += '<div class="modal-section">';
+    html += '<div class="modal-section-title">Recent History</div>';
+    html += '<div style="height:80px;position:relative;"><canvas id="modalGpuSpark" style="position:absolute;top:0;left:0;width:100%;height:100%;"></canvas></div>';
+    html += '</div>';
+
+    body.innerHTML = html;
+
+    // Draw sparkline into the newly inserted canvas
+    requestAnimationFrame(function() {
+      drawSparkline('modalGpuSpark', sparkData.gpu_load, loadColor, { min: 0, max: 100 });
+    });
   }
 
   function renderMemDrilldown(body) {
@@ -2106,6 +2177,7 @@ body {
     if (!modalOpen || !currentDrill) return;
     var body = document.getElementById('modalBody');
     if (currentDrill === 'cpu') renderCpuDrilldown(body);
+    else if (currentDrill === 'gpu') renderGpuDrilldown(body);
     else if (currentDrill === 'mem') renderMemDrilldown(body);
     else if (currentDrill === 'temp') renderTempDrilldown(body);
   }
@@ -2142,6 +2214,7 @@ body {
     lastRender = now;
 
     updateCpuGauge();
+    updateGpuGauge();
     updateMemGauge();
     updateTempGauge();
     updateInferencePanel();
