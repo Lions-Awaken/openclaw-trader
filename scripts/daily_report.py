@@ -613,10 +613,11 @@ def run() -> dict:
         f"Slack={'OK' if sl_ok else 'FAIL'}"
     )
 
+    pipeline_map: dict = data["pipelines"]
     pipelines_working = len(
-        [v for v in data["pipelines"].values() if v["status"] == "success"]
+        [v for v in pipeline_map.values() if v["status"] == "success"]
     )
-    pipelines_total = len(data["pipelines"])
+    pipelines_total = len(pipeline_map)
 
     return {
         "date": TODAY,
