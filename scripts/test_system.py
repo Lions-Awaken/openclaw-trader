@@ -1684,7 +1684,7 @@ def run_group_o(run_id: str | None, dry_run: bool) -> list[TestResult]:
 # GROUP P — HARDWARE STRESS (1600-1699)
 # ===========================================================================
 
-def run_group_p(run_id: str | None, dry_run: bool, concurrency: int) -> list[TestResult]:
+def run_group_p(run_id: str | None, dry_run: bool, concurrency: int, global_metrics: StressMetrics | None = None) -> list[TestResult]:
     group = "HARDWARE STRESS"
     print(f"\n  {Fore.CYAN}P · {group}{Style.RESET_ALL}")
     results = []
@@ -1760,6 +1760,14 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int) -> list[Tes
     _run_stress_burst(concurrency, stress_metrics)  # results in metrics, not return value
 
     total_ram_mb = psutil.virtual_memory().total / 1024 / 1024
+
+    # Merge global metrics (from entire preflight) with stress burst metrics
+    if global_metrics:
+        stress_metrics.peak_ram_mb = max(stress_metrics.peak_ram_mb, global_metrics.peak_ram_mb)
+        stress_metrics.peak_cpu_pct = max(stress_metrics.peak_cpu_pct, global_metrics.peak_cpu_pct)
+        stress_metrics.peak_swap_mb = max(stress_metrics.peak_swap_mb, global_metrics.peak_swap_mb)
+        if global_metrics.peak_temp_c > 0:
+            stress_metrics.peak_temp_c = max(stress_metrics.peak_temp_c, global_metrics.peak_temp_c)
 
     # P1: Peak RAM
     peak_ram = stress_metrics.peak_ram_mb
@@ -1985,6 +1993,11 @@ def main() -> None:
 
     results: list[TestResult] = []
 
+    # Start global hardware sampling across ALL groups (not just group P)
+    global_metrics = StressMetrics()
+    if not dry_run:
+        global_metrics.start_sampling()
+
     results.extend(run_group_a(run_id, dry_run))
     results.extend(run_group_b(run_id, dry_run))
     results.extend(run_group_c(run_id, dry_run))
@@ -2004,7 +2017,11 @@ def main() -> None:
     results.extend(run_group_m(run_id, dry_run))
     results.extend(run_group_n(run_id, dry_run))
     results.extend(run_group_o(run_id, dry_run))
-    results.extend(run_group_p(run_id, dry_run, concurrency))
+    # Stop global sampling before group P (which has its own sampling)
+    if not dry_run:
+        global_metrics.stop_sampling()
+
+    results.extend(run_group_p(run_id, dry_run, concurrency, global_metrics))
 
     go = sum(1 for r in results if r.status == "GO")
     nogo = sum(1 for r in results if r.status == "NO-GO")
