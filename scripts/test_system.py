@@ -12,11 +12,14 @@ Groups:
   G - Economics
   H - End-to-End Flow
   I - Dashboard Comms
+  P - Hardware Stress (concurrency > 1 only)
 
 Usage:
   python scripts/test_system.py             # Full run
   python scripts/test_system.py --dry-run   # Skip DB writes and external calls
+  python scripts/test_system.py --concurrency 4  # Stress test with 4 parallel streams
   SIMULATOR_RUN_ID=<uuid> python scripts/test_system.py  # Dashboard-linked run
+  SIMULATOR_CONCURRENCY=4 python scripts/test_system.py  # Dashboard-triggered stress run
 """
 
 import argparse
@@ -24,11 +27,13 @@ import logging
 import os
 import random
 import sys
+import threading
 import time
 import traceback
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
@@ -101,6 +106,132 @@ def _synthetic_candidate(bars: list[dict] | None = None) -> dict:
         "score": 4,
         "bars": bars,
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Stress Testing Utilities
+# ──────────────────────────────────────────────────────────────────────────────
+
+class StressMetrics:
+    """Thread-safe collector for peak hardware metrics during stress bursts."""
+
+    def __init__(self) -> None:
+        self.peak_ram_mb: float = 0.0
+        self.peak_cpu_pct: float = 0.0
+        self.peak_temp_c: float = 0.0
+        self.peak_swap_mb: float = 0.0
+        self._lock = threading.Lock()
+        self._sampling = False
+        self._sample_thread: threading.Thread | None = None
+
+    def start_sampling(self) -> None:
+        """Start background thread that samples CPU/RAM/temp every 0.5s."""
+        self._sampling = True
+        self._sample_thread = threading.Thread(target=self._sample_loop, daemon=True)
+        self._sample_thread.start()
+
+    def stop_sampling(self) -> None:
+        self._sampling = False
+        if self._sample_thread:
+            self._sample_thread.join(timeout=3)
+
+    def _sample_loop(self) -> None:
+        try:
+            import psutil
+        except ImportError:
+            return
+        while self._sampling:
+            try:
+                mem = psutil.virtual_memory()
+                swap = psutil.swap_memory()
+                cpu = psutil.cpu_percent(interval=0.5)
+
+                # Read thermal — try /sys/devices/virtual/thermal
+                temp = 0.0
+                try:
+                    for zone in sorted(
+                        Path("/sys/devices/virtual/thermal/").glob("thermal_zone*/temp")
+                    ):
+                        val = float(zone.read_text().strip()) / 1000.0
+                        temp = max(temp, val)
+                except Exception:
+                    pass
+
+                with self._lock:
+                    self.peak_ram_mb = max(self.peak_ram_mb, mem.used / 1024 / 1024)
+                    self.peak_cpu_pct = max(self.peak_cpu_pct, cpu)
+                    self.peak_swap_mb = max(self.peak_swap_mb, swap.used / 1024 / 1024)
+                    if temp > 0:
+                        self.peak_temp_c = max(self.peak_temp_c, temp)
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+
+def _run_stress_burst(concurrency: int, metrics: StressMetrics) -> list[dict]:
+    """Run N concurrent inference chains and return timing results."""
+    from common import sb_get
+    from inference_engine import run_inference
+
+    # Load SKEPTIC profile for the stress test
+    profiles = sb_get(
+        "strategy_profiles",
+        {
+            "select": "*",
+            "profile_name": "eq.SKEPTIC",
+            "limit": "1",
+        },
+    )
+    if not profiles:
+        return []
+
+    profile = profiles[0]
+    bars = _synthetic_bars(30)
+    candidate = _synthetic_candidate(bars)
+
+    results: list[dict] = []
+    errors: list[dict] = []
+    lock = threading.Lock()
+
+    def _worker(thread_id: int) -> None:
+        try:
+            t0 = time.time()
+            result = run_inference(
+                ticker=f"SIM_STRESS_{thread_id}",
+                signals=candidate["signals"],
+                total_score=candidate["total_score"],
+                scan_type="shadow_skeptic",
+                profile_override=profile,
+            )
+            elapsed_ms = int((time.time() - t0) * 1000)
+            with lock:
+                results.append(
+                    {
+                        "thread": thread_id,
+                        "decision": result.get("final_decision", "?"),
+                        "elapsed_ms": elapsed_ms,
+                    }
+                )
+        except Exception as exc:
+            with lock:
+                errors.append({"thread": thread_id, "error": str(exc)})
+
+    threads = [threading.Thread(target=_worker, args=(i,)) for i in range(concurrency)]
+
+    # Start metrics sampling before firing threads
+    metrics.start_sampling()
+
+    # Fire all threads simultaneously
+    for t in threads:
+        t.start()
+
+    # Wait for all to complete (timeout 120s)
+    for t in threads:
+        t.join(timeout=120)
+
+    metrics.stop_sampling()
+
+    return results
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1544,13 +1675,244 @@ def run_group_o(run_id: str | None, dry_run: bool) -> list[TestResult]:
 
 
 # ===========================================================================
+# GROUP P — HARDWARE STRESS (1600-1699)
+# ===========================================================================
+
+def run_group_p(run_id: str | None, dry_run: bool, concurrency: int) -> list[TestResult]:
+    group = "HARDWARE STRESS"
+    print(f"\n  {Fore.CYAN}P · {group}{Style.RESET_ALL}")
+    results = []
+
+    stress_tests = [
+        ("P1", "peak RAM", 1600),
+        ("P2", "peak CPU", 1610),
+        ("P3", "peak temperature", 1620),
+        ("P4", "swap usage", 1630),
+        ("P5", "Ollama latency", 1640),
+    ]
+
+    if dry_run or concurrency <= 1:
+        # Skip stress tests in normal preflight mode
+        skip_val = f"skipped (concurrency={concurrency})" if concurrency <= 1 else "dry-run"
+        status = "GO" if concurrency <= 1 else "SCRUB"
+        for tid, name, order in stress_tests:
+            r = TestResult(
+                test_id=tid,
+                group=group,
+                name=name,
+                status=status,
+                value=skip_val,
+                expected="stress test",
+                error=None,
+                duration_ms=0,
+                check_order=order,
+            )
+            _print_result(r)
+            _write_result(r, run_id, dry_run)
+            results.append(r)
+        return results
+
+    try:
+        import psutil
+    except ImportError:
+        for tid, name, order in stress_tests:
+            r = TestResult(
+                test_id=tid,
+                group=group,
+                name=name,
+                status="NO-GO",
+                value="psutil not installed",
+                expected="stress test",
+                error="pip install psutil",
+                duration_ms=0,
+                check_order=order,
+            )
+            _print_result(r)
+            _write_result(r, run_id, dry_run)
+            results.append(r)
+        return results
+
+    # === Baseline: single inference call ===
+    print(f"  {Fore.YELLOW}  Measuring baseline (1 inference)...{Style.RESET_ALL}")
+    baseline_metrics = StressMetrics()
+    baseline_results = _run_stress_burst(1, baseline_metrics)
+    baseline_ms = baseline_results[0]["elapsed_ms"] if baseline_results else 5000
+
+    # === Stress burst: N concurrent calls ===
+    print(f"  {Fore.YELLOW}  Running {concurrency}x concurrent stress burst...{Style.RESET_ALL}")
+    stress_metrics = StressMetrics()
+    stress_results = _run_stress_burst(concurrency, stress_metrics)
+
+    total_ram_mb = psutil.virtual_memory().total / 1024 / 1024
+
+    # P1: Peak RAM
+    peak_ram = stress_metrics.peak_ram_mb
+    ram_pct = (peak_ram / total_ram_mb) * 100 if total_ram_mb > 0 else 0
+    if ram_pct > 90:
+        r = TestResult(
+            "P1", group, "peak RAM", "NO-GO",
+            f"{peak_ram:.0f}MB/{total_ram_mb:.0f}MB ({ram_pct:.0f}%)",
+            "< 90% of total RAM",
+            f"RAM at {ram_pct:.0f}% — risk of OOM",
+            0, 1600,
+        )
+    elif ram_pct > 75:
+        r = TestResult(
+            "P1", group, "peak RAM", "GO",
+            f"{peak_ram:.0f}MB/{total_ram_mb:.0f}MB ({ram_pct:.0f}%) TIGHT",
+            "< 90% of total RAM",
+            None, 0, 1600,
+        )
+    else:
+        r = TestResult(
+            "P1", group, "peak RAM", "GO",
+            f"{peak_ram:.0f}MB/{total_ram_mb:.0f}MB ({ram_pct:.0f}%)",
+            "< 90% of total RAM",
+            None, 0, 1600,
+        )
+    _print_result(r)
+    _write_result(r, run_id, dry_run)
+    results.append(r)
+
+    # P2: Peak CPU
+    peak_cpu = stress_metrics.peak_cpu_pct
+    if peak_cpu > 95:
+        r = TestResult(
+            "P2", group, "peak CPU", "NO-GO",
+            f"{peak_cpu:.0f}%",
+            "< 95%",
+            f"CPU saturated at {peak_cpu:.0f}%",
+            0, 1610,
+        )
+    else:
+        r = TestResult(
+            "P2", group, "peak CPU", "GO",
+            f"{peak_cpu:.0f}%",
+            "< 95%",
+            None, 0, 1610,
+        )
+    _print_result(r)
+    _write_result(r, run_id, dry_run)
+    results.append(r)
+
+    # P3: Peak temperature
+    peak_temp = stress_metrics.peak_temp_c
+    if peak_temp > 0:
+        headroom = 65.0 - peak_temp  # Jetson throttles at ~65C
+        if peak_temp > 60:
+            r = TestResult(
+                "P3", group, "peak temperature", "NO-GO",
+                f"{peak_temp:.1f}C (headroom: {headroom:.1f}C)",
+                "< 60C",
+                f"Thermal throttling imminent at {peak_temp:.1f}C",
+                0, 1620,
+            )
+        else:
+            r = TestResult(
+                "P3", group, "peak temperature", "GO",
+                f"{peak_temp:.1f}C (headroom: {headroom:.1f}C)",
+                "< 60C",
+                None, 0, 1620,
+            )
+    else:
+        r = TestResult(
+            "P3", group, "peak temperature", "GO",
+            "sensor unavailable",
+            "< 60C",
+            None, 0, 1620,
+        )
+    _print_result(r)
+    _write_result(r, run_id, dry_run)
+    results.append(r)
+
+    # P4: Swap usage
+    peak_swap = stress_metrics.peak_swap_mb
+    if peak_swap > 3000:
+        r = TestResult(
+            "P4", group, "swap usage", "NO-GO",
+            f"{peak_swap:.0f}MB",
+            "< 3000MB",
+            "Excessive swap — eMMC I/O degradation",
+            0, 1630,
+        )
+    else:
+        r = TestResult(
+            "P4", group, "swap usage", "GO",
+            f"{peak_swap:.0f}MB",
+            "< 3000MB",
+            None, 0, 1630,
+        )
+    _print_result(r)
+    _write_result(r, run_id, dry_run)
+    results.append(r)
+
+    # P5: Ollama latency degradation under load
+    if stress_results:
+        avg_stressed_ms = sum(sr["elapsed_ms"] for sr in stress_results) / len(stress_results)
+        degradation = avg_stressed_ms / max(baseline_ms, 1)
+        if degradation > 3.0:
+            r = TestResult(
+                "P5", group, "Ollama latency", "NO-GO",
+                f"{degradation:.1f}x baseline ({avg_stressed_ms:.0f}ms vs {baseline_ms}ms)",
+                "< 3x degradation",
+                "Severe latency under load",
+                0, 1640,
+            )
+        else:
+            r = TestResult(
+                "P5", group, "Ollama latency", "GO",
+                f"{degradation:.1f}x baseline ({avg_stressed_ms:.0f}ms vs {baseline_ms}ms)",
+                "< 3x degradation",
+                None, 0, 1640,
+            )
+    else:
+        r = TestResult(
+            "P5", group, "Ollama latency", "NO-GO",
+            "no results from burst",
+            "< 3x degradation",
+            "All stress threads failed",
+            0, 1640,
+        )
+    _print_result(r)
+    _write_result(r, run_id, dry_run)
+    results.append(r)
+
+    # Cleanup all SIM_STRESS_* inference chains (baseline thread 0 + N stress threads)
+    try:
+        from tracer import SUPABASE_URL as _SB_URL
+        from tracer import _sb_client, _sb_headers
+
+        for i in range(concurrency + 1):  # +1 for baseline burst (thread 0)
+            _sb_client.delete(
+                f"{_SB_URL}/rest/v1/inference_chains",
+                headers=_sb_headers(),
+                params={"ticker": f"eq.SIM_STRESS_{i}"},
+            )
+    except Exception:
+        pass
+
+    return results
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OpenClaw Preflight Simulator")
     parser.add_argument("--dry-run", action="store_true", help="Skip DB writes and external calls")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        choices=range(1, 11),
+        metavar="{1-10}",
+        help="Number of parallel streams for stress testing (1-10)",
+    )
     args = parser.parse_args()
+
+    # SIMULATOR_CONCURRENCY env var overrides --concurrency (used by dashboard-triggered runs)
+    concurrency = int(os.environ.get("SIMULATOR_CONCURRENCY", "0")) or args.concurrency
 
     run_id = os.environ.get("SIMULATOR_RUN_ID") or str(uuid.uuid4())
     dry_run: bool = args.dry_run
@@ -1572,6 +1934,8 @@ def main() -> None:
     print(f"  {now_str}")
     if dry_run:
         print(f"  {Fore.YELLOW}DRY-RUN MODE — no DB writes{Style.RESET_ALL}")
+    if concurrency > 1:
+        print(f"  {Fore.CYAN}STRESS MODE — concurrency={concurrency}{Style.RESET_ALL}")
     print("=" * 45)
     print(f"  Log: {log_path}")
     print()
@@ -1599,6 +1963,7 @@ def main() -> None:
     results.extend(run_group_m(run_id, dry_run))
     results.extend(run_group_n(run_id, dry_run))
     results.extend(run_group_o(run_id, dry_run))
+    results.extend(run_group_p(run_id, dry_run, concurrency))
 
     go = sum(1 for r in results if r.status == "GO")
     nogo = sum(1 for r in results if r.status == "NO-GO")

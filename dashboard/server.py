@@ -4167,10 +4167,21 @@ async def trigger_simulator(request: Request, oc_session: str = Cookie(None)):
 
     The old approach (subprocess.Popen) only works when the dashboard is running locally
     on ridley. This Supabase-bridged approach works from Fly.io or anywhere else.
+
+    Accepts optional JSON body: {"concurrency": 4} (1-10) to trigger a stress run.
     """
     _require_auth(request, oc_session)
     if not SUPABASE_URL:
         raise HTTPException(status_code=503, detail="Supabase not configured")
+
+    # Parse optional concurrency from request body
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    concurrency = min(max(int(body.get("concurrency", 1)), 1), 10)
+
     run_id = str(uuid.uuid4())
     client = get_http()
     resp = await client.post(
@@ -4183,7 +4194,7 @@ async def trigger_simulator(request: Request, oc_session: str = Cookie(None)):
             "check_name": "_trigger",
             "check_order": 0,
             "status": "skip",
-            "value": "awaiting ridley pickup",
+            "value": f"concurrency={concurrency}",
             "expected": "",
             "error_message": "",
             "duration_ms": 0,
@@ -4191,7 +4202,7 @@ async def trigger_simulator(request: Request, oc_session: str = Cookie(None)):
     )
     if resp.status_code not in (200, 201):
         raise HTTPException(status_code=502, detail="Failed to write trigger row to Supabase")
-    return {"status": "triggered", "run_id": run_id}
+    return {"status": "triggered", "run_id": run_id, "concurrency": concurrency}
 
 
 @app.get("/api/simulator/status")
@@ -4247,8 +4258,9 @@ async def get_simulator_status(
     go_count = sum(1 for c in checks if c.get("status") == "pass")
     nogo_count = sum(1 for c in checks if c.get("status") == "fail")
     scrub_count = sum(1 for c in checks if c.get("status") == "skip")
-    # The simulator has 59 total tests — consider complete if all have reported
-    complete = total >= 59
+    # The simulator has 59 base tests + 5 stress tests (Group P) = 64 total
+    # In normal mode (concurrency=1) P tests report as GO/skipped so still count
+    complete = total >= 64
 
     return {
         "run_id": run_id,
