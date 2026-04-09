@@ -606,6 +606,31 @@ body {
   50%       { box-shadow: 0 0 20px rgba(0,255,238,0.5), inset 0 0 14px rgba(0,255,238,0.08); }
 }
 .preflight-btn.running { animation: preflight-btn-pulse 1.6s ease-in-out infinite; }
+.concurrency-label {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.concurrency-select {
+  background: var(--panel-bg);
+  color: var(--cyan);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  outline: none;
+}
+.concurrency-select:hover {
+  border-color: var(--cyan);
+}
+.concurrency-select option {
+  background: #0a0e17;
+  color: var(--cyan);
+}
 
 /* Board layout */
 .preflight-board {
@@ -947,6 +972,13 @@ body {
         <div class="preflight-panel-label">Preflight &mdash; Go / No-Go</div>
         <div class="preflight-header-right">
           <span class="preflight-status-text" id="preflightStatusText">Ready</span>
+          <label class="concurrency-label" for="concurrencySelect">STREAMS</label>
+          <select id="concurrencySelect" class="concurrency-select">
+            <option value="1" selected>1x</option>
+            <option value="3">3x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+          </select>
           <button class="preflight-btn" id="preflightBtn" onclick="initiatePreflightRun()">Initiate Preflight</button>
         </div>
       </div>
@@ -2451,6 +2483,13 @@ body {
       {id: "O1", name: "Ollama health",             order: 1500},
       {id: "O2", name: "Alpaca account",            order: 1510},
       {id: "O3", name: "Slack connectivity",        order: 1520}
+    ]},
+    {name: "HARDWARE STRESS", tests: [
+      {id: "P1", name: "peak RAM",                  order: 1600},
+      {id: "P2", name: "peak CPU",                  order: 1610},
+      {id: "P3", name: "peak temperature",          order: 1620},
+      {id: "P4", name: "swap usage",                order: 1630},
+      {id: "P5", name: "Ollama latency",            order: 1640}
     ]}
   ];
 
@@ -2793,7 +2832,8 @@ body {
 
         // Mark next pending check as POLLING
         markNextPolling(completedIds);
-        setStatus('Running\u2026 ' + Math.round(elapsed) + 's');
+        var concLabel = (pf.concurrency && pf.concurrency > 1) ? ' [STRESS ' + pf.concurrency + 'x]' : '';
+        setStatus('Running' + concLabel + '\u2026 ' + Math.round(elapsed) + 's');
       })
       .catch(function(err) {
         console.warn('Preflight poll error:', err);
@@ -2843,9 +2883,12 @@ body {
   window.initiatePreflightRun = function() {
     if (pf.running) return;
 
+    var concurrency = parseInt(document.getElementById('concurrencySelect').value) || 1;
+
     resetBoard();
-    pf.running   = true;
-    pf.startedAt = Date.now();
+    pf.running      = true;
+    pf.startedAt    = Date.now();
+    pf.concurrency  = concurrency;
     setBtn(true, true);
     setStatus('Initiating sequence\u2026');
 
@@ -2853,7 +2896,7 @@ body {
       method: 'POST',
       credentials: 'include',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({})
+      body: JSON.stringify({concurrency: concurrency})
     })
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -2862,7 +2905,7 @@ body {
       .then(function(data) {
         pf.runId = data.run_id || data.id || null;
         if (!pf.runId) throw new Error('No run_id in response');
-        setStatus('Preflight initiated \u2014 run ' + pf.runId.substring(0, 8));
+        setStatus('Preflight initiated \u2014 ' + concurrency + 'x streams \u2014 run ' + pf.runId.substring(0, 8));
 
         // Start polling every 2s
         pf.pollTimer = setInterval(function() {
