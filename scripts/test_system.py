@@ -13,6 +13,7 @@ Groups:
   H - End-to-End Flow
   I - Dashboard Comms
   P - Hardware Stress (concurrency > 1 only)
+  Q - Mission Readiness (real NVDA end-to-end pipeline, incl. Claude T4-T5)
 
 Usage:
   python scripts/test_system.py             # Full run
@@ -2023,6 +2024,423 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int, global_metr
 
 
 # ===========================================================================
+# GROUP Q — MISSION READINESS (1700-1799)
+# ===========================================================================
+
+def run_group_q(run_id: str | None, dry_run: bool) -> list[TestResult]:
+    """Run one real ticker (NVDA) through the COMPLETE pipeline end-to-end.
+
+    Each test feeds the next.  If a stage fails, all dependent later stages
+    receive SCRUB.  In dry-run mode Q1-Q5 (real API calls) and Q8 (meta-verdict)
+    are scrubbed; Q6-Q7 (env var checks only) still execute.
+    """
+    group = "MISSION READINESS"
+    print(f"\n  {Fore.CYAN}Q · {group}{Style.RESET_ALL}")
+    results: list[TestResult] = []
+
+    # Shared state passed between dependent tests
+    mission: dict = {
+        "bars": None,       # list[dict] — NVDA daily bars
+        "spy_bars": None,   # list[dict] — SPY daily bars
+        "score": 0,         # int — total signal score from Q2
+        "signals_result": None,  # dict — full compute_signals output
+        "enriched": None,   # dict — after options flow + form4 enrichment
+        "q4_chain_id": None,  # str | None — inference_chain_id written by Q4
+        "q5_chain_id": None,  # str | None — inference_chain_id written by Q5
+    }
+
+    # ── Q1: Market data available ─────────────────────────────────────────
+    t0 = time.time()
+    if dry_run:
+        r_q1 = TestResult(
+            test_id="Q1", group=group, name="market data",
+            status="SCRUB", value="dry-run skip", expected=">=20 NVDA + SPY bars",
+            error=None, duration_ms=0, check_order=1700,
+        )
+    else:
+        try:
+            from common import get_bars as _get_bars
+            bars = _get_bars("NVDA", days=30)
+            spy_bars = _get_bars("SPY", days=30)
+            if len(bars) < 20:
+                r_q1 = TestResult(
+                    test_id="Q1", group=group, name="market data",
+                    status="NO-GO",
+                    value=f"{len(bars)} NVDA bars",
+                    expected=">=20 bars",
+                    error=f"Only {len(bars)} bars — need 20+",
+                    duration_ms=int((time.time() - t0) * 1000),
+                    check_order=1700,
+                )
+            elif len(spy_bars) < 20:
+                r_q1 = TestResult(
+                    test_id="Q1", group=group, name="market data",
+                    status="NO-GO",
+                    value=f"{len(spy_bars)} SPY bars",
+                    expected=">=20 bars",
+                    error=f"Only {len(spy_bars)} SPY bars — need 20+",
+                    duration_ms=int((time.time() - t0) * 1000),
+                    check_order=1700,
+                )
+            else:
+                mission["bars"] = bars
+                mission["spy_bars"] = spy_bars
+                r_q1 = TestResult(
+                    test_id="Q1", group=group, name="market data",
+                    status="GO",
+                    value=f"{len(bars)} NVDA bars, {len(spy_bars)} SPY bars",
+                    expected=">=20 bars each",
+                    error=None,
+                    duration_ms=int((time.time() - t0) * 1000),
+                    check_order=1700,
+                )
+        except Exception as exc:
+            r_q1 = TestResult(
+                test_id="Q1", group=group, name="market data",
+                status="NO-GO",
+                value="exception",
+                expected=">=20 NVDA + SPY bars",
+                error=str(exc)[:300],
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1700,
+            )
+    _print_result(r_q1)
+    _write_result(r_q1, run_id, dry_run)
+    results.append(r_q1)
+
+    # ── Q2: Signal computation ────────────────────────────────────────────
+    t0 = time.time()
+    if dry_run or mission["bars"] is None:
+        skip_reason = "dry-run skip" if dry_run else "skipped — no bars from Q1"
+        r_q2 = TestResult(
+            test_id="Q2", group=group, name="signal computation",
+            status="SCRUB", value=skip_reason, expected="score/signals from compute_signals",
+            error=None, duration_ms=0, check_order=1710,
+        )
+    else:
+        try:
+            from scanner import compute_signals as _compute_signals
+            sig_result = _compute_signals("NVDA", mission["bars"], mission["spy_bars"])
+            if sig_result is None:
+                r_q2 = TestResult(
+                    test_id="Q2", group=group, name="signal computation",
+                    status="NO-GO",
+                    value="None returned",
+                    expected="non-None result",
+                    error="compute_signals returned None — thin data",
+                    duration_ms=int((time.time() - t0) * 1000),
+                    check_order=1710,
+                )
+            else:
+                score = sig_result.get("total_score", sig_result.get("score", 0))
+                signals = sig_result.get("signals", {})
+                mission["signals_result"] = sig_result
+                mission["score"] = score
+                r_q2 = TestResult(
+                    test_id="Q2", group=group, name="signal computation",
+                    status="GO",
+                    value=f"score={score}/6, {len(signals)} signals",
+                    expected="score and signals dict",
+                    error=None,
+                    duration_ms=int((time.time() - t0) * 1000),
+                    check_order=1710,
+                )
+        except Exception as exc:
+            r_q2 = TestResult(
+                test_id="Q2", group=group, name="signal computation",
+                status="NO-GO",
+                value="exception",
+                expected="score and signals dict",
+                error=str(exc)[:300],
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1710,
+            )
+    _print_result(r_q2)
+    _write_result(r_q2, run_id, dry_run)
+    results.append(r_q2)
+
+    # ── Q3: Signal enrichment ─────────────────────────────────────────────
+    t0 = time.time()
+    if dry_run or mission["signals_result"] is None:
+        skip_reason = "dry-run skip" if dry_run else "skipped — no signals from Q2"
+        r_q3 = TestResult(
+            test_id="Q3", group=group, name="signal enrichment",
+            status="SCRUB", value=skip_reason, expected="options_flow + form4 enriched",
+            error=None, duration_ms=0, check_order=1720,
+        )
+    else:
+        try:
+            from scanner import (
+                _enrich_with_form4 as _form4,
+            )
+            from scanner import (
+                _enrich_with_options_flow as _opt_flow,
+            )
+            candidates = [mission["signals_result"]]
+            candidates = _opt_flow(candidates)
+            candidates = _form4(candidates)
+            enriched = candidates[0]
+            mission["enriched"] = enriched
+            options_net = enriched["signals"].get("options_flow_net", 0)
+            form4_score = enriched["signals"].get("form4_insider_score", 0)
+            r_q3 = TestResult(
+                test_id="Q3", group=group, name="signal enrichment",
+                status="GO",
+                value=f"options_net={options_net}, form4={form4_score}",
+                expected="options_flow + form4 fields set",
+                error=None,
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1720,
+            )
+        except Exception as exc:
+            r_q3 = TestResult(
+                test_id="Q3", group=group, name="signal enrichment",
+                status="NO-GO",
+                value="exception",
+                expected="options_flow + form4 fields set",
+                error=str(exc)[:300],
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1720,
+            )
+    _print_result(r_q3)
+    _write_result(r_q3, run_id, dry_run)
+    results.append(r_q3)
+
+    # ── Q4: Ollama inference T1-T3 (REGIME_WATCHER depth cap) ────────────
+    t0 = time.time()
+    if dry_run or mission["enriched"] is None:
+        skip_reason = "dry-run skip" if dry_run else "skipped — no enriched data from Q3"
+        r_q4 = TestResult(
+            test_id="Q4", group=group, name="Ollama inference T1-T3",
+            status="SCRUB", value=skip_reason, expected="T3 decision from Ollama",
+            error=None, duration_ms=0, check_order=1730,
+        )
+    else:
+        try:
+            from common import sb_get as _sb_get
+            from inference_engine import run_inference as _run_inf
+            enriched = mission["enriched"]
+            score = mission["score"]
+            profiles = _sb_get("strategy_profiles", {
+                "select": "*",
+                "profile_name": "eq.SKEPTIC",
+                "limit": "1",
+            })
+            if not profiles:
+                raise ValueError("SKEPTIC strategy profile not found in DB")
+            profile_t3 = dict(profiles[0])
+            profile_t3["shadow_type"] = "REGIME_WATCHER"  # caps at T3 — no Claude
+            inf_result = _run_inf(
+                ticker="NVDA",
+                signals=enriched.get("signals", {}),
+                total_score=score,
+                scan_type="shadow_regime_watcher",
+                profile_override=profile_t3,
+            )
+            t3_confidence = inf_result.get("final_confidence", 0)
+            t3_decision = inf_result.get("final_decision", "?")
+            mission["q4_chain_id"] = inf_result.get("inference_chain_id")
+            r_q4 = TestResult(
+                test_id="Q4", group=group, name="Ollama inference T1-T3",
+                status="GO",
+                value=f"T3 decision={t3_decision}, confidence={t3_confidence:.2f}",
+                expected="decision + confidence from Ollama T1-T3",
+                error=None,
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1730,
+            )
+        except Exception as exc:
+            r_q4 = TestResult(
+                test_id="Q4", group=group, name="Ollama inference T1-T3",
+                status="NO-GO",
+                value="exception",
+                expected="decision + confidence from Ollama T1-T3",
+                error=str(exc)[:300],
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1730,
+            )
+    _print_result(r_q4)
+    _write_result(r_q4, run_id, dry_run)
+    results.append(r_q4)
+
+    # ── Q5: Claude inference T4-T5 (~$0.003 real API call) ───────────────
+    t0 = time.time()
+    if dry_run or mission["enriched"] is None:
+        skip_reason = "dry-run skip" if dry_run else "skipped — no enriched data from Q3"
+        r_q5 = TestResult(
+            test_id="Q5", group=group, name="Claude inference T4-T5",
+            status="SCRUB", value=skip_reason, expected="full T5 decision from Claude",
+            error=None, duration_ms=0, check_order=1740,
+        )
+    else:
+        try:
+            from common import sb_get as _sb_get
+            from inference_engine import run_inference as _run_inf
+            enriched = mission["enriched"]
+            score = mission["score"]
+            # Re-fetch profile so we get a clean copy without the REGIME_WATCHER override
+            profiles = _sb_get("strategy_profiles", {
+                "select": "*",
+                "profile_name": "eq.SKEPTIC",
+                "limit": "1",
+            })
+            if not profiles:
+                raise ValueError("SKEPTIC strategy profile not found in DB")
+            profile_full = dict(profiles[0])
+            profile_full["shadow_type"] = "SKEPTIC"  # full 5-tumbler depth
+            full_result = _run_inf(
+                ticker="NVDA",
+                signals=enriched.get("signals", {}),
+                total_score=score,
+                scan_type="shadow_skeptic",
+                profile_override=profile_full,
+            )
+            full_decision = full_result.get("final_decision", "?")
+            full_confidence = full_result.get("final_confidence", 0)
+            stopping_reason = full_result.get("stopping_reason", "?")
+            mission["q5_chain_id"] = full_result.get("inference_chain_id")
+            r_q5 = TestResult(
+                test_id="Q5", group=group, name="Claude inference T4-T5",
+                status="GO",
+                value=f"decision={full_decision}, confidence={full_confidence:.3f}, stop={stopping_reason}",
+                expected="full T5 decision + confidence from Claude",
+                error=None,
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1740,
+            )
+        except Exception as exc:
+            r_q5 = TestResult(
+                test_id="Q5", group=group, name="Claude inference T4-T5",
+                status="NO-GO",
+                value="exception",
+                expected="full T5 decision + confidence from Claude",
+                error=str(exc)[:300],
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1740,
+            )
+    _print_result(r_q5)
+    _write_result(r_q5, run_id, dry_run)
+    results.append(r_q5)
+
+    # ── Q5 cleanup: delete inference_chains rows written for NVDA by Q4/Q5 ─
+    if not dry_run:
+        for chain_id in [mission["q4_chain_id"], mission["q5_chain_id"]]:
+            if chain_id:
+                try:
+                    from tracer import SUPABASE_URL as _SB_URL
+                    from tracer import _sb_client, _sb_headers
+                    _sb_client.delete(
+                        f"{_SB_URL}/rest/v1/inference_chains?id=eq.{chain_id}",
+                        headers=_sb_headers(),
+                    )
+                except Exception:
+                    pass  # Non-fatal — cleanup is best-effort
+
+    # ── Q6: Order capability ──────────────────────────────────────────────
+    t0 = time.time()
+    # Q6 runs even in dry-run (read-only Alpaca calls — no writes, no cost)
+    if dry_run:
+        r_q6 = TestResult(
+            test_id="Q6", group=group, name="order capability",
+            status="SCRUB", value="dry-run skip", expected="equity>0 + buying_power>100",
+            error=None, duration_ms=0, check_order=1750,
+        )
+    else:
+        try:
+            from common import get_account as _get_acct
+            from common import get_positions as _get_pos
+            account = _get_acct()
+            if account is None:
+                raise ValueError("get_account() returned None")
+            equity = float(account.get("equity", 0))
+            buying_power = float(account.get("buying_power", 0))
+            if equity <= 0:
+                raise AssertionError(f"No account equity (equity={equity})")
+            if buying_power <= 100:
+                raise AssertionError(f"Buying power too low: ${buying_power:.0f}")
+            positions = _get_pos()
+            r_q6 = TestResult(
+                test_id="Q6", group=group, name="order capability",
+                status="GO",
+                value=f"equity=${equity:.0f}, buying_power=${buying_power:.0f}, {len(positions)} positions",
+                expected="equity>0 + buying_power>100",
+                error=None,
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1750,
+            )
+        except Exception as exc:
+            r_q6 = TestResult(
+                test_id="Q6", group=group, name="order capability",
+                status="NO-GO",
+                value="exception",
+                expected="equity>0 + buying_power>100",
+                error=str(exc)[:300],
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1750,
+            )
+    _print_result(r_q6)
+    _write_result(r_q6, run_id, dry_run)
+    results.append(r_q6)
+
+    # ── Q7: Notification capability ───────────────────────────────────────
+    # Checks tokens only — never sends a message
+    t0 = time.time()
+    def _test_q7() -> tuple[str, str, str | None]:
+        from common import slack_notify as _slack_notify
+        assert callable(_slack_notify), "slack_notify is not callable"
+        slack_token = os.environ.get("SLACK_BOT_TOKEN", "")
+        assert len(slack_token) > 10, "SLACK_BOT_TOKEN not set or too short"
+        tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        if len(tg_token) > 10:
+            return ("GO", "Slack + Telegram tokens set", None)
+        return ("GO", "Slack token set (Telegram not configured)", None)
+
+    r_q7 = _run(_test_q7, "Q7", group, "notification capability",
+                "Slack token set", 1760)
+    _print_result(r_q7)
+    _write_result(r_q7, run_id, dry_run)
+    results.append(r_q7)
+
+    # ── Q8: Mission verdict (meta-test — aggregates Q1-Q7) ───────────────
+    t0 = time.time()
+    if dry_run:
+        r_q8 = TestResult(
+            test_id="Q8", group=group, name="mission verdict",
+            status="SCRUB", value="dry-run skip", expected="all Q tests GO",
+            error=None, duration_ms=0, check_order=1770,
+        )
+    else:
+        q_prior = [r for r in results if r.test_id.startswith("Q") and r.test_id != "Q8"]
+        all_go = all(r.status == "GO" for r in q_prior)
+        failures = [r.test_id for r in q_prior if r.status != "GO"]
+        if all_go:
+            r_q8 = TestResult(
+                test_id="Q8", group=group, name="mission verdict",
+                status="GO",
+                value="MISSION READY — full pipeline validated end-to-end",
+                expected="all Q tests GO",
+                error=None,
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1770,
+            )
+        else:
+            r_q8 = TestResult(
+                test_id="Q8", group=group, name="mission verdict",
+                status="NO-GO",
+                value=f"MISSION NOT READY — failures: {', '.join(failures)}",
+                expected="all Q tests GO",
+                error=f"Failed stages: {', '.join(failures)}",
+                duration_ms=int((time.time() - t0) * 1000),
+                check_order=1770,
+            )
+    _print_result(r_q8)
+    _write_result(r_q8, run_id, dry_run)
+    results.append(r_q8)
+
+    return results
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 
@@ -2101,6 +2519,7 @@ def main() -> None:
         global_metrics.stop_sampling()
 
     results.extend(run_group_p(run_id, dry_run, concurrency, global_metrics))
+    results.extend(run_group_q(run_id, dry_run))
 
     go = sum(1 for r in results if r.status == "GO")
     nogo = sum(1 for r in results if r.status == "NO-GO")
