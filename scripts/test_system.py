@@ -1065,12 +1065,28 @@ def run_group_h(run_id: str | None, dry_run: bool, e1_ran: bool) -> list[TestRes
 # GROUP I — DASHBOARD COMMS (900-999)
 # ===========================================================================
 
+def _mint_dashboard_cookie() -> str:
+    """Generate a valid dashboard session cookie using the same signing logic as server.py."""
+    import hashlib
+    import hmac as _hmac
+    salt = os.environ.get("SESSION_SIGNING_SALT", "oc-session-stable-v1")
+    key = hashlib.sha256(salt.encode()).digest()
+    issued = str(int(time.time()))
+    sig = _hmac.new(key, issued.encode(), hashlib.sha256).hexdigest()
+    return f"{issued}.{sig}"
+
+
 def _test_dashboard_endpoint(path: str, expected_item_count: int | None = None) -> tuple[str, str, str | None]:
-    """GET a dashboard endpoint and check response. Tries port 9090 then 8000."""
+    """GET a dashboard endpoint with self-minted auth cookie. Tries port 9090 then 8000."""
     import httpx
+    cookie = _mint_dashboard_cookie()
     for port in [9090, 8000]:
         try:
-            resp = httpx.get(f"http://localhost:{port}{path}", timeout=5.0)
+            resp = httpx.get(
+                f"http://localhost:{port}{path}",
+                cookies={"oc_session": cookie},
+                timeout=5.0,
+            )
             if resp.status_code == 200:
                 data = resp.json()
                 if expected_item_count is not None and isinstance(data, list):
@@ -1080,10 +1096,10 @@ def _test_dashboard_endpoint(path: str, expected_item_count: int | None = None) 
                         return ("NO-GO", label, f"Expected >= {expected_item_count}, got {count}")
                 return ("GO", f"HTTP 200 (port {port})", None)
             if resp.status_code == 401:
-                return ("SCRUB", f"auth required (port {port})", "dashboard requires auth cookie")
+                return ("NO-GO", f"auth failed (port {port})", "cookie rejected — check SESSION_SIGNING_SALT")
         except Exception:
             continue
-    return ("SCRUB", "connection refused", "dashboard not reachable on 9090 or 8000")
+    return ("NO-GO", "connection refused", "dashboard not reachable on 9090 or 8000")
 
 
 def run_group_i(run_id: str | None, dry_run: bool) -> list[TestResult]:
