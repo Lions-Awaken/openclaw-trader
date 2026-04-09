@@ -3033,3 +3033,69 @@ Total tests: 37 (A-I) + 22 (J-O) = 59. Orders follow the established pattern (J=
 
 ### Follow-on Work (not done here)
 - TASK-PF-03 (Picard): deploy, pull on ridley, restart watcher, run live preflight, post Slack summary.
+
+---
+
+## TASK-STATS-STREAMER . BACKEND-AGENT (Geordi) . DONE — 2026-04-09
+
+### Stats Streamer Daemon
+
+**Problem:** The Fly.io SSE stream (`/api/system/stream`) polls `system_stats` at 2s intervals but nothing was writing to it at that frequency — only the heartbeat script every 5 minutes. Dashboard gauges showed stale data.
+
+**Solution:** Persistent daemon `scripts/stats_streamer.py` that INSERTs a new `system_stats` row every 5 seconds from sysfs on ridley.
+
+### Files Created/Modified
+
+- `scripts/stats_streamer.py` — new daemon (created)
+- `scripts/manifest.py` — added `stats_streamer` entry (TASK-STATS-STREAMER, @reboot, persistent)
+- `TASKS.md` — task added and marked [DONE]
+- Ridley crontab — `@reboot` entry added via `crontab -e` pattern
+
+### What It Writes to system_stats
+
+INSERT (not upsert) — every 5 seconds, a new row. The SSE endpoint reads `ORDER BY collected_at DESC LIMIT 1` so each new row becomes the live reading immediately.
+
+Columns populated:
+- `cpu_percent` (float) — from `/proc/stat` differential
+- `cpu_freq_mhz` (int) — from `/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq`
+- `cpu_cores` (int) — constant 6
+- `load_avg_1m`, `load_avg_5m` (float) — from `os.getloadavg()`
+- `mem_total_mb`, `mem_used_mb`, `mem_available_mb` (int) — from `/proc/meminfo`
+- `mem_percent` (float) — derived
+- `ollama_mem_mb`, `openclaw_mem_mb` (int) — from `/proc/<pid>/statm` RSS scan
+- `gpu_load_pct` (float) — from `/sys/devices/platform/bus@0/17000000.gpu/load` (raw/10)
+- `cpu_temp_c`, `gpu_temp_c` (float) — from thermal_zone0/1 sysfs
+- `disk_root_pct` (float) — from `shutil.disk_usage("/")`
+- `disk_nvme_pct`, `disk_nvme_used_gb` (float) — from `/mnt/nvme`
+- `process_count` (int) — from `ps ax`
+- `ollama_running` (bool), `ollama_models` (json string), `ollama_vram_mb` (int) — from `GET localhost:11434/api/tags`
+- `power_mode` (text) — constant "MAXN_SUPER"
+- `uptime_seconds` (int) — from `/proc/uptime`
+
+### Auth / Access
+
+Not an HTTP endpoint. Writes to Supabase via service role key (from `SUPABASE_SERVICE_KEY` env var). Env sourced from `~/.openclaw/workspace/.env` at startup via crontab.
+
+### DB Query Pattern
+
+```
+POST /rest/v1/system_stats
+Content-Type: application/json
+{...all columns...}
+```
+
+No upsert key — pure INSERT. The table uses serial `id` PK + `collected_at DEFAULT now()`.
+
+### Bug Found and Fixed
+
+First run: `22P02 invalid input syntax for type integer: "430.0"`. Cause: `get_process_rss_mb()` returns float; `round(x, 0)` returns float in Python, not int. Fixed by wrapping with `int()` before inserting `ollama_mem_mb` and `openclaw_mem_mb`.
+
+### Daemon Status
+
+Running on ridley — pid confirmed active, 26+ consecutive OK writes verified in smoke test. Log at `/tmp/openclaw_streamer.log`. Will auto-restart on reboot via `@reboot` crontab entry.
+
+### Follow-on Work (not done here)
+
+- Consider adding a Supabase retention policy or periodic DELETE to prune system_stats rows older than N days (currently unbounded — grows at ~12 rows/minute = ~17k rows/day).
+- `power_draw` metric in `_build_metrics` is hardcoded to 0.0 — the INA3221 rails are collected but there are no dedicated columns in system_stats. Add `power_vdd_in_mw` column to schema if power monitoring is desired.
+- `swap_usage` metric is also hardcoded to 0.0 in server.py — swap data is available from collectors but system_stats has no swap columns. Future schema addition candidate.

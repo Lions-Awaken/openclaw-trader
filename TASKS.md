@@ -597,3 +597,8 @@ Post answers as structured replies. No code changes.
 **Acceptance:** Task completed as described. Results posted to #all-lions-awaken thread.
 **Source:** [Slack dispatch — 2026-04-07 04:07 UTC](https://lions-awaken.slack.com/archives/C0ANK2A0M7G/p1775534795373659)
 **Depends on:** nothing
+
+### TASK-STATS-STREAMER . GEORDI . [DONE]
+**Goal:** Build `scripts/stats_streamer.py` — persistent daemon that pushes hardware metrics from ridley to system_stats every 5 seconds, feeding the Fly.io SSE stream.
+**Acceptance:** Daemon running on ridley, writing fresh rows to system_stats every 5s. Dashboard gauges show live data.
+**Depends on:** nothing
