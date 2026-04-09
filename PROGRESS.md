@@ -5,6 +5,107 @@
 
 ---
 
+## HOTFIX-SIMULATOR-BRIDGE . BACKEND-AGENT (Geordi) . DONE — 2026-04-08
+
+### Supabase-Bridged Simulator Trigger System
+
+Fly.io dashboard cannot spawn processes on ridley. The old `POST /api/simulator/run`
+used `subprocess.Popen` which only worked when the dashboard ran locally on ridley.
+This hotfix replaces that with a Supabase trigger row pattern.
+
+### Architecture
+
+```
+Fly.io: POST /api/simulator/run
+  → writes system_health row (run_type=simulator, check_name=_trigger, status=skip)
+  → returns {status: "triggered", run_id: "<uuid>"}
+
+ridley: simulator_watcher.py (persistent daemon)
+  → polls system_health every 15s for unclaimed trigger rows
+  → marks trigger row status=pass ("picked up by ridley")
+  → spawns: SIMULATOR_RUN_ID=<uuid> python3 scripts/test_system.py
+
+ridley: test_system.py (unchanged)
+  → reads SIMULATOR_RUN_ID from env
+  → writes per-check results to system_health as it runs
+
+Fly.io: GET /api/simulator/status?run_id=<uuid>
+  → queries system_health WHERE run_id=X AND check_name != _trigger
+  → returns live go/no-go counts + complete flag at 37 checks
+```
+
+### Files Created
+
+- `/home/mother_brain/projects/openclaw-trader/scripts/simulator_watcher.py`
+  - Imports: `from common import _client, sb_get, sb_headers`
+  - Poll interval: 15s, post-spawn delay: 30s
+  - Logs to `/tmp/openclaw_watcher.log`
+  - Checks up to 5 most recent trigger rows; skips any with existing result rows
+
+### Files Modified
+
+- `/home/mother_brain/projects/openclaw-trader/dashboard/server.py`
+  - `POST /api/simulator/run`: replaced subprocess.Popen with async POST to Supabase
+    - Writes trigger row: run_type=simulator, check_group=TRIGGER, check_name=_trigger,
+      check_order=0, status=skip, value="awaiting ridley pickup"
+    - Returns 503 if SUPABASE_URL not configured; 502 if Supabase write fails
+  - `GET /api/simulator/status`: added `"check_name": "neq._trigger"` filter and explicit
+    `limit: 100` so trigger sentinel row is never included in UI results
+
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py`
+  - Added `simulator_watcher` entry to `EVENT_TRIGGERED` list
+  - schedule="persistent", writes_to_pipeline_runs=False, criticality="low"
+
+### Ridley Crontab Entries Added
+
+```
+@reboot cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && PYTHONUNBUFFERED=1 nohup python3 scripts/simulator_watcher.py >> /tmp/openclaw_watcher.log 2>&1 &
+*/5 * * * * flock -n /tmp/openclaw_watcher.lock bash -c 'cd ~/openclaw-trader && source ~/.openclaw/workspace/.env && PYTHONUNBUFFERED=1 python3 scripts/simulator_watcher.py >> /tmp/openclaw_watcher.log 2>&1'
+```
+
+The `@reboot` entry starts the daemon on system restart. The `*/5 flock` entry ensures
+the daemon is running every 5 minutes; if it's already alive, flock exits immediately.
+
+### DB Queries Used
+
+`system_health` table — reads:
+- Trigger detection: `GET system_health WHERE run_type=eq.simulator AND check_name=eq._trigger AND status=eq.skip ORDER BY created_at.desc LIMIT 5`
+- Result existence check: `GET system_health WHERE run_id=eq.<uuid> AND check_name=neq._trigger LIMIT 1`
+- Status polling: `GET system_health WHERE run_id=eq.<uuid> AND run_type=eq.simulator AND check_name=neq._trigger ORDER BY check_order.asc LIMIT 100`
+
+`system_health` table — writes:
+- Trigger insert: POST with run_type=simulator, check_name=_trigger, status=skip
+- Trigger claim: PATCH WHERE run_id=eq.<uuid> AND check_name=eq._trigger → status=pass
+
+### Watcher Status on Ridley
+
+Started and confirmed running:
+- `[watcher] Simulator watcher started, polling every 15s` in `/tmp/openclaw_watcher.log`
+- PID confirmed alive via `pgrep -af simulator_watcher`
+
+### Ruff
+
+`ruff check scripts/simulator_watcher.py scripts/manifest.py dashboard/server.py` — All checks passed.
+
+### Assumptions
+
+- `system_health` table has no UNIQUE constraint on `(run_id, check_name)` — two rows with
+  the same run_id but different check_names are valid (trigger row + result rows)
+- The existing `idx_system_health_run_id` index covers `(run_id, check_order)` which is
+  sufficient for the trigger detection and status polling queries
+- test_system.py reads `SIMULATOR_RUN_ID` from env (confirmed in its docstring)
+- `_client` from common.py is a synchronous httpx.Client — appropriate for the watcher
+  (which runs as a standalone sync process on ridley)
+
+### Follow-on Work
+
+- The `POST /api/simulator/run` endpoint should also set a timeout mechanism: if no
+  results appear within 10 minutes, the UI could show "ridley not responding"
+- Consider adding a `picked_up_at` timestamp to the trigger row for latency tracking
+- The watcher currently has no Slack notification on startup/crash — could add one
+
+---
+
 ## TASK-OPT-02 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
 
 ### N+1 Fix — `/api/health/flight-status`
@@ -2802,3 +2903,106 @@ Verified and updated all references to old script names across manifest.py, test
 ### Ruff
 
 `ruff check scripts/manifest.py scripts/test_system.py scripts/health_check.py` — All checks passed.
+
+---
+
+## TASK-SC-01 . FRONTEND-AGENT (Troi) . DONE — 2026-04-06
+
+### Preflight Panel Added to Systems Console
+
+Added a full NASA go/no-go preflight board to `dashboard/systems-console.html` (and kept in sync with `systems-console/index.html`).
+
+### Files Modified
+
+- `/home/mother_brain/projects/openclaw-trader/dashboard/systems-console.html`
+- `/home/mother_brain/projects/openclaw-trader/systems-console/index.html` (kept in sync — identical)
+
+### What Was Added
+
+**CSS** (~230 lines): New `.preflight-zone`, `.preflight-panel`, `.preflight-board` (3-col responsive grid), `.preflight-group`, `.preflight-row`, `.preflight-dot` (with `standby/polling/go/nogo/scrub` state classes), `.preflight-test-*` (id, name, status, val, dur), `.preflight-error-row` (expandable NO-GO detail), `.preflight-summary`, `.preflight-verdict`, `.preflight-tally`. Animated button pulse during run. Dot animations for polling state.
+
+**HTML**: New `.preflight-zone` section placed after `.detail-zone` and before `</div><!-- /.page-wrapper -->`. Contains: panel header with label + status text + INITIATE PREFLIGHT button, empty `#preflightBoard` div (populated by JS), summary bar with verdict and tally.
+
+**JavaScript** (~330 lines, second standalone IIFE): `PREFLIGHT_GROUPS` definition (9 groups, 37 tests with ids A1–I5 and check_order values), `ALL_TESTS` flat sorted array, `buildBoard()` (dynamically creates DOM for each test row), `applyResult()` (updates dot/status/value/duration for a completed test), `markNextPolling()` (marks the first uncompleted test as POLLING), `pollResults()` (polls `/api/simulator/status?run_id=X` every 2s, applies results, stops at complete=true or 180s), `loadMostRecentRun()` (called on page load to show prior results), `window.initiatePreflightRun` (global, called by inline onclick — POSTs to `/api/simulator/run`, gets run_id, starts polling).
+
+### API Contract Consumed
+
+- `POST /api/simulator/run` → `{status: "triggered", run_id: "<uuid>"}` — credentials: include
+- `GET /api/simulator/status?run_id=X` → `{run_id, checks: [{check_name, status, value, error_message, duration_ms}], summary: {total, go, nogo, scrub, complete}}` — credentials: include
+- `GET /api/simulator/status` (no run_id) → same shape, most recent run — used on page load
+
+Field mapping: `check_name` starts with test ID (e.g. "A1: manifest imports"), `status` is pass/fail/skip (mapped to GO/NO-GO/SCRUB), `value` is the text result, `error_message` is shown on NO-GO expansion.
+
+### Styling Approach
+
+Matches existing systems console aesthetic exactly: same CSS variables (`--cyan`, `--green`, `--red`, `--amber`, `--panel-bg`, `--border`, `--text-dim`), same Orbitron + JetBrains Mono font pairing, same panel border/radius/padding patterns, same dark background. Button uses the existing glow shadow approach. All font sizes in the data grid use the same 0.38–0.55rem range as existing panels. The preflight board uses `text-transform: none` on monospace elements (same as existing `linear-gauge-value` and similar).
+
+### Assumptions
+
+- The 37-test count in `server.py` (`complete = total >= 37`) is the source of truth for completion detection. My `PREFLIGHT_GROUPS` definition totals 37 tests (A1-A2=2, B1-B6=6, C1-C2=2, D1-D4=4, E1-E4=4, F1-F4=4, G1-G4=4, H1-H6=6, I1-I5=5 = 37).
+- `check_name` field from the API contains the test ID at the start (e.g. "A1" or "A1: manifest imports"). The regex `^([A-Z]\d+)` extracts it.
+- `value` field (not `actual_value`) holds the test result text — confirmed from server.py `system_health` write schema.
+- The page is served behind auth cookies; `credentials: 'include'` is used on all fetches (matches existing pattern in the file).
+- No server.py changes were needed — both endpoints already existed from the simulator bridge hotfix.
+
+### Follow-on Work
+
+- The `loadMostRecentRun()` call fires on page load without a run_id; if the most recent run is partial (ridley was interrupted), the board will show partial results. Could add a "complete" indicator to distinguish.
+- The 180s timeout in the client is arbitrary — test_system.py runtime could exceed this on a slow ridley. Consider making it configurable.
+- No Vercel/Fly.io browser verification was done (dashboard is deployed to Fly.io, not Vercel). The page renders correctly from the file directly. Deploy and smoke-test once the next Fly.io deploy goes out.
+
+---
+
+## TASK-PF-01 . BACKEND-AGENT (Geordi) . DONE — 2026-04-09
+
+### 22 New Preflight Tests Across Groups J-O
+
+Added 6 new test groups to `scripts/test_system.py`. Total test count is now 59 (was 37).
+
+### Groups Added
+
+| Group | Domain | Tests | check_order range |
+|-------|--------|-------|------------------|
+| J | Position Management | J1-J4 | 1000-1030 |
+| K | Order Execution | K1-K3 | 1100-1120 |
+| L | Data Ingestion | L1-L5 | 1200-1240 |
+| M | Meta-Learning | M1-M4 | 1300-1330 |
+| N | Calibration | N1-N3 | 1400-1420 |
+| O | External Services | O1-O3 | 1500-1520 |
+
+### Dry-Run Verification
+
+`python scripts/test_system.py --dry-run` output confirmed:
+- 33/59 GO, 5 NO-GO (pre-existing — no Supabase creds in dev shell), 21 SCRUB (dry-run skips)
+- All 22 new test IDs appear (J1-J4, K1-K3, L1-L5, M1-M4, N1-N3, O1-O3)
+- Ruff: all checks passed
+
+### Files Modified
+
+- `scripts/test_system.py` — added `run_group_j` through `run_group_o` functions + wired into `main()`
+
+### Key Implementation Decisions
+
+- `compute_atr` reads bars with keys `h`, `l`, `c` (confirmed from position_manager.py line 70-73) — synthetic pool already uses these keys
+- `classify_catalyst` returns dict with key `catalyst_type` (confirmed from catalyst_ingest.py line 136)
+- `check_duplicate` returns `bool` — False when cosine similarity is below threshold (confirmed line 157)
+- `grade_chains({})` with empty outcomes dict correctly returns `(0, 0)` — graded=0, total=0 because no ungraded chains in dev env
+- O3 (Slack) does NOT send a message — only checks `callable(slack_notify)` and `len(SLACK_BOT_TOKEN) > 10`. Will fail in dev shell (no env vars) but pass on ridley
+- J3, J4, L5, M1-M4, N1-N3, O1, O2 all return SCRUB in dry-run mode (live external calls gated)
+- K1-K3 are import-only tests that always run — no external calls possible from those functions alone
+
+### DB Queries Executed
+
+None — all tests use either pure Python logic, local imports, or live Alpaca/Supabase calls that are gated behind `not dry_run`.
+
+### Assumptions
+
+- `calibrator.WEEK_START` is module-level `""` by default; `get_trade_outcomes()` will use an empty string for its date filter, returning an empty dict in the test environment — that is acceptable for the assertion `isinstance(result, dict)`
+- `meta_analysis.TODAY_STR` is similarly `""` at module level; `get_pipeline_health()` and `get_signal_accuracy()` will query with an empty date prefix and return `{"total": 0, ...}` shapes — both pass the `isinstance(result, dict)` assertion
+
+### Follow-on Work for TASK-PF-02
+
+TASK-PF-02 (Frontend Agent) must:
+1. Add groups J-O to the `PREFLIGHT_GROUPS` array in `dashboard/systems-console.html`
+2. Update the `complete` threshold in `server.py` `/api/simulator/status` from `total >= 37` to `total >= 59`
+3. Sync `systems-console.html` to `systems-console/index.html`

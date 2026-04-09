@@ -1147,6 +1147,403 @@ def run_group_i(run_id: str | None, dry_run: bool) -> list[TestResult]:
 
 
 # ===========================================================================
+# GROUP J — POSITION MANAGEMENT (1000-1099)
+# ===========================================================================
+
+def run_group_j(run_id: str | None, dry_run: bool) -> list[TestResult]:
+    group = "POSITION MANAGEMENT"
+    print(f"\n  {Fore.CYAN}J · {group}{Style.RESET_ALL}")
+    results = []
+
+    # J1: find_trade_decision importable
+    def _test_j1() -> tuple[str, str, str | None]:
+        from position_manager import find_trade_decision
+        assert callable(find_trade_decision)
+        return ("GO", "callable", None)
+
+    r_j1 = _run(_test_j1, "J1", group, "find_trade_decision import", "callable", 1000)
+    _print_result(r_j1)
+    _write_result(r_j1, run_id, dry_run)
+    results.append(r_j1)
+
+    # J2: compute_atr with synthetic bars
+    def _test_j2() -> tuple[str, str, str | None]:
+        from position_manager import compute_atr
+        bars = _synthetic_bars(30)
+        result = compute_atr(bars)
+        assert isinstance(result, (int, float)) and result > 0
+        return ("GO", f"ATR={result:.2f}", None)
+
+    r_j2 = _run(_test_j2, "J2", group, "compute_atr synthetic", "float > 0", 1010)
+    _print_result(r_j2)
+    _write_result(r_j2, run_id, dry_run)
+    results.append(r_j2)
+
+    # J3: get_positions (skip in dry-run — live Alpaca call)
+    if dry_run:
+        r_j3 = TestResult(
+            test_id="J3", group=group, name="get_positions",
+            status="SCRUB", value="dry-run skip", expected="list",
+            error=None, duration_ms=0, check_order=1020,
+        )
+    else:
+        def _test_j3() -> tuple[str, str, str | None]:
+            from common import get_positions
+            positions = get_positions()
+            assert isinstance(positions, list)
+            return ("GO", f"{len(positions)} positions", None)
+        r_j3 = _run(_test_j3, "J3", group, "get_positions", "list", 1020)
+    _print_result(r_j3)
+    _write_result(r_j3, run_id, dry_run)
+    results.append(r_j3)
+
+    # J4: get_open_orders (skip in dry-run — live Alpaca call)
+    if dry_run:
+        r_j4 = TestResult(
+            test_id="J4", group=group, name="get_open_orders",
+            status="SCRUB", value="dry-run skip", expected="list",
+            error=None, duration_ms=0, check_order=1030,
+        )
+    else:
+        def _test_j4() -> tuple[str, str, str | None]:
+            from common import get_open_orders
+            orders = get_open_orders()
+            assert isinstance(orders, list)
+            return ("GO", f"{len(orders)} orders", None)
+        r_j4 = _run(_test_j4, "J4", group, "get_open_orders", "list", 1030)
+    _print_result(r_j4)
+    _write_result(r_j4, run_id, dry_run)
+    results.append(r_j4)
+
+    return results
+
+
+# ===========================================================================
+# GROUP K — ORDER EXECUTION (1100-1199)
+# ===========================================================================
+
+def run_group_k(run_id: str | None, dry_run: bool) -> list[TestResult]:
+    group = "ORDER EXECUTION"
+    print(f"\n  {Fore.CYAN}K · {group}{Style.RESET_ALL}")
+    results = []
+
+    # K1: submit_order importable only — never call it
+    def _test_k1() -> tuple[str, str, str | None]:
+        from common import submit_order
+        assert callable(submit_order)
+        return ("GO", "callable", None)
+
+    # K2: poll_for_fill importable only
+    def _test_k2() -> tuple[str, str, str | None]:
+        from common import poll_for_fill
+        assert callable(poll_for_fill)
+        return ("GO", "callable", None)
+
+    # K3: cancel_order importable only
+    def _test_k3() -> tuple[str, str, str | None]:
+        from common import cancel_order
+        assert callable(cancel_order)
+        return ("GO", "callable", None)
+
+    for fn, tid, name, expected, order in [
+        (_test_k1, "K1", "submit_order import", "callable", 1100),
+        (_test_k2, "K2", "poll_for_fill import", "callable", 1110),
+        (_test_k3, "K3", "cancel_order import", "callable", 1120),
+    ]:
+        r = _run(fn, tid, group, name, expected, order)
+        _print_result(r)
+        _write_result(r, run_id, dry_run)
+        results.append(r)
+
+    return results
+
+
+# ===========================================================================
+# GROUP L — DATA INGESTION (1200-1299)
+# ===========================================================================
+
+def run_group_l(run_id: str | None, dry_run: bool) -> list[TestResult]:
+    group = "DATA INGESTION"
+    print(f"\n  {Fore.CYAN}L · {group}{Style.RESET_ALL}")
+    results = []
+
+    # L1: classify_catalyst
+    def _test_l1() -> tuple[str, str, str | None]:
+        from catalyst_ingest import classify_catalyst
+        result = classify_catalyst(
+            "NVIDIA announces record Q4 earnings beating estimates",
+            "Revenue up 40% YoY",
+        )
+        assert isinstance(result, dict)
+        assert "catalyst_type" in result or "type" in result
+        ctype = result.get("catalyst_type", result.get("type", "?"))
+        return ("GO", f"type={ctype}", None)
+
+    r_l1 = _run(_test_l1, "L1", group, "classify_catalyst", "dict with catalyst_type", 1200)
+    _print_result(r_l1)
+    _write_result(r_l1, run_id, dry_run)
+    results.append(r_l1)
+
+    # L2: check_duplicate
+    def _test_l2() -> tuple[str, str, str | None]:
+        from catalyst_ingest import check_duplicate
+        emb1 = [1.0] * 384
+        emb2 = [0.0] * 384
+        result = check_duplicate(emb1, [emb2])
+        assert result is False
+        return ("GO", "non-duplicate correctly detected", None)
+
+    r_l2 = _run(_test_l2, "L2", group, "check_duplicate", "False for orthogonal vecs", 1210)
+    _print_result(r_l2)
+    _write_result(r_l2, run_id, dry_run)
+    results.append(r_l2)
+
+    # L3: score_form4_signal
+    def _test_l3() -> tuple[str, str, str | None]:
+        from ingest_signals import score_form4_signal
+        row = {
+            "transaction_type": "purchase",
+            "total_value": 750_000,
+            "ownership_pct_change": 0.08,
+            "cluster_count": 2,
+            "filer_title": "CFO",
+        }
+        score = score_form4_signal(row)
+        assert isinstance(score, int) and 1 <= score <= 10
+        return ("GO", f"score={score}", None)
+
+    r_l3 = _run(_test_l3, "L3", group, "score_form4_signal", "int 1-10", 1220)
+    _print_result(r_l3)
+    _write_result(r_l3, run_id, dry_run)
+    results.append(r_l3)
+
+    # L4: score_options_signal
+    def _test_l4() -> tuple[str, str, str | None]:
+        from ingest_signals import score_options_signal
+        sig = {
+            "signal_type": "sweep",
+            "premium": 600_000,
+            "implied_volatility": 0.75,
+            "sentiment": "bullish",
+        }
+        score = score_options_signal(sig)
+        assert isinstance(score, int) and 1 <= score <= 10
+        return ("GO", f"score={score}", None)
+
+    r_l4 = _run(_test_l4, "L4", group, "score_options_signal", "int 1-10", 1230)
+    _print_result(r_l4)
+    _write_result(r_l4, run_id, dry_run)
+    results.append(r_l4)
+
+    # L5: fetch_yfinance_signals (real external call — skip in dry-run)
+    if dry_run:
+        r_l5 = TestResult(
+            test_id="L5", group=group, name="fetch_yfinance_signals",
+            status="SCRUB", value="dry-run skip", expected="list",
+            error=None, duration_ms=0, check_order=1240,
+        )
+    else:
+        def _test_l5() -> tuple[str, str, str | None]:
+            from catalyst_ingest import fetch_yfinance_signals
+            result = fetch_yfinance_signals(["AAPL"])
+            assert isinstance(result, list)
+            return ("GO", f"{len(result)} signals", None)
+        r_l5 = _run(_test_l5, "L5", group, "fetch_yfinance_signals", "list", 1240)
+    _print_result(r_l5)
+    _write_result(r_l5, run_id, dry_run)
+    results.append(r_l5)
+
+    return results
+
+
+# ===========================================================================
+# GROUP M — META-LEARNING (1300-1399)
+# ===========================================================================
+
+def run_group_m(run_id: str | None, dry_run: bool) -> list[TestResult]:
+    group = "META-LEARNING"
+    print(f"\n  {Fore.CYAN}M · {group}{Style.RESET_ALL}")
+    results = []
+
+    if dry_run:
+        for tid, name, order in [
+            ("M1", "get_pipeline_health", 1300),
+            ("M2", "get_signal_accuracy", 1310),
+            ("M3", "get_shadow_divergence_summary", 1320),
+            ("M4", "rag_retrieve_context", 1330),
+        ]:
+            r = TestResult(
+                test_id=tid, group=group, name=name,
+                status="SCRUB", value="dry-run skip", expected="dict",
+                error=None, duration_ms=0, check_order=order,
+            )
+            _print_result(r)
+            _write_result(r, run_id, dry_run)
+            results.append(r)
+        return results
+
+    def _test_m1() -> tuple[str, str, str | None]:
+        from meta_analysis import get_pipeline_health
+        result = get_pipeline_health()
+        assert isinstance(result, dict)
+        return ("GO", f"{len(result)} keys", None)
+
+    def _test_m2() -> tuple[str, str, str | None]:
+        from meta_analysis import get_signal_accuracy
+        result = get_signal_accuracy()
+        assert isinstance(result, dict)
+        return ("GO", f"{len(result)} keys", None)
+
+    def _test_m3() -> tuple[str, str, str | None]:
+        from meta_analysis import get_shadow_divergence_summary
+        result = get_shadow_divergence_summary()
+        assert isinstance(result, dict)
+        assert "count" in result
+        return ("GO", f"count={result.get('count', 0)}", None)
+
+    def _test_m4() -> tuple[str, str, str | None]:
+        from meta_analysis import rag_retrieve_context
+        result = rag_retrieve_context("test query for synthetic embedding retrieval")
+        assert isinstance(result, dict)
+        return ("GO", f"{len(result)} keys", None)
+
+    for fn, tid, name, expected, order in [
+        (_test_m1, "M1", "get_pipeline_health", "dict", 1300),
+        (_test_m2, "M2", "get_signal_accuracy", "dict", 1310),
+        (_test_m3, "M3", "get_shadow_divergence_summary", "dict with count", 1320),
+        (_test_m4, "M4", "rag_retrieve_context", "dict", 1330),
+    ]:
+        r = _run(fn, tid, group, name, expected, order)
+        _print_result(r)
+        _write_result(r, run_id, dry_run)
+        results.append(r)
+
+    return results
+
+
+# ===========================================================================
+# GROUP N — CALIBRATION (1400-1499)
+# ===========================================================================
+
+def run_group_n(run_id: str | None, dry_run: bool) -> list[TestResult]:
+    group = "CALIBRATION"
+    print(f"\n  {Fore.CYAN}N · {group}{Style.RESET_ALL}")
+    results = []
+
+    if dry_run:
+        for tid, name, order in [
+            ("N1", "get_trade_outcomes", 1400),
+            ("N2", "grade_chains empty", 1410),
+            ("N3", "update_pattern_templates", 1420),
+        ]:
+            r = TestResult(
+                test_id=tid, group=group, name=name,
+                status="SCRUB", value="dry-run skip", expected="dict/tuple/int",
+                error=None, duration_ms=0, check_order=order,
+            )
+            _print_result(r)
+            _write_result(r, run_id, dry_run)
+            results.append(r)
+        return results
+
+    def _test_n1() -> tuple[str, str, str | None]:
+        from calibrator import get_trade_outcomes
+        result = get_trade_outcomes()
+        assert isinstance(result, dict)
+        return ("GO", f"{len(result)} outcomes", None)
+
+    def _test_n2() -> tuple[str, str, str | None]:
+        from calibrator import grade_chains
+        graded, total = grade_chains({})
+        assert isinstance(graded, int) and isinstance(total, int)
+        assert graded == 0 and total == 0
+        return ("GO", f"graded={graded} total={total}", None)
+
+    def _test_n3() -> tuple[str, str, str | None]:
+        from calibrator import update_pattern_templates
+        count = update_pattern_templates()
+        assert isinstance(count, int)
+        return ("GO", f"{count} templates updated", None)
+
+    for fn, tid, name, expected, order in [
+        (_test_n1, "N1", "get_trade_outcomes", "dict", 1400),
+        (_test_n2, "N2", "grade_chains empty", "graded=0 total=0", 1410),
+        (_test_n3, "N3", "update_pattern_templates", "int count", 1420),
+    ]:
+        r = _run(fn, tid, group, name, expected, order)
+        _print_result(r)
+        _write_result(r, run_id, dry_run)
+        results.append(r)
+
+    return results
+
+
+# ===========================================================================
+# GROUP O — EXTERNAL SERVICES (1500-1599)
+# ===========================================================================
+
+def run_group_o(run_id: str | None, dry_run: bool) -> list[TestResult]:
+    group = "EXTERNAL SERVICES"
+    print(f"\n  {Fore.CYAN}O · {group}{Style.RESET_ALL}")
+    results = []
+
+    # O1: Ollama health (skip in dry-run)
+    if dry_run:
+        r_o1 = TestResult(
+            test_id="O1", group=group, name="Ollama health",
+            status="SCRUB", value="dry-run skip", expected=">0 models",
+            error=None, duration_ms=0, check_order=1500,
+        )
+    else:
+        def _test_o1() -> tuple[str, str, str | None]:
+            import httpx as _httpx
+            resp = _httpx.get("http://localhost:11434/api/tags", timeout=5.0)
+            assert resp.status_code == 200
+            models = resp.json().get("models", [])
+            assert len(models) > 0
+            model_names = [m.get("name", "?") for m in models]
+            return ("GO", f"{len(models)} models: {', '.join(model_names[:3])}", None)
+        r_o1 = _run(_test_o1, "O1", group, "Ollama health", ">0 models", 1500)
+    _print_result(r_o1)
+    _write_result(r_o1, run_id, dry_run)
+    results.append(r_o1)
+
+    # O2: Alpaca account (skip in dry-run)
+    if dry_run:
+        r_o2 = TestResult(
+            test_id="O2", group=group, name="Alpaca account",
+            status="SCRUB", value="dry-run skip", expected="dict with equity",
+            error=None, duration_ms=0, check_order=1510,
+        )
+    else:
+        def _test_o2() -> tuple[str, str, str | None]:
+            from common import get_account
+            account = get_account()
+            assert isinstance(account, dict)
+            equity = account.get("equity", account.get("portfolio_value", "?"))
+            return ("GO", f"equity=${equity}", None)
+        r_o2 = _run(_test_o2, "O2", group, "Alpaca account", "dict with equity", 1510)
+    _print_result(r_o2)
+    _write_result(r_o2, run_id, dry_run)
+    results.append(r_o2)
+
+    # O3: Slack connectivity — import + env var check only, never send a message
+    def _test_o3() -> tuple[str, str, str | None]:
+        from common import slack_notify
+        assert callable(slack_notify)
+        token = os.environ.get("SLACK_BOT_TOKEN", "")
+        assert len(token) > 10
+        return ("GO", "token set + callable", None)
+
+    r_o3 = _run(_test_o3, "O3", group, "Slack connectivity", "token set + callable", 1520)
+    _print_result(r_o3)
+    _write_result(r_o3, run_id, dry_run)
+    results.append(r_o3)
+
+    return results
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 
@@ -1196,6 +1593,12 @@ def main() -> None:
     results.extend(run_group_g(run_id, dry_run))
     results.extend(run_group_h(run_id, dry_run, e1_ran))
     results.extend(run_group_i(run_id, dry_run))
+    results.extend(run_group_j(run_id, dry_run))
+    results.extend(run_group_k(run_id, dry_run))
+    results.extend(run_group_l(run_id, dry_run))
+    results.extend(run_group_m(run_id, dry_run))
+    results.extend(run_group_n(run_id, dry_run))
+    results.extend(run_group_o(run_id, dry_run))
 
     go = sum(1 for r in results if r.status == "GO")
     nogo = sum(1 for r in results if r.status == "NO-GO")

@@ -457,8 +457,86 @@ Goal: Reduce cost, eliminate RAM crash risk, consolidate code — zero feature l
 
 ---
 
+## Systems Console Preflight Panel
+
+### TASK-SC-01 . FRONTEND-AGENT . [DONE]
+**Goal:** Add NASA go/no-go preflight board to `dashboard/systems-console.html` (served from systems-console Fly.io app). Use existing `/api/simulator/run` and `/api/simulator/status` endpoints from the simulator bridge hotfix. Panel shows all 37 tests across 9 groups with live STANDBY/POLLING/GO/NO-GO/SCRUB status updates, expandable NO-GO error details, and a final verdict line.
+**Acceptance:** Panel renders in systems console page. INITIATE PREFLIGHT button POSTs to /api/simulator/run and polls results. Tests update in real time. NO-GO rows expand to show error. systems-console/index.html kept in sync.
+**Output artifact:** Updated dashboard/systems-console.html + systems-console/index.html.
+**Depends on:** HOTFIX-SIMULATOR-BRIDGE
+
+---
+
+## Full Preflight Coverage — Every Function Tested
+
+Source: Gap analysis from session 2026-04-08
+Goal: Expand preflight from 37 tests (inference path only) to ~60 tests covering ALL 15 manifest entries
+
+Current coverage: A-I groups cover scanner/inference/ensemble/economics/dashboard.
+Missing: position management, order execution, catalyst ingest, signal ingest, meta-learning, calibration, post-trade analysis, heartbeat, Slack, Alpaca connectivity.
+
+---
+
+### TASK-PF-01 . BACKEND-AGENT . [DONE]
+**Goal:** Add 6 new test groups (J-O) to `scripts/test_system.py`, covering every uncovered manifest entry. Use the existing synthetic data pool pattern. Each test calls the real function with synthetic/empty data and validates the output shape. Approximately 22 new tests:
+
+**GROUP J — POSITION MANAGEMENT (check_order 1000-1099)** — 4 tests
+J1: Import position_manager, assert find_trade_decision() callable.
+J2: compute_atr() with synthetic bars — assert returns float > 0.
+J3: get_positions() from common.py — assert returns list (may be empty).
+J4: get_open_orders() from common.py — assert returns list.
+
+**GROUP K — ORDER EXECUTION (check_order 1100-1199)** — 3 tests
+K1: submit_order() importable from common.py — assert callable (DO NOT call it, just verify import).
+K2: poll_for_fill() importable — assert callable.
+K3: cancel_order() importable — assert callable.
+
+**GROUP L — DATA INGESTION (check_order 1200-1299)** — 5 tests
+L1: catalyst_ingest.classify_catalyst() with synthetic headline — assert returns dict with keys catalyst_type, magnitude, direction.
+L2: catalyst_ingest.check_duplicate() with two different embeddings — assert returns False (not duplicate).
+L3: ingest_signals.score_form4_signal() with synthetic purchase row — assert returns int 1-10.
+L4: ingest_signals.score_options_signal() with synthetic sweep row — assert returns int 1-10.
+L5: catalyst_ingest.fetch_yfinance_signals() with ["SIM_TEST"] — assert returns list (may be empty, validates no crash on unknown ticker).
+
+**GROUP M — META-LEARNING (check_order 1300-1399)** — 4 tests
+M1: meta_analysis.get_pipeline_health() — assert returns dict with keys.
+M2: meta_analysis.get_signal_accuracy() — assert returns dict.
+M3: meta_analysis.get_shadow_divergence_summary() — assert returns dict (already tested in F4 but validates meta_analysis import path).
+M4: meta_analysis.rag_retrieve_context() with synthetic text — assert returns dict.
+
+**GROUP N — CALIBRATION (check_order 1400-1499)** — 3 tests
+N1: calibrator.get_trade_outcomes() — assert returns dict.
+N2: calibrator.grade_chains() with empty outcomes — assert returns tuple (int, int) with (0, 0).
+N3: calibrator.update_pattern_templates() — assert callable. Call it, assert returns int (should be 0 with no new data).
+
+**GROUP O — EXTERNAL SERVICES (check_order 1500-1599)** — 3 tests
+O1: Ollama direct health check — GET http://localhost:11434/api/tags, assert 200, assert model list non-empty.
+O2: Alpaca connectivity — call get_account() from common.py, assert returns dict with 'equity' key.
+O3: Slack connectivity — assert slack_notify importable and callable (DO NOT send a message). Check SLACK_BOT_TOKEN env var is set (length > 0).
+
+All tests follow the existing pattern: try/except wrapped, write to system_health immediately, print GO/NO-GO to terminal. Use the existing synthetic data pool (_synthetic_bars, _synthetic_candidate) where needed. All synthetic data uses ticker "SIM_TEST".
+
+**Acceptance:** `python scripts/test_system.py --dry-run` shows all new groups J-O with results. Total test count ~59. Ruff clean.
+**Output artifact:** Updated test_system.py with ~22 new tests across 6 groups.
+**Depends on:** nothing
+
+### TASK-PF-02 . FRONTEND-AGENT . [READY]
+**Goal:** Update the PREFLIGHT_GROUPS array in `dashboard/systems-console.html` to include groups J-O matching the new test IDs. Update the `complete` threshold in `/api/simulator/status` (server.py) from `total >= 37` to `total >= 59`. Sync systems-console.html to systems-console/index.html.
+**Acceptance:** Systems console preflight board shows all groups A-O. Initiate preflight renders all ~59 tests. No JS errors.
+**Output artifact:** Updated systems-console.html + server.py.
+**Depends on:** TASK-PF-01
+
+### TASK-PF-03 . PICARD . [BLOCKED: TASK-PF-02]
+**Goal:** Deploy and verify. Commit, push, pull on ridley, restart watcher, deploy Fly.io. Run preflight from the systems console and verify all ~59 tests produce GO/NO-GO (zero STANDBY, minimal SCRUB). Post results to Slack.
+**Acceptance:** Preflight runs clean from systems console. All 15 manifest entries have dedicated test coverage. Slack summary posted.
+**Output artifact:** Final summary in PROGRESS.md.
+**Depends on:** TASK-PF-02
+
+---
+
 ## Completed — Prior Sessions
 
+### Optimization Audit (2026-04-08): TASK-OPT-01 through TASK-OPT-11 . [DONE]
 ### System Simulator + NASA Preflight (2026-04-07): TASK-SIM-01 through TASK-SIM-05 . [DONE]
 ### Health Monitor + Signal Diversification (2026-04-07): TASK-HM-01 through TASK-SD-06 + TASK-INT-01 . [DONE]
 ### Adversarial Ensemble Architecture (2026-04-06): TASK-AE-01 through TASK-AE-07 . [DONE]
