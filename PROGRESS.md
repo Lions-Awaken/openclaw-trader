@@ -5,6 +5,31 @@
 
 ---
 
+## HOTFIX-PRODUCTION-LOAD-SIMULATOR . BACKEND-AGENT (Geordi) . DONE — 2026-04-10
+
+### Production Load Simulator (replaces synthetic stress burst)
+
+`_run_stress_burst()` in `scripts/test_system.py` now runs the real scanner
+pipeline instead of synthetic Ollama prompts.
+
+**What each thread does:**
+1. `get_bars(ticker, days=60)` — Alpaca API fetch (free, no cost)
+2. `compute_signals(ticker, bars, spy_bars)` — pure compute, no DB writes
+3. `_enrich_with_options_flow()` + `_enrich_with_form4()` — Supabase reads
+4. `run_inference(..., profile_override={"shadow_type":"REGIME_WATCHER"})` — T1-T3 via Ollama, capped at depth 3, no Claude calls, no DB writes
+
+**P5 test change:** Baseline is now a single real pipeline run (concurrency=1).
+P5 derives degradation from `prod_results` timing — no separate Ollama call.
+
+**Files modified:**
+- `scripts/test_system.py` — `_run_stress_burst()` body replaced, `run_group_p()` baseline + P5 sections rewritten
+
+**No DB writes. No trades executed. Alpaca + Ollama only.**
+
+Commit: fa261c6
+
+---
+
 ## HOTFIX-SIMULATOR-BRIDGE . BACKEND-AGENT (Geordi) . DONE — 2026-04-08
 
 ### Supabase-Bridged Simulator Trigger System
