@@ -609,28 +609,32 @@ def _test_f1() -> tuple[str, str, str | None]:
 
 def _test_f2() -> tuple[str, str, str | None]:
     """Record divergence and verify/clean up."""
+    from datetime import date as _date_cls
+
     from common import sb_get
-    from scanner import _record_divergence
-    from tracer import _sb_client, _sb_headers
+    from tracer import _post_to_supabase, _sb_client, _sb_headers
 
-    # Build synthetic opposite-decision results so _record_divergence actually writes
-    live_result = {
-        "final_decision": "enter",
-        "final_confidence": 0.70,
-        "inference_chain_id": None,
-        "tumblers": [{"depth": 1, "confidence_after": 0.70}],
+    # Build the exact payload that _record_divergence would POST to shadow_divergences.
+    # live=enter (IS entry), shadow=skip (NOT entry) → disagree → write fires.
+    # Called directly via _post_to_supabase to avoid scanner import chain issues and
+    # to capture the return value for a meaningful error message.
+    divergence = {
+        "ticker": "SIM_TEST",
+        "divergence_date": _date_cls.today().isoformat(),
+        "live_profile": "CONSERVATIVE",
+        "live_decision": "enter",
+        "live_confidence": 0.70,
+        "shadow_profile": "SKEPTIC",
+        "shadow_type": "SKEPTIC",
+        "shadow_decision": "skip",
+        "shadow_confidence": 0.30,
+        "shadow_stopping_reason": "confidence_floor",
+        "first_diverged_at_tumbler": 1,
+        "trade_executed": False,
     }
-    shadow_result = {
-        "final_decision": "skip",
-        "final_confidence": 0.30,
-        "inference_chain_id": None,
-        "stopping_reason": "confidence_floor",
-        "tumblers": [{"depth": 1, "confidence_after": 0.30}],
-    }
-    live_profile = {"profile_name": "CONSERVATIVE"}
-    shadow_profile = {"profile_name": "SKEPTIC", "shadow_type": "SKEPTIC"}
-
-    _record_divergence("SIM_TEST", live_result, shadow_result, shadow_profile, live_profile)
+    result = _post_to_supabase("shadow_divergences", divergence)
+    if result is None:
+        return ("NO-GO", "insert returned None", "shadow_divergences POST failed — check tracer stdout for Supabase error")
 
     # Verify row exists
     rows = sb_get("shadow_divergences", {
@@ -790,11 +794,16 @@ def run_group_g(run_id: str | None, dry_run: bool) -> list[TestResult]:
 def _test_h1() -> tuple[str, str, str | None]:
     """Inject synthetic catalyst event."""
     from tracer import _post_to_supabase
+    # catalyst_events NOT NULL columns (no defaults): catalyst_type, headline, source.
+    # catalyst_type must match CHECK constraint enum; source must be one of the
+    # allowed values (finnhub, perplexity, sec_edgar, quiverquant, manual, yfinance, fred).
     row = _post_to_supabase("catalyst_events", {
         "ticker": "SIM_TEST",
-        "event_type": "test",
-        "source": "simulator",
-        "significance": "low",
+        "catalyst_type": "other",
+        "headline": "Simulator synthetic event — safe to delete",
+        "source": "manual",
+        "magnitude": "minor",
+        "direction": "neutral",
     })
     if not row:
         return ("NO-GO", "insert returned None", "Expected non-None from _post_to_supabase")
@@ -939,7 +948,7 @@ def _test_dashboard_endpoint(path: str, expected_item_count: int | None = None) 
     """GET a dashboard endpoint and check response."""
     try:
         import httpx
-        resp = httpx.get(f"http://localhost:8000{path}", timeout=5.0)
+        resp = httpx.get(f"http://localhost:9090{path}", timeout=5.0)
         if resp.status_code == 200:
             data = resp.json()
             if expected_item_count is not None and isinstance(data, list):
@@ -948,11 +957,13 @@ def _test_dashboard_endpoint(path: str, expected_item_count: int | None = None) 
                 if count < expected_item_count:
                     return ("NO-GO", label, f"Expected >= {expected_item_count}, got {count}")
             return ("GO", "HTTP 200", None)
+        if resp.status_code == 401:
+            return ("SCRUB", "auth required", "Dashboard requires authentication — run from ridley with valid session")
         return ("NO-GO", f"HTTP {resp.status_code}", f"Expected 200 from {path}")
     except Exception as exc:
         err_str = str(exc)
         if "Connection refused" in err_str or "ConnectError" in err_str:
-            return ("SCRUB", "connection refused", "Dashboard not running on localhost:8000")
+            return ("SCRUB", "connection refused", "Dashboard not running on localhost:9090")
         return ("NO-GO", "request failed", err_str[:200])
 
 
