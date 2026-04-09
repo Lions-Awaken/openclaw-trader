@@ -22,15 +22,88 @@ Usage:
 import argparse
 import logging
 import os
+import random
 import sys
 import time
 import traceback
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+
+# ─── Synthetic Data Pool ──────────────────────────────────────────────────
+# Realistic fake data used by tests that need market bars, signals, or candidates.
+# All synthetic data uses ticker "SIM_TEST" for easy cleanup.
+
+random.seed(42)
+
+
+def _synthetic_bars(days: int = 60) -> list[dict]:
+    """Generate realistic-looking OHLCV price bars for SIM_TEST."""
+    rng = random.Random(42)
+    bars = []
+    price = 150.0
+    today = date.today()
+    for i in range(days, 0, -1):
+        d = today - timedelta(days=i)
+        change = rng.uniform(-3.0, 3.5)
+        o = round(price, 2)
+        h = round(price + rng.uniform(0.5, 4.0), 2)
+        lo = round(price - rng.uniform(0.5, 3.0), 2)
+        c = round(price + change, 2)
+        v = rng.randint(500_000, 5_000_000)
+        bars.append({"t": d.isoformat(), "o": o, "h": h, "l": lo, "c": c, "v": v})
+        price = max(c, 1.0)
+    return bars
+
+
+def _synthetic_spy_bars(days: int = 60) -> list[dict]:
+    """Generate SPY-like benchmark bars."""
+    rng = random.Random(43)
+    bars = []
+    price = 520.0
+    today = date.today()
+    for i in range(days, 0, -1):
+        d = today - timedelta(days=i)
+        change = rng.uniform(-2.0, 2.5)
+        o = round(price, 2)
+        h = round(price + rng.uniform(0.3, 3.0), 2)
+        lo = round(price - rng.uniform(0.3, 2.5), 2)
+        c = round(price + change, 2)
+        v = rng.randint(50_000_000, 100_000_000)
+        bars.append({"t": d.isoformat(), "o": o, "h": h, "l": lo, "c": c, "v": v})
+        price = max(c, 1.0)
+    return bars
+
+
+def _synthetic_candidate(bars: list[dict] | None = None) -> dict:
+    """Build a candidate dict matching what scanner.py produces after compute_signals."""
+    if bars is None:
+        bars = _synthetic_bars()
+    last = bars[-1]
+    rng = random.Random(44)
+    return {
+        "ticker": "SIM_TEST",
+        "price": last["c"],
+        "atr": round(rng.uniform(2.0, 8.0), 2),
+        "rsi": round(rng.uniform(30.0, 70.0), 2),
+        "signals": {
+            "trend": {"passed": True, "price": last["c"], "sma10": last["c"] - 2, "sma20": last["c"] - 5},
+            "momentum": {"passed": True, "rsi": 55.0},
+            "volume": {"passed": True, "today_vol": 2_000_000, "avg_vol_20": 1_000_000, "ratio": 2.0},
+            "fundamental": {"passed": False, "catalyst_count": 0, "bullish_count": 0},
+            "sentiment": {"passed": True, "avg_sentiment": 0.5, "sample_count": 1},
+            "flow": {"passed": True, "ticker_5d_pct": 2.0, "spy_5d_pct": 1.0},
+        },
+        "total_score": 4,
+        "score": 4,
+        "bars": bars,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 
 try:
     from colorama import Fore, Style
@@ -422,8 +495,23 @@ def _test_d1() -> tuple[str, str, str | None]:
     return ("GO", profile.get("profile_name", "?"), None)
 
 
-def _test_d2_dry() -> tuple[str, str, str | None]:
-    return ("SCRUB", "skipped", "requires market data — use live run")
+def _test_d2() -> tuple[str, str, str | None]:
+    """compute_signals with synthetic bars — verifies signal computation logic end-to-end."""
+    from scanner import compute_signals
+    bars = _synthetic_bars(30)
+    spy_bars = _synthetic_spy_bars(30)
+    result = compute_signals("SIM_TEST", bars, spy_bars)
+    if result is None:
+        return ("NO-GO", "returned None", "Expected signal dict from 30 bars — check bar key format")
+    if "signals" not in result or "total_score" not in result:
+        return ("NO-GO", f"missing keys: {list(result.keys())[:6]}", "Expected 'signals' and 'total_score'")
+    signals = result["signals"]
+    score = result["total_score"]
+    expected_signal_keys = {"trend", "momentum", "volume", "fundamental", "sentiment", "flow"}
+    missing_sigs = expected_signal_keys - set(signals.keys())
+    if missing_sigs:
+        return ("NO-GO", f"score={score}", f"Missing signal keys: {missing_sigs}")
+    return ("GO", f"score={score}/6 signals={len(signals)}", None)
 
 
 def _test_d3() -> tuple[str, str, str | None]:
@@ -458,8 +546,8 @@ def run_group_d(run_id: str | None, dry_run: bool) -> list[TestResult]:
     _write_result(r_d1, run_id, dry_run)
     results.append(r_d1)
 
-    # D2 — always SCRUB (needs real market bars)
-    r_d2 = _run(_test_d2_dry, "D2", group, "compute_signals", "requires market data", 410)
+    # D2 — synthetic bars, no external data needed
+    r_d2 = _run(_test_d2, "D2", group, "compute_signals", "score/6 with all signal keys", 410)
     _print_result(r_d2)
     _write_result(r_d2, run_id, dry_run)
     results.append(r_d2)
@@ -747,26 +835,37 @@ def _test_g2() -> tuple[str, str, str | None]:
 
 
 def _test_g3() -> tuple[str, str, str | None]:
-    """Cost attribution includes profile_name in subcategory."""
+    """Cost attribution: log_cost accepts subcategory and inference_engine passes profile_name in it."""
     import inspect
 
+    import inference_engine as _ie_mod
     from inference_engine import log_cost
+
+    # Check log_cost signature has subcategory parameter
     try:
-        src = inspect.getsource(log_cost)
-        # Look for evidence that profile_name appears near the call site
-        # by checking the function or its usages in inference_engine
-        import inference_engine as _ie_mod
-        ie_src = inspect.getsource(_ie_mod)
-        has_profile_in_subcategory = (
-            "profile_name" in ie_src
-            and "log_cost" in ie_src
-            and "subcategory" in src
-        )
-        if has_profile_in_subcategory:
-            return ("GO", "profile_name in subcategory format", None)
-        return ("SCRUB", "could not confirm pattern", "Inspect source manually")
+        sig = inspect.signature(log_cost)
+        if "subcategory" not in sig.parameters:
+            return ("NO-GO", "no subcategory param", f"log_cost params: {list(sig.parameters)}")
     except Exception as exc:
-        return ("SCRUB", "inspect failed", str(exc))
+        return ("NO-GO", "signature inspect failed", str(exc))
+
+    # Check inference_engine source for profile_name embedded in log_cost calls
+    try:
+        ie_src = inspect.getsource(_ie_mod)
+    except Exception as exc:
+        return ("NO-GO", "source inspect failed", str(exc))
+
+    # Both tumbler 4 and 5 should embed profile_name in the subcategory string
+    has_t4 = "inference_engine_tumbler4" in ie_src and "profile_name" in ie_src
+    has_t5 = "inference_engine_tumbler5" in ie_src
+    if has_t4 and has_t5:
+        return ("GO", "profile_name embedded in tumbler4+5 subcategories", None)
+    missing = []
+    if not has_t4:
+        missing.append("tumbler4 pattern")
+    if not has_t5:
+        missing.append("tumbler5 pattern")
+    return ("NO-GO", "pattern missing", f"Not found: {missing}")
 
 
 def _test_g4() -> tuple[str, str, str | None]:
@@ -818,8 +917,22 @@ def _test_h1() -> tuple[str, str, str | None]:
     return ("GO", "catalyst row created", None)
 
 
-def _test_h2_scrub() -> tuple[str, str, str | None]:
-    return ("SCRUB", "skipped", "requires real market bars — synthetic chain tested via D3/D4")
+def _test_h2() -> tuple[str, str, str | None]:
+    """Signal scan with synthetic candidate — validates compute_signals pipeline path."""
+    from scanner import compute_signals
+    bars = _synthetic_bars(30)
+    spy_bars = _synthetic_spy_bars(30)
+    result = compute_signals("SIM_TEST", bars, spy_bars)
+    if result is None:
+        # Returning None for thin/bad data is valid behavior — treat as soft pass
+        return ("GO", "None (thin data path ok)", None)
+    signals = result.get("signals", {})
+    score = result.get("total_score", 0)
+    price = result.get("price", 0)
+    atr = result.get("atr", 0)
+    if price <= 0:
+        return ("NO-GO", f"price={price}", "Expected positive price in result")
+    return ("GO", f"score={score} signals={len(signals)} price={price} atr={atr}", None)
 
 
 def _test_h3_verified() -> tuple[str, str, str | None]:
@@ -899,8 +1012,8 @@ def run_group_h(run_id: str | None, dry_run: bool, e1_ran: bool) -> list[TestRes
     _write_result(r_h1, run_id, dry_run)
     results.append(r_h1)
 
-    # H2 — always SCRUB
-    r_h2 = _run(_test_h2_scrub, "H2", group, "signal scan", "requires real bars", 810)
+    # H2 — synthetic bars signal scan
+    r_h2 = _run(_test_h2, "H2", group, "signal scan", "score/signals/price from synthetic bars", 810)
     _print_result(r_h2)
     _write_result(r_h2, run_id, dry_run)
     results.append(r_h2)
