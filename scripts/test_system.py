@@ -181,74 +181,134 @@ class StressMetrics:
 
 
 def _run_stress_burst(concurrency: int, metrics: StressMetrics) -> list[dict]:
-    """Fire N concurrent Ollama prompts to stress-test hardware.
+    """Simulate N concurrent scanner runs using real pipeline functions.
 
-    Uses direct HTTP calls to Ollama (not run_inference which short-circuits
-    on synthetic signals). Each thread sends a real prompt that forces the
-    model to generate ~100 tokens, creating genuine CPU/RAM/GPU load.
+    Each thread fetches real market bars from Alpaca, computes signals,
+    enriches with options flow and Form 4, then runs inference through
+    T1-T3 (Ollama only — no Claude API cost).  This is the ACTUAL production
+    workload, not synthetic prompts.
+
+    Nothing is written to the database and no trades are executed.
     """
-    import httpx as _stress_httpx
+    from common import get_bars, sb_get
+    from inference_engine import run_inference
+    from scanner import _enrich_with_form4, _enrich_with_options_flow, compute_signals
 
-    prompts = [
-        "Analyze the risk-reward ratio of buying NVDA at current levels. Consider technical and fundamental factors. Be specific with numbers.",
-        "Compare the semiconductor sector outlook for Q2 2026 with Q1. What changed and what should traders watch?",
-        "Explain three warning signs that a bull market is about to reverse. Use historical examples from 2000 and 2008.",
-        "What are the strongest momentum signals for swing trading in a volatile market? Rank them by reliability.",
-        "Analyze how rising interest rates affect growth stocks differently than value stocks. Give specific sector examples.",
-        "Describe the options flow patterns that precede a large earnings move. How can a trader spot them early?",
-        "Compare the risk profiles of selling covered calls vs buying protective puts in a sideways market.",
-        "What macro indicators should a swing trader monitor daily? Rank by importance for a 5-day holding period.",
-        "Explain how institutional dark pool activity signals upcoming price moves. What thresholds matter?",
-        "Analyze the relationship between VIX levels and optimal position sizing for a $50K swing trading account.",
-    ]
+    # Fixed ticker list — each thread gets a different one
+    tickers = ["NVDA", "AMD", "AAPL", "GOOGL", "AMZN", "MSFT", "TSLA", "META", "NFLX", "AVGO"]
+
+    print(f"  Running {concurrency}x production load simulation...")
+    print("  Each stream: fetch bars -> compute signals -> enrich -> inference (T1-T3)")
+    print(f"  Tickers: {', '.join(tickers[:concurrency])}")
+
+    # Load a SKEPTIC shadow profile to get realistic profile parameters.
+    # Force shadow_type=REGIME_WATCHER so run_inference caps at T3 (no Claude).
+    profiles = sb_get("strategy_profiles", {
+        "select": "*",
+        "profile_name": "eq.SKEPTIC",
+        "limit": "1",
+    })
+    base_profile: dict
+    if profiles:
+        base_profile = dict(profiles[0])
+    else:
+        # Fallback minimal profile if SKEPTIC is not present
+        base_profile = {
+            "profile_name": "STRESS_TEST",
+            "min_signal_score": 2,
+            "min_confidence": 0.45,
+            "max_hold_days": 3,
+            "trade_style": "swing",
+        }
+    # Cap at T3 — REGIME_WATCHER depth limit is 3 (see shadow_profiles.py)
+    base_profile["shadow_type"] = "REGIME_WATCHER"
+    base_profile["min_tumbler_depth"] = 3
+
+    # Fetch SPY bars once and share across all threads (benchmark for flow signal)
+    spy_bars: list[dict] = []
+    try:
+        spy_bars = get_bars("SPY", days=60)
+    except Exception:
+        pass
 
     results: list[dict] = []
     lock = threading.Lock()
 
     def _worker(thread_id: int) -> None:
-        prompt = prompts[thread_id % len(prompts)]
+        ticker = tickers[thread_id % len(tickers)]
+        t0 = time.time()
+        stages_completed: list[str] = []
+
         try:
-            t0 = time.time()
-            resp = _stress_httpx.post(
-                "http://localhost:11434/api/generate",
-                json={
-                    "model": "qwen2.5:3b",
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"num_predict": 150},
-                },
-                timeout=90.0,
+            # Stage 1: Fetch real price bars from Alpaca (free, no cost)
+            bars = get_bars(ticker, days=60)
+            stages_completed.append("bars")
+
+            # Stage 2: Compute technical signals
+            sig_result = compute_signals(ticker, bars, spy_bars)
+            stages_completed.append("signals")
+
+            if sig_result is None:
+                with lock:
+                    results.append({
+                        "thread": thread_id,
+                        "ticker": ticker,
+                        "elapsed_ms": int((time.time() - t0) * 1000),
+                        "stages": stages_completed,
+                        "ok": True,
+                        "note": "thin data — signals returned None",
+                    })
+                return
+
+            # Stage 3: Enrich with options flow + Form 4 (Supabase reads, no writes)
+            candidates = [sig_result]
+            candidates = _enrich_with_options_flow(candidates)
+            candidates = _enrich_with_form4(candidates)
+            enriched = candidates[0]
+            stages_completed.append("enrich")
+
+            # Stage 4: Inference T1-T3 only (Ollama — no Claude API calls)
+            # profile_override with shadow_type=REGIME_WATCHER caps depth at 3
+            profile_copy = dict(base_profile)
+            inf_result = run_inference(
+                ticker=ticker,
+                signals=enriched.get("signals", {}),
+                total_score=enriched.get("total_score", enriched.get("score", 3)),
+                scan_type="shadow_regime_watcher",
+                profile_override=profile_copy,
             )
+            stages_completed.append("inference")
+
             elapsed_ms = int((time.time() - t0) * 1000)
-            data = resp.json()
-            tokens = data.get("eval_count", 0)
             with lock:
                 results.append({
                     "thread": thread_id,
+                    "ticker": ticker,
                     "elapsed_ms": elapsed_ms,
-                    "tokens": tokens,
-                    "ok": resp.status_code == 200,
+                    "stages": stages_completed,
+                    "decision": inf_result.get("final_decision", "?"),
+                    "ok": True,
                 })
         except Exception as exc:
             with lock:
                 results.append({
                     "thread": thread_id,
+                    "ticker": ticker,
                     "elapsed_ms": int((time.time() - t0) * 1000),
-                    "tokens": 0,
+                    "stages": stages_completed,
                     "ok": False,
-                    "error": str(exc),
+                    "error": str(exc)[:200],
                 })
 
     threads = [threading.Thread(target=_worker, args=(i,)) for i in range(concurrency)]
 
-    # Start metrics sampling before firing threads
+    # Start hardware sampling before firing threads
     metrics.start_sampling()
 
-    # Fire all threads simultaneously
     for t in threads:
         t.start()
 
-    # Wait for all to complete (timeout 120s per thread)
+    # Wait for all threads — 120s ceiling per thread
     for t in threads:
         t.join(timeout=120)
 
@@ -1711,7 +1771,7 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int, global_metr
         ("P2", "peak CPU", 1610),
         ("P3", "peak temperature", 1620),
         ("P4", "swap usage", 1630),
-        ("P5", "Ollama latency", 1640),
+        ("P5", "pipeline latency", 1640),
     ]
 
     if dry_run or concurrency <= 1:
@@ -1755,26 +1815,24 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int, global_metr
             results.append(r)
         return results
 
-    # === Baseline: single Ollama call (direct, not through inference engine) ===
-    print(f"  {Fore.YELLOW}  Measuring Ollama baseline latency...{Style.RESET_ALL}")
-    baseline_ms = 5000
+    # === Baseline: single production pipeline run (concurrency=1) ===
+    print(f"  {Fore.YELLOW}  Measuring pipeline baseline (1 stream)...{Style.RESET_ALL}")
+    baseline_ms = 30000  # conservative fallback — full T1-T3 pipeline
+    _baseline_metrics = StressMetrics()
     try:
-        import httpx as _httpx
-        _t0 = time.time()
-        _resp = _httpx.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "qwen2.5:3b", "prompt": "Reply with one word: HEALTHY", "stream": False},
-            timeout=30.0,
-        )
-        baseline_ms = max(1, int((time.time() - _t0) * 1000))
-        print(f"  {Fore.YELLOW}  Baseline: {baseline_ms}ms{Style.RESET_ALL}")
+        _baseline_results = _run_stress_burst(1, _baseline_metrics)
+        if _baseline_results and _baseline_results[0].get("ok"):
+            baseline_ms = max(1, _baseline_results[0]["elapsed_ms"])
+            print(f"  {Fore.YELLOW}  Baseline: {baseline_ms}ms{Style.RESET_ALL}")
+        else:
+            print(f"  {Fore.RED}  Baseline run failed: {_baseline_results}{Style.RESET_ALL}")
     except Exception as _e:
         print(f"  {Fore.RED}  Baseline failed: {_e}{Style.RESET_ALL}")
 
-    # === Stress burst: N concurrent calls ===
-    print(f"  {Fore.YELLOW}  Running {concurrency}x concurrent stress burst...{Style.RESET_ALL}")
+    # === Production load simulation: N concurrent pipeline runs ===
+    print(f"  {Fore.YELLOW}  Running {concurrency}x production load simulation...{Style.RESET_ALL}")
     stress_metrics = StressMetrics()
-    _run_stress_burst(concurrency, stress_metrics)  # results in metrics, not return value
+    prod_results = _run_stress_burst(concurrency, stress_metrics)
 
     total_ram_mb = psutil.virtual_memory().total / 1024 / 1024
 
@@ -1910,63 +1968,56 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int, global_metr
     _write_result(r, run_id, dry_run)
     results.append(r)
 
-    # P5: Ollama latency degradation under concurrent load
-    # Fire N concurrent Ollama calls directly (not through inference engine)
-    ollama_times: list[int] = []
-    ollama_lock = threading.Lock()
+    # P5: Pipeline latency degradation under concurrent load
+    # Derived from actual production pipeline timing — no separate Ollama calls needed.
+    print(f"  {Fore.YELLOW}  Production load results:{Style.RESET_ALL}")
+    for _r in prod_results:
+        _status = "OK" if _r.get("ok") else "FAIL"
+        _decision = _r.get("decision", "")
+        _note = _r.get("note", _r.get("error", ""))
+        print(
+            f"    [{_r['thread']}] {_r.get('ticker', '?')}: "
+            f"{_status} {_r.get('elapsed_ms', 0)}ms "
+            f"stages={_r.get('stages', [])} {_decision} {_note}"
+        )
 
-    def _ollama_worker() -> None:
-        try:
-            import httpx as _hx
-            _t = time.time()
-            _hx.post(
-                "http://localhost:11434/api/generate",
-                json={"model": "qwen2.5:3b", "prompt": "Summarize market sentiment in one sentence.", "stream": False},
-                timeout=60.0,
-            )
-            ms = max(1, int((time.time() - _t) * 1000))
-            with ollama_lock:
-                ollama_times.append(ms)
-        except Exception:
-            pass
-
-    ollama_threads = [threading.Thread(target=_ollama_worker) for _ in range(concurrency)]
-    for ot in ollama_threads:
-        ot.start()
-    for ot in ollama_threads:
-        ot.join(timeout=120)
-
-    if ollama_times:
-        avg_stressed_ms = sum(ollama_times) / len(ollama_times)
+    ok_times = [_r["elapsed_ms"] for _r in prod_results if _r.get("ok")]
+    if ok_times:
+        avg_stressed_ms = sum(ok_times) / len(ok_times)
+        max_stressed_ms = max(ok_times)
         degradation = avg_stressed_ms / max(baseline_ms, 1)
+        _p5_detail = (
+            f"avg={avg_stressed_ms:.0f}ms max={max_stressed_ms}ms "
+            f"baseline={baseline_ms}ms ok={len(ok_times)}/{len(prod_results)}"
+        )
         if degradation > 3.0:
             r = TestResult(
-                "P5", group, "Ollama latency", "NO-GO",
+                "P5", group, "pipeline latency", "NO-GO",
                 f"{degradation:.1f}x baseline ({avg_stressed_ms:.0f}ms vs {baseline_ms}ms)",
                 "< 3x degradation",
-                "Severe latency under load",
+                f"Severe pipeline latency under load. {_p5_detail}",
                 0, 1640,
             )
         else:
             r = TestResult(
-                "P5", group, "Ollama latency", "GO",
+                "P5", group, "pipeline latency", "GO",
                 f"{degradation:.1f}x baseline ({avg_stressed_ms:.0f}ms vs {baseline_ms}ms)",
                 "< 3x degradation",
-                None, 0, 1640,
+                _p5_detail, 0, 1640,
             )
     else:
         r = TestResult(
-            "P5", group, "Ollama latency", "NO-GO",
-            "no results from burst",
+            "P5", group, "pipeline latency", "NO-GO",
+            "no successful runs",
             "< 3x degradation",
-            "All stress threads failed",
+            f"All {len(prod_results)} production load streams failed",
             0, 1640,
         )
     _print_result(r)
     _write_result(r, run_id, dry_run)
     results.append(r)
 
-    # No DB cleanup needed — stress burst uses direct Ollama calls, not run_inference
+    # No DB cleanup needed — production load simulation does not write to any table
 
     return results
 
