@@ -79,7 +79,7 @@ def _write_result(result: TestResult, run_id: str | None, dry_run: bool) -> None
             "run_id": run_id,
             "run_type": "simulator",
             "check_group": result.group,
-            "check_name": result.name,
+            "check_name": f"{result.test_id}: {result.name}",
             "check_order": result.check_order,
             "status": status_map.get(result.status, "skip"),
             "value": result.value,

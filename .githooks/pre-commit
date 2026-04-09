@@ -98,6 +98,39 @@ fi
 
 blank
 
+# ── Check 3: Mypy (type checking) ──────────────────
+if [ "$PY_COUNT" -gt 0 ]; then
+  PY_FILES=$(echo "$STAGED_FILES" | grep '\.py$')
+  if command -v mypy &>/dev/null; then
+    MYPY_OUTPUT=$(echo "$PY_FILES" | xargs mypy --ignore-missing-imports --no-error-summary 2>&1)
+    MYPY_EXIT=$?
+
+    if [ $MYPY_EXIT -eq 0 ]; then
+      row "Mypy (type check) ..................... ${G}PASS${N}" 9
+      row "${D}No type errors in Python files${N}" 4
+      MYPY_OK=true
+    else
+      TYPE_ERRORS=$(echo "$MYPY_OUTPUT" | grep -c ": error" || true)
+      row "Mypy (type check) ..................... ${Y}WARN${N}" 9
+      row "${Y}${TYPE_ERRORS} type issue(s) — review before committing${N}" 9
+      echo "$MYPY_OUTPUT" | grep ": error" | head -5 | while IFS= read -r line; do
+        row "  ${D}${line}${N}" 4
+      done
+      MYPY_OK=true  # Warn only, don't block
+    fi
+  else
+    row "Mypy (type check) ..................... ${D}SKIP${N}" 4
+    row "${D}mypy not installed (pip install mypy)${N}" 4
+    MYPY_OK=true
+  fi
+else
+  row "Mypy (type check) ..................... ${D}SKIP${N}" 4
+  row "${D}No Python files in this commit${N}" 4
+  MYPY_OK=true
+fi
+
+blank
+
 # ── Result ───────────────────────────────────────────
 bar
 
