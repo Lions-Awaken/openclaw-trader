@@ -2676,6 +2676,14 @@ body {
         var summary = data.summary || {};
         var complete = !!(summary.complete);
 
+        console.log('[preflight] poll response:', checks.length, 'checks, summary:', JSON.stringify(summary));
+        if (checks.length > 0) {
+          console.log('[preflight] first check:', JSON.stringify(checks[0]));
+          console.log('[preflight] extractTestId:', extractTestId(checks[0].check_name || ''));
+          var testDot = document.getElementById('pf-dot-' + extractTestId(checks[0].check_name || ''));
+          console.log('[preflight] DOM element pf-dot-' + extractTestId(checks[0].check_name || '') + ':', testDot ? 'FOUND' : 'MISSING');
+        }
+
         // Track which tests have results
         var completedIds = {};
         for (var i = 0; i < checks.length; i++) {
