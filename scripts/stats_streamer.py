@@ -124,13 +124,14 @@ def collect_metrics() -> dict:
         row["mem_percent"] = 0.0
 
     # ── Per-process memory (best-effort; never blocks row insert on failure) ──
+    # int() is required — round(x, 0) returns float, but column is integer type
     try:
-        row["ollama_mem_mb"] = round(get_process_rss_mb("ollama"), 0)
+        row["ollama_mem_mb"] = int(get_process_rss_mb("ollama"))
     except Exception:
         row["ollama_mem_mb"] = 0
 
     try:
-        row["openclaw_mem_mb"] = round(get_process_rss_mb("scanner"), 0)
+        row["openclaw_mem_mb"] = int(get_process_rss_mb("scanner"))
     except Exception:
         row["openclaw_mem_mb"] = 0
 
