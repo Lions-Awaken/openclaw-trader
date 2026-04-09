@@ -848,6 +848,16 @@ body {
   color: var(--text-dim);
   font-family: 'Courier New', monospace;
 }
+.back-to-dash {
+  display: flex;
+  align-items: center;
+  margin-right: 12px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.back-to-dash:hover {
+  opacity: 1;
+}
 </style>
 </head>
 <body>
@@ -867,6 +877,12 @@ body {
   <!-- Header -->
   <header class="header">
     <div class="header-left">
+      <a href="/" class="back-to-dash" title="Back to OpenClaw Dashboard">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      </a>
       <svg class="mjolnir-glow" width="28" height="28" viewBox="0 0 100 100" fill="none">
         <defs>
           <filter id="mjolnir-glow" x="-50%" y="-50%" width="200%" height="200%">
