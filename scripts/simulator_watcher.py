@@ -34,52 +34,50 @@ PROJECT_ROOT: str = os.path.dirname(SCRIPT_DIR)
 
 
 def check_for_triggers() -> str | None:
-    """Return a run_id that has a trigger row but no real results yet, or None."""
+    """Look for unclaimed simulator triggers and atomically claim one."""
     rows = sb_get(
         "system_health",
         {
-            "select": "run_id,created_at",
+            "select": "run_id",
             "run_type": "eq.simulator",
             "check_name": "eq._trigger",
-            "status": "eq.skip",
+            "status": "eq.skip",  # unclaimed
             "order": "created_at.desc",
-            "limit": "5",
+            "limit": "1",
         },
     )
+    if not rows:
+        return None
 
-    for row in rows:
-        run_id: str = row["run_id"]
-        # Check if this run_id already has real results (rows beyond the trigger)
-        results = sb_get(
-            "system_health",
-            {
-                "select": "id",
-                "run_id": f"eq.{run_id}",
-                "check_name": "neq._trigger",
-                "limit": "1",
-            },
-        )
-        if not results:
-            # No real result rows yet — this trigger is unclaimed
-            return run_id
-    return None
+    run_id: str = rows[0]["run_id"]
 
-
-def mark_trigger_started(run_id: str) -> None:
-    """Update the trigger row to 'pass' so subsequent watcher cycles skip it."""
     if not SUPABASE_URL:
-        print("[watcher] No SUPABASE_URL — cannot mark trigger started")
-        return
+        print("[watcher] No SUPABASE_URL — cannot claim trigger")
+        return None
+
+    # Atomically claim it by updating status from skip to pass.
+    # If another watcher already claimed it, this will update 0 rows.
     try:
-        _client.patch(
+        resp = _client.patch(
             f"{SUPABASE_URL}/rest/v1/system_health",
-            headers={**sb_headers(), "Prefer": "return=minimal"},
-            params={"run_id": f"eq.{run_id}", "check_name": "eq._trigger"},
-            json={"status": "pass", "value": "picked up by ridley"},
+            headers={**sb_headers(), "Prefer": "return=representation"},
+            params={
+                "run_id": f"eq.{run_id}",
+                "check_name": "eq._trigger",
+                "status": "eq.skip",  # Only claim if still unclaimed
+            },
+            json={"status": "pass", "value": "claimed by watcher"},
         )
-        print(f"[watcher] Marked trigger started for run_id={run_id}")
+        if resp.status_code == 200 and resp.json():
+            # We successfully claimed it
+            print(f"[watcher] Claimed trigger for run_id={run_id}")
+            return run_id
     except Exception as e:
-        print(f"[watcher] Failed to mark trigger started for run_id={run_id}: {e}")
+        print(f"[watcher] Failed to claim trigger for run_id={run_id}: {e}")
+        return None
+
+    # Another watcher got it first
+    return None
 
 
 def spawn_simulator(run_id: str) -> None:
@@ -110,7 +108,6 @@ def main() -> None:
         try:
             run_id = check_for_triggers()
             if run_id:
-                mark_trigger_started(run_id)
                 spawn_simulator(run_id)
                 # Sleep longer after a spawn to prevent double-triggering during startup
                 time.sleep(30)

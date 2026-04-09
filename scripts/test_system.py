@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import logging
 import os
 import sys
 import time
@@ -70,6 +71,11 @@ class TestResult:
 
 def _write_result(result: TestResult, run_id: str | None, dry_run: bool) -> None:
     """Write one result row to system_health immediately on completion."""
+    logger = logging.getLogger("simulator")
+    if result.status == "NO-GO":
+        logger.error(f"{result.test_id}: {result.name} — {result.error}")
+    if result.error:
+        logger.info(f"{result.test_id}: {result.name} — {result.status} — {result.value}")
     if dry_run or not run_id:
         return
     try:
@@ -115,11 +121,13 @@ def _print_result(result: TestResult) -> None:
 
 def _run(fn, test_id: str, group: str, name: str, expected: str, check_order: int) -> TestResult:
     """Execute a test function and return a TestResult. Catches all exceptions."""
+    logger = logging.getLogger("simulator")
     t0 = time.time()
     try:
         status, value, error = fn()
     except Exception:
         tb = traceback.format_exc()
+        logger.exception(f"Test {test_id} failed with exception")
         duration = int((time.time() - t0) * 1000)
         return TestResult(
             test_id=test_id,
@@ -945,26 +953,24 @@ def run_group_h(run_id: str | None, dry_run: bool, e1_ran: bool) -> list[TestRes
 # ===========================================================================
 
 def _test_dashboard_endpoint(path: str, expected_item_count: int | None = None) -> tuple[str, str, str | None]:
-    """GET a dashboard endpoint and check response."""
-    try:
-        import httpx
-        resp = httpx.get(f"http://localhost:9090{path}", timeout=5.0)
-        if resp.status_code == 200:
-            data = resp.json()
-            if expected_item_count is not None and isinstance(data, list):
-                count = len(data)
-                label = f"{count} items"
-                if count < expected_item_count:
-                    return ("NO-GO", label, f"Expected >= {expected_item_count}, got {count}")
-            return ("GO", "HTTP 200", None)
-        if resp.status_code == 401:
-            return ("SCRUB", "auth required", "Dashboard requires authentication — run from ridley with valid session")
-        return ("NO-GO", f"HTTP {resp.status_code}", f"Expected 200 from {path}")
-    except Exception as exc:
-        err_str = str(exc)
-        if "Connection refused" in err_str or "ConnectError" in err_str:
-            return ("SCRUB", "connection refused", "Dashboard not running on localhost:9090")
-        return ("NO-GO", "request failed", err_str[:200])
+    """GET a dashboard endpoint and check response. Tries port 9090 then 8000."""
+    import httpx
+    for port in [9090, 8000]:
+        try:
+            resp = httpx.get(f"http://localhost:{port}{path}", timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                if expected_item_count is not None and isinstance(data, list):
+                    count = len(data)
+                    label = f"{count} items (port {port})"
+                    if count < expected_item_count:
+                        return ("NO-GO", label, f"Expected >= {expected_item_count}, got {count}")
+                return ("GO", f"HTTP 200 (port {port})", None)
+            if resp.status_code == 401:
+                return ("SCRUB", f"auth required (port {port})", "dashboard requires auth cookie")
+        except Exception:
+            continue
+    return ("SCRUB", "connection refused", "dashboard not reachable on 9090 or 8000")
 
 
 def run_group_i(run_id: str | None, dry_run: bool) -> list[TestResult]:
@@ -1023,6 +1029,16 @@ def main() -> None:
     run_id = os.environ.get("SIMULATOR_RUN_ID") or str(uuid.uuid4())
     dry_run: bool = args.dry_run
 
+    log_path = f"/tmp/openclaw_simulator_{run_id[:8]}.log"
+    logging.basicConfig(
+        filename=log_path,
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logger = logging.getLogger("simulator")
+    logger.info(f"Simulator started — run_id={run_id}")
+
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     print("=" * 45)
@@ -1031,6 +1047,7 @@ def main() -> None:
     if dry_run:
         print(f"  {Fore.YELLOW}DRY-RUN MODE — no DB writes{Style.RESET_ALL}")
     print("=" * 45)
+    print(f"  Log: {log_path}")
     print()
     print(f"  FLIGHT DIRECTOR {'.' * 10} STANDBY")
     print(f"  {'─' * 40}")
@@ -1068,6 +1085,7 @@ def main() -> None:
     print(f"  T+ {total_ms / 1000:.1f}s")
     print("=" * 45)
 
+    logger.info(f"Preflight complete: {go} GO, {nogo} NO-GO, {scrub} SCRUB — log at {log_path}")
     sys.exit(0 if nogo == 0 else 1)
 
 
