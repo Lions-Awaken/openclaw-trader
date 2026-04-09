@@ -127,6 +127,7 @@ Ridley is in **PDT (America/Los_Angeles)**. Crontab uses `SHELL=/bin/bash` (dash
 | ingest_signals.py options | 7:00 M-F | ingest | None | ~1.5GB |
 | position_manager.py | every 30m 6:00–12:45 M-F | position_manager | None | ~1.5GB |
 | meta_analysis.py daily | 13:30 M-F | meta_daily | Claude + embed | ~3.5GB |
+| daily_report.py | 14:00 M-F | daily_report | None | ~0.5GB |
 | meta_analysis.py weekly | 16:00 Sun | meta_weekly | Claude + embed | ~3.5GB |
 | calibrator.py | 16:30 Sun | calibrator | None | ~2.6GB |
 | heartbeat.py | every 5m | heartbeat | None | ~0.5GB |

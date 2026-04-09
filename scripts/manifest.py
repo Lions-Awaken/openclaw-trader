@@ -276,6 +276,18 @@ MANIFEST: list[ManifestEntry] = [
         freshness_hours=1,
         estimated_claude_cost=0.0,
     ),
+    ManifestEntry(
+        name="daily_report",
+        script="scripts/daily_report.py",
+        pipeline_name="daily_report",
+        schedule="0 14 * * 1-5",
+        schedule_desc="2:00 PM PDT weekdays",
+        expected_steps=["root"],
+        criticality="medium",
+        output_validator=lambda snap: snap.get("telegram", False) or snap.get("slack", False),
+        freshness_hours=26,
+        estimated_claude_cost=0.0,
+    ),
 ]
 
 # ─── Event-Triggered Functions (not cron, fired by other scripts) ────────────
