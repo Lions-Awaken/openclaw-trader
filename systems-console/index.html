@@ -121,7 +121,7 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  font-size: 0.55rem;
+  font-size: 13px;
   color: var(--text-dim);
   letter-spacing: 1px;
 }
@@ -173,9 +173,9 @@ body {
   flex-direction: column;
 }
 .panel-label {
-  font-size: 0.5rem;
+  font-size: 14px;
   letter-spacing: 2px;
-  color: var(--text-dim);
+  color: var(--cyan);
   margin-bottom: 8px;
   flex-shrink: 0;
 }
@@ -229,7 +229,7 @@ body {
   color: var(--cyan);
 }
 .text-readout .sub-value {
-  font-size: 0.6rem;
+  font-size: 14px;
   color: var(--text-dim);
   letter-spacing: 1px;
 }
@@ -243,7 +243,7 @@ body {
 /* Cron table */
 .cron-table {
   width: 100%;
-  font-size: 0.48rem;
+  font-size: 14px;
   letter-spacing: 0.5px;
   border-collapse: collapse;
 }
@@ -276,7 +276,7 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  font-size: 0.42rem;
+  font-size: 14px;
   letter-spacing: 0.5px;
   color: var(--text);
   transition: background 0.3s ease;
@@ -303,7 +303,7 @@ body {
   color: var(--cyan);
 }
 .sparkline-values .sub-value {
-  font-size: 0.55rem;
+  font-size: 16px;
   color: var(--text-dim);
 }
 .sparkline-canvas-wrap {
@@ -332,8 +332,8 @@ body {
   gap: 8px;
 }
 .linear-gauge-label {
-  font-size: 0.45rem;
-  color: var(--text-dim);
+  font-size: 14px;
+  color: var(--cyan);
   letter-spacing: 1px;
   width: 55px;
   flex-shrink: 0;
@@ -352,7 +352,7 @@ body {
   transition: width 0.6s ease, background 0.3s ease;
 }
 .linear-gauge-value {
-  font-size: 0.5rem;
+  font-size: 16px;
   color: var(--text);
   width: 50px;
   text-align: right;
@@ -376,7 +376,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.48rem;
+  font-size: 14px;
   color: var(--text-dim);
 }
 .legend-swatch {
@@ -428,7 +428,7 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .modal-title {
-  font-size: 0.7rem;
+  font-size: 16px;
   letter-spacing: 2px;
   color: var(--cyan);
 }
@@ -438,7 +438,7 @@ body {
   border-radius: 4px;
   color: var(--text-dim);
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.5rem;
+  font-size: 14px;
   padding: 4px 10px;
   cursor: pointer;
   letter-spacing: 1px;
@@ -450,9 +450,9 @@ body {
   margin-bottom: 14px;
 }
 .modal-section-title {
-  font-size: 0.45rem;
+  font-size: 14px;
   letter-spacing: 1.5px;
-  color: var(--text-dim);
+  color: var(--cyan);
   margin-bottom: 8px;
 }
 .modal-bar-row {
@@ -462,7 +462,7 @@ body {
   margin-bottom: 6px;
 }
 .modal-bar-label {
-  font-size: 0.42rem;
+  font-size: 13px;
   letter-spacing: 0.5px;
   color: var(--text-dim);
   width: 60px;
@@ -483,7 +483,7 @@ body {
   transition: width 0.4s ease;
 }
 .modal-bar-value {
-  font-size: 0.45rem;
+  font-size: 13px;
   width: 45px;
   text-align: right;
   font-family: 'JetBrains Mono', monospace;
@@ -502,13 +502,13 @@ body {
   text-align: center;
 }
 .modal-zone-name {
-  font-size: 0.38rem;
+  font-size: 12px;
   letter-spacing: 1px;
   color: var(--text-dim);
   margin-bottom: 4px;
 }
 .modal-zone-value {
-  font-size: 0.8rem;
+  font-size: 18px;
   font-weight: 900;
   font-family: 'JetBrains Mono', monospace;
 }
@@ -519,7 +519,7 @@ body {
   justify-content: space-between;
   padding: 5px 0;
   border-bottom: 1px solid var(--border);
-  font-size: 0.45rem;
+  font-size: 14px;
 }
 .modal-mem-label { color: var(--text-dim); letter-spacing: 1px; }
 .modal-mem-value { font-family: 'JetBrains Mono', monospace; text-transform: none; }
@@ -559,9 +559,9 @@ body {
   gap: 10px;
 }
 .preflight-panel-label {
-  font-size: 0.7rem;
+  font-size: 16px;
   letter-spacing: 2px;
-  color: var(--text-dim);
+  color: var(--cyan);
   text-transform: uppercase;
 }
 .preflight-header-right {
@@ -570,7 +570,7 @@ body {
   gap: 14px;
 }
 .preflight-status-text {
-  font-size: 0.55rem;
+  font-size: 16px;
   letter-spacing: 1.5px;
   color: var(--cyan);
   font-family: 'JetBrains Mono', monospace;
@@ -578,15 +578,15 @@ body {
 }
 .preflight-btn {
   background: transparent;
-  border: 1px solid var(--cyan);
+  border: 2px solid var(--cyan);
   border-radius: 5px;
   color: var(--cyan);
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.55rem;
+  font-size: 18px;
   font-weight: 900;
   letter-spacing: 2px;
   text-transform: uppercase;
-  padding: 6px 16px;
+  padding: 10px 24px;
   cursor: pointer;
   position: relative;
   transition: box-shadow 0.2s ease, background 0.2s ease;
@@ -623,10 +623,10 @@ body {
   padding: 10px;
 }
 .preflight-group-name {
-  font-size: 0.5rem;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: 2px;
-  color: var(--text-dim);
+  color: var(--cyan);
   text-transform: uppercase;
   margin-bottom: 8px;
   padding-bottom: 6px;
@@ -649,8 +649,8 @@ body {
 .preflight-row.has-detail:hover { background: rgba(0,255,238,0.03); }
 
 .preflight-dot {
-  width: 8px;
-  height: 8px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   flex-shrink: 0;
   background: rgba(0,255,238,0.12);
@@ -669,16 +669,16 @@ body {
 .preflight-dot.polling { animation: dot-poll 0.9s ease-in-out infinite; }
 
 .preflight-test-id {
-  font-size: 0.45rem;
+  font-size: 16px;
   font-weight: 700;
   color: var(--cyan);
   font-family: 'JetBrains Mono', monospace;
-  width: 24px;
+  width: 32px;
   flex-shrink: 0;
   text-transform: none;
 }
 .preflight-test-name {
-  font-size: 0.45rem;
+  font-size: 16px;
   color: var(--text);
   letter-spacing: 0.3px;
   flex: 1;
@@ -690,10 +690,10 @@ body {
   font-weight: 400;
 }
 .preflight-test-status {
-  font-size: 0.48rem;
+  font-size: 18px;
   font-weight: 900;
   letter-spacing: 1px;
-  width: 52px;
+  width: 72px;
   text-align: right;
   flex-shrink: 0;
 }
@@ -704,12 +704,12 @@ body {
 .preflight-test-status.scrub   { color: var(--amber); text-shadow: 0 0 5px rgba(255,170,0,0.35); }
 
 .preflight-test-val {
-  font-size: 0.45rem;
+  font-size: 16px;
   color: var(--text);
   font-family: 'JetBrains Mono', monospace;
   text-transform: none;
   font-weight: 400;
-  width: 56px;
+  width: 64px;
   text-align: right;
   flex-shrink: 0;
   overflow: hidden;
@@ -717,12 +717,12 @@ body {
   white-space: nowrap;
 }
 .preflight-test-dur {
-  font-size: 0.42rem;
+  font-size: 14px;
   color: var(--text-dim);
   font-family: 'JetBrains Mono', monospace;
   text-transform: none;
   font-weight: 400;
-  width: 40px;
+  width: 52px;
   text-align: right;
   flex-shrink: 0;
 }
@@ -747,20 +747,20 @@ body {
   gap: 4px 12px;
   padding: 8px 12px;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.42rem;
+  font-size: 13px;
   text-transform: none;
   font-weight: 400;
   letter-spacing: 0;
 }
 .preflight-detail-grid .detail-label {
   color: var(--text-dim);
-  font-size: 0.4rem;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 .preflight-detail-grid .detail-value {
   color: var(--text);
-  font-size: 0.42rem;
+  font-size: 13px;
   word-break: break-word;
 }
 
@@ -776,7 +776,7 @@ body {
   gap: 8px;
 }
 .preflight-verdict {
-  font-size: 0.8rem;
+  font-size: 24px;
   font-weight: 900;
   letter-spacing: 3px;
 }
@@ -786,7 +786,7 @@ body {
 .preflight-tally {
   display: flex;
   gap: 16px;
-  font-size: 0.48rem;
+  font-size: 16px;
   font-family: 'JetBrains Mono', monospace;
   text-transform: none;
   color: var(--text-dim);
@@ -1853,7 +1853,7 @@ body {
   function renderCpuDrilldown(body) {
     var cpu = metrics.cpu_usage;
     if (!cpu) {
-      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:0.5rem;">No CPU data available</p>';
+      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:14px;">No CPU data available</p>';
       return;
     }
 
@@ -1909,7 +1909,7 @@ body {
   function renderMemDrilldown(body) {
     var mem = metrics.mem_usage;
     if (!mem) {
-      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:0.5rem;">No memory data available</p>';
+      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:14px;">No memory data available</p>';
       return;
     }
 
@@ -1969,7 +1969,7 @@ body {
   function renderTempDrilldown(body) {
     var temp = metrics.tj_temp;
     if (!temp) {
-      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:0.5rem;">No temperature data available</p>';
+      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:14px;">No temperature data available</p>';
       return;
     }
 
@@ -2036,8 +2036,8 @@ body {
     // Throttle warning
     if (temp.value >= 80) {
       html += '<div class="modal-section" style="padding:10px;background:rgba(255,51,51,0.1);border-radius:6px;border:1px solid rgba(255,51,51,0.3);">';
-      html += '<div style="font-size:0.5rem;color:' + RED + ';letter-spacing:1px;">THERMAL THROTTLE ZONE APPROACHING</div>';
-      html += '<div style="font-size:0.4rem;color:' + TEXT_DIM + ';margin-top:4px;letter-spacing:0.5px;">Clock speeds will reduce above 85C. Current headroom: ' + (85 - temp.value).toFixed(1) + 'C</div>';
+      html += '<div style="font-size:14px;color:' + RED + ';letter-spacing:1px;">THERMAL THROTTLE ZONE APPROACHING</div>';
+      html += '<div style="font-size:13px;color:' + TEXT_DIM + ';margin-top:4px;letter-spacing:0.5px;">Clock speeds will reduce above 85C. Current headroom: ' + (85 - temp.value).toFixed(1) + 'C</div>';
       html += '</div>';
     }
 
