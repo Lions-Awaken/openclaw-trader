@@ -3006,3 +3006,30 @@ TASK-PF-02 (Frontend Agent) must:
 1. Add groups J-O to the `PREFLIGHT_GROUPS` array in `dashboard/systems-console.html`
 2. Update the `complete` threshold in `server.py` `/api/simulator/status` from `total >= 37` to `total >= 59`
 3. Sync `systems-console.html` to `systems-console/index.html`
+
+---
+
+## TASK-PF-02 [DONE] — Frontend Agent
+
+### Files Modified
+- `dashboard/systems-console.html` — added groups J-O to `PREFLIGHT_GROUPS` JS array (lines ~2421-2454)
+- `systems-console/index.html` — synced from systems-console.html via cp
+- `dashboard/server.py` — updated `/api/simulator/status` completion threshold from `>= 37` to `>= 59`
+
+### What Changed
+Added 6 new test groups after the existing group I (DASHBOARD COMMS):
+- **J — POSITION MANAGEMENT**: J1-J4 (find_trade_decision, compute_atr, get_positions, get_open_orders)
+- **K — ORDER EXECUTION**: K1-K3 (submit_order, poll_for_fill, cancel_order)
+- **L — DATA INGESTION**: L1-L5 (classify_catalyst, check_duplicate, score_form4_signal, score_options_signal, fetch_yfinance)
+- **M — META-LEARNING**: M1-M4 (pipeline health, signal accuracy, shadow divergence summary, RAG retrieve)
+- **N — CALIBRATION**: N1-N3 (trade outcomes, grade_chains empty, update_pattern_templates)
+- **O — EXTERNAL SERVICES**: O1-O3 (Ollama health, Alpaca account, Slack connectivity)
+
+Total tests: 37 (A-I) + 22 (J-O) = 59. Orders follow the established pattern (J=1000s, K=1100s, L=1200s, M=1300s, N=1400s, O=1500s).
+
+### Assumptions
+- Test IDs J-O must match what `test_system.py` emits in `check_name` fields (format `"J1: find_trade_decision"` etc.) for the board's `extractTestId` regex to map them correctly. The regex `^([A-Z]\d+)` already handles the new single-digit suffixes.
+- ruff check passed with no issues.
+
+### Follow-on Work (not done here)
+- TASK-PF-03 (Picard): deploy, pull on ridley, restart watcher, run live preflight, post Slack summary.

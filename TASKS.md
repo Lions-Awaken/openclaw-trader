@@ -520,7 +520,7 @@ All tests follow the existing pattern: try/except wrapped, write to system_healt
 **Output artifact:** Updated test_system.py with ~22 new tests across 6 groups.
 **Depends on:** nothing
 
-### TASK-PF-02 . FRONTEND-AGENT . [READY]
+### TASK-PF-02 . FRONTEND-AGENT . [DONE]
 **Goal:** Update the PREFLIGHT_GROUPS array in `dashboard/systems-console.html` to include groups J-O matching the new test IDs. Update the `complete` threshold in `/api/simulator/status` (server.py) from `total >= 37` to `total >= 59`. Sync systems-console.html to systems-console/index.html.
 **Acceptance:** Systems console preflight board shows all groups A-O. Initiate preflight renders all ~59 tests. No JS errors.
 **Output artifact:** Updated systems-console.html + server.py.

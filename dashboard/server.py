@@ -4247,8 +4247,8 @@ async def get_simulator_status(
     go_count = sum(1 for c in checks if c.get("status") == "pass")
     nogo_count = sum(1 for c in checks if c.get("status") == "fail")
     scrub_count = sum(1 for c in checks if c.get("status") == "skip")
-    # The simulator has 37 total tests — consider complete if all have reported
-    complete = total >= 37
+    # The simulator has 59 total tests — consider complete if all have reported
+    complete = total >= 59
 
     return {
         "run_id": run_id,
