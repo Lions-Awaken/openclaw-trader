@@ -331,6 +331,17 @@ EVENT_TRIGGERED: list[ManifestEntry] = [
         criticality="low",
         writes_to_pipeline_runs=False,  # does not write pipeline_runs, manages system_health
     ),
+    ManifestEntry(
+        name="stats_streamer",
+        script="scripts/stats_streamer.py",
+        pipeline_name="stats_streamer",
+        schedule="@reboot",
+        schedule_desc="Persistent daemon on ridley — writes system_stats every 5s for SSE stream",
+        expected_steps=[],
+        criticality="low",
+        writes_to_pipeline_runs=False,  # writes to system_stats table only
+        freshness_hours=None,           # no staleness check — it's a continuous stream
+    ),
 ]
 
 ALL_ENTRIES: list[ManifestEntry] = MANIFEST + EVENT_TRIGGERED
