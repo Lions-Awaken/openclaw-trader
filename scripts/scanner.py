@@ -728,10 +728,10 @@ def _build_and_scan(tracer: PipelineTracer, profile: dict, min_signal: int, open
     with tracer.step("signal_enrichment") as enrich_result:
         candidates = _enrich_with_options_flow(candidates)
         candidates = _enrich_with_form4(candidates)
-        enrich_result.complete(
-            options_flow_tickers=len([c for c in candidates if c["signals"].get("options_flow_net", 0) != 0]),
-            form4_tickers=len([c for c in candidates if c["signals"].get("form4_insider_score", 0) > 0]),
-        )
+        enrich_result.set({
+            "options_flow_tickers": len([c for c in candidates if c["signals"].get("options_flow_net", 0) != 0]),
+            "form4_tickers": len([c for c in candidates if c["signals"].get("form4_insider_score", 0) > 0]),
+        })
 
     return candidates
 
