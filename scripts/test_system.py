@@ -181,52 +181,63 @@ class StressMetrics:
 
 
 def _run_stress_burst(concurrency: int, metrics: StressMetrics) -> list[dict]:
-    """Run N concurrent inference chains and return timing results."""
-    from common import sb_get
-    from inference_engine import run_inference
+    """Fire N concurrent Ollama prompts to stress-test hardware.
 
-    # Load SKEPTIC profile for the stress test
-    profiles = sb_get(
-        "strategy_profiles",
-        {
-            "select": "*",
-            "profile_name": "eq.SKEPTIC",
-            "limit": "1",
-        },
-    )
-    if not profiles:
-        return []
+    Uses direct HTTP calls to Ollama (not run_inference which short-circuits
+    on synthetic signals). Each thread sends a real prompt that forces the
+    model to generate ~100 tokens, creating genuine CPU/RAM/GPU load.
+    """
+    import httpx as _stress_httpx
 
-    profile = profiles[0]
-    bars = _synthetic_bars(30)
-    candidate = _synthetic_candidate(bars)
+    prompts = [
+        "Analyze the risk-reward ratio of buying NVDA at current levels. Consider technical and fundamental factors. Be specific with numbers.",
+        "Compare the semiconductor sector outlook for Q2 2026 with Q1. What changed and what should traders watch?",
+        "Explain three warning signs that a bull market is about to reverse. Use historical examples from 2000 and 2008.",
+        "What are the strongest momentum signals for swing trading in a volatile market? Rank them by reliability.",
+        "Analyze how rising interest rates affect growth stocks differently than value stocks. Give specific sector examples.",
+        "Describe the options flow patterns that precede a large earnings move. How can a trader spot them early?",
+        "Compare the risk profiles of selling covered calls vs buying protective puts in a sideways market.",
+        "What macro indicators should a swing trader monitor daily? Rank by importance for a 5-day holding period.",
+        "Explain how institutional dark pool activity signals upcoming price moves. What thresholds matter?",
+        "Analyze the relationship between VIX levels and optimal position sizing for a $50K swing trading account.",
+    ]
 
     results: list[dict] = []
-    errors: list[dict] = []
     lock = threading.Lock()
 
     def _worker(thread_id: int) -> None:
+        prompt = prompts[thread_id % len(prompts)]
         try:
             t0 = time.time()
-            result = run_inference(
-                ticker=f"SIM_STRESS_{thread_id}",
-                signals=candidate["signals"],
-                total_score=candidate["total_score"],
-                scan_type="shadow_skeptic",
-                profile_override=profile,
+            resp = _stress_httpx.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "qwen2.5:3b",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": 150},
+                },
+                timeout=90.0,
             )
             elapsed_ms = int((time.time() - t0) * 1000)
+            data = resp.json()
+            tokens = data.get("eval_count", 0)
             with lock:
-                results.append(
-                    {
-                        "thread": thread_id,
-                        "decision": result.get("final_decision", "?"),
-                        "elapsed_ms": elapsed_ms,
-                    }
-                )
+                results.append({
+                    "thread": thread_id,
+                    "elapsed_ms": elapsed_ms,
+                    "tokens": tokens,
+                    "ok": resp.status_code == 200,
+                })
         except Exception as exc:
             with lock:
-                errors.append({"thread": thread_id, "error": str(exc)})
+                results.append({
+                    "thread": thread_id,
+                    "elapsed_ms": int((time.time() - t0) * 1000),
+                    "tokens": 0,
+                    "ok": False,
+                    "error": str(exc),
+                })
 
     threads = [threading.Thread(target=_worker, args=(i,)) for i in range(concurrency)]
 
@@ -237,7 +248,7 @@ def _run_stress_burst(concurrency: int, metrics: StressMetrics) -> list[dict]:
     for t in threads:
         t.start()
 
-    # Wait for all to complete (timeout 120s)
+    # Wait for all to complete (timeout 120s per thread)
     for t in threads:
         t.join(timeout=120)
 
@@ -1955,19 +1966,7 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int, global_metr
     _write_result(r, run_id, dry_run)
     results.append(r)
 
-    # Cleanup all SIM_STRESS_* inference chains (baseline thread 0 + N stress threads)
-    try:
-        from tracer import SUPABASE_URL as _SB_URL
-        from tracer import _sb_client, _sb_headers
-
-        for i in range(concurrency + 1):  # +1 for baseline burst (thread 0)
-            _sb_client.delete(
-                f"{_SB_URL}/rest/v1/inference_chains",
-                headers=_sb_headers(),
-                params={"ticker": f"eq.SIM_STRESS_{i}"},
-            )
-    except Exception:
-        pass
+    # No DB cleanup needed — stress burst uses direct Ollama calls, not run_inference
 
     return results
 
