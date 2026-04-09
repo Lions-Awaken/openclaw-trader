@@ -140,11 +140,17 @@ class StressMetrics:
             import psutil
         except ImportError:
             return
+        # Prime the cpu_percent counter (first call always returns 0)
+        psutil.cpu_percent(interval=None)
         while self._sampling:
             try:
                 mem = psutil.virtual_memory()
                 swap = psutil.swap_memory()
-                cpu = psutil.cpu_percent(interval=0.5)
+                # Non-blocking read — returns % since last call
+                cpu = psutil.cpu_percent(interval=None)
+
+                # Real RAM pressure = total - available (matches `free -h`)
+                ram_used_mb = (mem.total - mem.available) / 1024 / 1024
 
                 # Read thermal — try /sys/devices/virtual/thermal
                 temp = 0.0
@@ -158,14 +164,14 @@ class StressMetrics:
                     pass
 
                 with self._lock:
-                    self.peak_ram_mb = max(self.peak_ram_mb, mem.used / 1024 / 1024)
+                    self.peak_ram_mb = max(self.peak_ram_mb, ram_used_mb)
                     self.peak_cpu_pct = max(self.peak_cpu_pct, cpu)
                     self.peak_swap_mb = max(self.peak_swap_mb, swap.used / 1024 / 1024)
                     if temp > 0:
                         self.peak_temp_c = max(self.peak_temp_c, temp)
             except Exception:
                 pass
-            time.sleep(0.5)
+            time.sleep(0.1)  # Sample 10x/sec to catch short bursts
 
 
 def _run_stress_burst(concurrency: int, metrics: StressMetrics) -> list[dict]:
@@ -1732,16 +1738,26 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int) -> list[Tes
             results.append(r)
         return results
 
-    # === Baseline: single inference call ===
-    print(f"  {Fore.YELLOW}  Measuring baseline (1 inference)...{Style.RESET_ALL}")
-    baseline_metrics = StressMetrics()
-    baseline_results = _run_stress_burst(1, baseline_metrics)
-    baseline_ms = baseline_results[0]["elapsed_ms"] if baseline_results else 5000
+    # === Baseline: single Ollama call (direct, not through inference engine) ===
+    print(f"  {Fore.YELLOW}  Measuring Ollama baseline latency...{Style.RESET_ALL}")
+    baseline_ms = 5000
+    try:
+        import httpx as _httpx
+        _t0 = time.time()
+        _resp = _httpx.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "qwen2.5:3b", "prompt": "Reply with one word: HEALTHY", "stream": False},
+            timeout=30.0,
+        )
+        baseline_ms = max(1, int((time.time() - _t0) * 1000))
+        print(f"  {Fore.YELLOW}  Baseline: {baseline_ms}ms{Style.RESET_ALL}")
+    except Exception as _e:
+        print(f"  {Fore.RED}  Baseline failed: {_e}{Style.RESET_ALL}")
 
     # === Stress burst: N concurrent calls ===
     print(f"  {Fore.YELLOW}  Running {concurrency}x concurrent stress burst...{Style.RESET_ALL}")
     stress_metrics = StressMetrics()
-    stress_results = _run_stress_burst(concurrency, stress_metrics)
+    _run_stress_burst(concurrency, stress_metrics)  # results in metrics, not return value
 
     total_ram_mb = psutil.virtual_memory().total / 1024 / 1024
 
@@ -1846,9 +1862,34 @@ def run_group_p(run_id: str | None, dry_run: bool, concurrency: int) -> list[Tes
     _write_result(r, run_id, dry_run)
     results.append(r)
 
-    # P5: Ollama latency degradation under load
-    if stress_results:
-        avg_stressed_ms = sum(sr["elapsed_ms"] for sr in stress_results) / len(stress_results)
+    # P5: Ollama latency degradation under concurrent load
+    # Fire N concurrent Ollama calls directly (not through inference engine)
+    ollama_times: list[int] = []
+    ollama_lock = threading.Lock()
+
+    def _ollama_worker() -> None:
+        try:
+            import httpx as _hx
+            _t = time.time()
+            _hx.post(
+                "http://localhost:11434/api/generate",
+                json={"model": "qwen2.5:3b", "prompt": "Summarize market sentiment in one sentence.", "stream": False},
+                timeout=60.0,
+            )
+            ms = max(1, int((time.time() - _t) * 1000))
+            with ollama_lock:
+                ollama_times.append(ms)
+        except Exception:
+            pass
+
+    ollama_threads = [threading.Thread(target=_ollama_worker) for _ in range(concurrency)]
+    for ot in ollama_threads:
+        ot.start()
+    for ot in ollama_threads:
+        ot.join(timeout=120)
+
+    if ollama_times:
+        avg_stressed_ms = sum(ollama_times) / len(ollama_times)
         degradation = avg_stressed_ms / max(baseline_ms, 1)
         if degradation > 3.0:
             r = TestResult(
