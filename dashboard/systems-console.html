@@ -541,14 +541,12 @@ body {
    PREFLIGHT PANEL
    ================================================================ */
 .preflight-zone {
+  margin-top: 12px;
   margin-bottom: 12px;
 }
+/* .preflight-panel extends .panel — only overrides are listed here */
 .preflight-panel {
-  background: var(--panel-bg);
-  border: 1px solid rgba(0,212,255,0.2);
-  border-radius: 8px;
-  padding: 16px;
-  position: relative;
+  overflow: visible; /* allow group cards to not clip */
 }
 .preflight-panel-header {
   display: flex;
@@ -556,14 +554,15 @@ body {
   justify-content: space-between;
   margin-bottom: 14px;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(0,212,255,0.18);
+  border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
   gap: 10px;
 }
 .preflight-panel-label {
-  font-size: 16px;
+  font-size: 0.7rem;
   letter-spacing: 2px;
-  color: #22d3ee;
+  color: var(--text-dim);
+  text-transform: uppercase;
 }
 .preflight-header-right {
   display: flex;
@@ -571,31 +570,31 @@ body {
   gap: 14px;
 }
 .preflight-status-text {
-  font-size: 16px;
+  font-size: 0.55rem;
   letter-spacing: 1.5px;
-  color: #22d3ee;
+  color: var(--cyan);
   font-family: 'JetBrains Mono', monospace;
   text-transform: uppercase;
 }
 .preflight-btn {
   background: transparent;
-  border: 2px solid var(--cyan);
+  border: 1px solid var(--cyan);
   border-radius: 5px;
   color: var(--cyan);
   font-family: 'Orbitron', sans-serif;
-  font-size: 18px;
+  font-size: 0.55rem;
   font-weight: 900;
   letter-spacing: 2px;
   text-transform: uppercase;
-  padding: 10px 24px;
+  padding: 6px 16px;
   cursor: pointer;
   position: relative;
   transition: box-shadow 0.2s ease, background 0.2s ease;
-  box-shadow: 0 0 14px rgba(0,255,238,0.35), inset 0 0 12px rgba(0,255,238,0.06);
+  box-shadow: 0 0 8px rgba(0,255,238,0.2), inset 0 0 8px rgba(0,255,238,0.04);
 }
 .preflight-btn:hover:not(:disabled) {
-  background: rgba(0,255,238,0.10);
-  box-shadow: 0 0 28px rgba(0,255,238,0.6), inset 0 0 18px rgba(0,255,238,0.10);
+  background: rgba(0,255,238,0.07);
+  box-shadow: 0 0 16px rgba(0,255,238,0.35), inset 0 0 12px rgba(0,255,238,0.06);
 }
 .preflight-btn:disabled {
   opacity: 0.45;
@@ -603,8 +602,8 @@ body {
   box-shadow: none;
 }
 @keyframes preflight-btn-pulse {
-  0%, 100% { box-shadow: 0 0 14px rgba(0,255,238,0.35), inset 0 0 12px rgba(0,255,238,0.06); }
-  50%       { box-shadow: 0 0 32px rgba(0,255,238,0.8), inset 0 0 22px rgba(0,255,238,0.14); }
+  0%, 100% { box-shadow: 0 0 8px rgba(0,255,238,0.2), inset 0 0 8px rgba(0,255,238,0.04); }
+  50%       { box-shadow: 0 0 20px rgba(0,255,238,0.5), inset 0 0 14px rgba(0,255,238,0.08); }
 }
 .preflight-btn.running { animation: preflight-btn-pulse 1.6s ease-in-out infinite; }
 
@@ -618,19 +617,20 @@ body {
 @media (max-width: 768px)  { .preflight-board { grid-template-columns: 1fr; } }
 
 .preflight-group {
-  background: rgba(0,212,255,0.03);
-  border: 1px solid rgba(0,212,255,0.12);
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px;
 }
 .preflight-group-name {
-  font-size: 20px;
+  font-size: 0.5rem;
   font-weight: 700;
   letter-spacing: 2px;
-  color: #22d3ee;
+  color: var(--text-dim);
+  text-transform: uppercase;
   margin-bottom: 8px;
   padding-bottom: 6px;
-  border-bottom: 1px solid rgba(0,212,255,0.18);
+  border-bottom: 1px solid var(--border);
 }
 
 /* Individual check rows */
@@ -639,28 +639,28 @@ body {
   align-items: center;
   gap: 8px;
   padding: 5px 0;
-  border-bottom: 1px solid rgba(0,212,255,0.07);
+  border-bottom: 1px solid var(--border);
   cursor: default;
   transition: background 0.15s ease;
   border-radius: 3px;
 }
 .preflight-row:last-child { border-bottom: none; }
 .preflight-row.has-detail { cursor: pointer; }
-.preflight-row.has-detail:hover { background: rgba(0,212,255,0.05); }
+.preflight-row.has-detail:hover { background: rgba(0,255,238,0.03); }
 
 .preflight-dot {
-  width: 16px;
-  height: 16px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: #1a6b6b;
+  background: rgba(0,255,238,0.12);
   transition: background 0.3s ease, box-shadow 0.3s ease;
 }
-.preflight-dot.standby { background: #1a6b6b; box-shadow: 0 0 4px rgba(0,200,200,0.2); }
-.preflight-dot.polling { background: #00d4ff; box-shadow: 0 0 10px #00d4ff; }
-.preflight-dot.go      { background: var(--green); box-shadow: 0 0 10px var(--green), 0 0 20px rgba(0,255,136,0.4); }
-.preflight-dot.nogo    { background: var(--red);   box-shadow: 0 0 10px var(--red), 0 0 20px rgba(255,51,51,0.4); }
-.preflight-dot.scrub   { background: var(--amber); box-shadow: 0 0 8px var(--amber), 0 0 16px rgba(255,170,0,0.3); }
+.preflight-dot.standby { background: rgba(0,255,238,0.12); box-shadow: none; }
+.preflight-dot.polling { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+.preflight-dot.go      { background: var(--green); box-shadow: 0 0 8px var(--green), 0 0 16px rgba(0,255,136,0.3); }
+.preflight-dot.nogo    { background: var(--red);   box-shadow: 0 0 8px var(--red), 0 0 16px rgba(255,51,51,0.3); }
+.preflight-dot.scrub   { background: var(--amber); box-shadow: 0 0 6px var(--amber), 0 0 12px rgba(255,170,0,0.25); }
 
 @keyframes dot-poll {
   0%, 100% { opacity: 1; }
@@ -669,17 +669,17 @@ body {
 .preflight-dot.polling { animation: dot-poll 0.9s ease-in-out infinite; }
 
 .preflight-test-id {
-  font-size: 16px;
+  font-size: 0.45rem;
   font-weight: 700;
-  color: #22d3ee;
+  color: var(--cyan);
   font-family: 'JetBrains Mono', monospace;
-  width: 28px;
+  width: 24px;
   flex-shrink: 0;
   text-transform: none;
 }
 .preflight-test-name {
-  font-size: 16px;
-  color: #a0e8f0;
+  font-size: 0.45rem;
+  color: var(--text);
   letter-spacing: 0.3px;
   flex: 1;
   overflow: hidden;
@@ -690,26 +690,26 @@ body {
   font-weight: 400;
 }
 .preflight-test-status {
-  font-size: 18px;
+  font-size: 0.48rem;
   font-weight: 900;
   letter-spacing: 1px;
-  width: 68px;
+  width: 52px;
   text-align: right;
   flex-shrink: 0;
 }
-.preflight-test-status.standby { color: rgba(0,200,200,0.45); }
-.preflight-test-status.polling { color: #00d4ff; }
-.preflight-test-status.go      { color: #00ff88; text-shadow: 0 0 8px rgba(0,255,136,0.6); }
-.preflight-test-status.nogo    { color: #ff3366; text-shadow: 0 0 8px rgba(255,51,102,0.6); }
-.preflight-test-status.scrub   { color: #ffaa00; text-shadow: 0 0 6px rgba(255,170,0,0.4); }
+.preflight-test-status.standby { color: var(--text-dim); }
+.preflight-test-status.polling { color: var(--cyan); }
+.preflight-test-status.go      { color: var(--green); text-shadow: 0 0 6px rgba(0,255,136,0.5); }
+.preflight-test-status.nogo    { color: var(--red);   text-shadow: 0 0 6px rgba(255,51,51,0.5); }
+.preflight-test-status.scrub   { color: var(--amber); text-shadow: 0 0 5px rgba(255,170,0,0.35); }
 
 .preflight-test-val {
-  font-size: 16px;
-  color: #22d3ee;
+  font-size: 0.45rem;
+  color: var(--text);
   font-family: 'JetBrains Mono', monospace;
   text-transform: none;
   font-weight: 400;
-  width: 60px;
+  width: 56px;
   text-align: right;
   flex-shrink: 0;
   overflow: hidden;
@@ -717,12 +717,12 @@ body {
   white-space: nowrap;
 }
 .preflight-test-dur {
-  font-size: 14px;
-  color: rgba(0,212,255,0.55);
+  font-size: 0.42rem;
+  color: var(--text-dim);
   font-family: 'JetBrains Mono', monospace;
   text-transform: none;
   font-weight: 400;
-  width: 44px;
+  width: 40px;
   text-align: right;
   flex-shrink: 0;
 }
@@ -730,45 +730,45 @@ body {
 /* Detail expansion panel */
 .preflight-error-row {
   display: none;
-  background: rgba(0,20,30,0.8);
-  border-left: 3px solid rgba(0,212,255,0.3);
-  margin: 0 0 4px 28px;
+  background: rgba(255,255,255,0.02);
+  border-left: 2px solid var(--border);
+  margin: 0 0 4px 24px;
   border-radius: 4px;
   word-break: break-word;
   line-height: 1.5;
 }
 .preflight-error-row.visible { display: block; }
-.preflight-error-row.nogo-border { border-left-color: rgba(255,51,102,0.5); }
-.preflight-error-row.scrub-border { border-left-color: rgba(255,170,0,0.4); }
+.preflight-error-row.nogo-border  { border-left-color: rgba(255,51,51,0.4); }
+.preflight-error-row.scrub-border { border-left-color: rgba(255,170,0,0.35); }
 
 .preflight-detail-grid {
   display: grid;
   grid-template-columns: 100px 1fr;
   gap: 4px 12px;
-  padding: 10px 16px;
+  padding: 8px 12px;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;
+  font-size: 0.42rem;
   text-transform: none;
   font-weight: 400;
   letter-spacing: 0;
 }
 .preflight-detail-grid .detail-label {
-  color: rgba(0,212,255,0.6);
-  font-size: 12px;
+  color: var(--text-dim);
+  font-size: 0.4rem;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 .preflight-detail-grid .detail-value {
-  color: #a0e8f0;
-  font-size: 14px;
+  color: var(--text);
+  font-size: 0.42rem;
   word-break: break-word;
 }
 
 /* Summary / verdict bar */
 .preflight-summary {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(0,212,255,0.18);
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -776,24 +776,24 @@ body {
   gap: 8px;
 }
 .preflight-verdict {
-  font-size: 24px;
+  font-size: 0.8rem;
   font-weight: 900;
   letter-spacing: 3px;
 }
-.preflight-verdict.all-go { color: #00ff88; text-shadow: 0 0 14px rgba(0,255,136,0.6), 0 0 28px rgba(0,255,136,0.3); }
-.preflight-verdict.no-go  { color: #ff3366; text-shadow: 0 0 14px rgba(255,51,102,0.6), 0 0 28px rgba(255,51,102,0.3); }
-.preflight-verdict.pending { color: rgba(0,200,200,0.5); }
+.preflight-verdict.all-go  { color: var(--green); text-shadow: 0 0 10px rgba(0,255,136,0.5), 0 0 22px rgba(0,255,136,0.25); }
+.preflight-verdict.no-go   { color: var(--red);   text-shadow: 0 0 10px rgba(255,51,51,0.5), 0 0 22px rgba(255,51,51,0.25); }
+.preflight-verdict.pending { color: var(--text-dim); }
 .preflight-tally {
   display: flex;
   gap: 16px;
-  font-size: 16px;
+  font-size: 0.48rem;
   font-family: 'JetBrains Mono', monospace;
   text-transform: none;
-  color: #22d3ee;
+  color: var(--text-dim);
 }
-.preflight-tally .tally-go   { color: #00ff88; }
-.preflight-tally .tally-nogo { color: #ff3366; }
-.preflight-tally .tally-scrub { color: #ffaa00; }
+.preflight-tally .tally-go    { color: var(--green); }
+.preflight-tally .tally-nogo  { color: var(--red); }
+.preflight-tally .tally-scrub { color: var(--amber); }
 </style>
 </head>
 <body>
@@ -942,7 +942,7 @@ body {
 
   <!-- Preflight Zone -->
   <div class="preflight-zone">
-    <div class="preflight-panel">
+    <div class="panel preflight-panel">
       <div class="preflight-panel-header">
         <div class="preflight-panel-label">Preflight &mdash; Go / No-Go</div>
         <div class="preflight-header-right">
