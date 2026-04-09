@@ -645,8 +645,8 @@ body {
   border-radius: 3px;
 }
 .preflight-row:last-child { border-bottom: none; }
-.preflight-row.has-error { cursor: pointer; }
-.preflight-row.has-error:hover { background: rgba(255,51,51,0.06); }
+.preflight-row.has-detail { cursor: pointer; }
+.preflight-row.has-detail:hover { background: rgba(0,212,255,0.05); }
 
 .preflight-dot {
   width: 16px;
@@ -727,23 +727,42 @@ body {
   flex-shrink: 0;
 }
 
-/* Error detail expansion */
+/* Detail expansion panel */
 .preflight-error-row {
   display: none;
-  padding: 5px 8px 5px 32px;
-  font-size: 14px;
-  color: #ff3366;
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  border-bottom: 1px solid rgba(255,51,102,0.2);
-  word-break: break-all;
+  background: rgba(0,20,30,0.8);
+  border-left: 3px solid rgba(0,212,255,0.3);
+  margin: 0 0 4px 28px;
+  border-radius: 4px;
+  word-break: break-word;
   line-height: 1.5;
-  background: rgba(255,51,51,0.05);
-  border-radius: 0 0 3px 3px;
 }
 .preflight-error-row.visible { display: block; }
+.preflight-error-row.nogo-border { border-left-color: rgba(255,51,102,0.5); }
+.preflight-error-row.scrub-border { border-left-color: rgba(255,170,0,0.4); }
+
+.preflight-detail-grid {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 4px 12px;
+  padding: 10px 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.preflight-detail-grid .detail-label {
+  color: rgba(0,212,255,0.6);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.preflight-detail-grid .detail-value {
+  color: #a0e8f0;
+  font-size: 14px;
+  word-break: break-word;
+}
 
 /* Summary / verdict bar */
 .preflight-summary {
@@ -2532,15 +2551,23 @@ body {
       board.appendChild(grpEl);
     }
 
-    // Click handler for NO-GO expansion
+    // Click handler — any row with results can expand
     board.addEventListener('click', function(e) {
-      var row = e.target.closest('.preflight-row.has-error');
+      var row = e.target.closest('.preflight-row');
       if (!row) return;
       var id = row.getAttribute('data-testid');
+      if (!pf.results[id]) return; // STANDBY rows have no results yet
       pf.expanded[id] = !pf.expanded[id];
       var errEl = document.getElementById('pf-err-' + id);
       if (errEl) errEl.classList.toggle('visible', !!pf.expanded[id]);
     });
+  }
+
+  // -- XSS-safe escape helper ------------------------------------------
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
   }
 
   // -- Apply a single result to the board ------------------------------
@@ -2574,17 +2601,42 @@ body {
     var row = document.getElementById('pf-row-' + testId);
     var errEl = document.getElementById('pf-err-' + testId);
     if (row && errEl) {
-      if (result.status === 'fail' && result.error_message) {
-        row.classList.add('has-error');
-        errEl.textContent = result.error_message;
-        // Keep expanded state
-        errEl.classList.toggle('visible', !!pf.expanded[testId]);
-      } else {
-        row.classList.remove('has-error');
-        errEl.classList.remove('visible');
-        errEl.textContent = '';
-        delete pf.expanded[testId];
+      // Build detail panel for all completed results
+      var statusLabel2 = result.status === 'pass' ? 'GO' : result.status === 'fail' ? 'NO-GO' : 'SCRUB';
+      var dur2 = result.duration_ms != null ? Math.round(result.duration_ms) + 'ms' : '0ms';
+      var valStr = result.value != null ? String(result.value) : (result.status === 'skip' ? 'skipped' : '—');
+      var expectedStr = result.expected != null ? String(result.expected) : '—';
+      var errorStr = result.error_message || '';
+      var reasonStr = result.reason || '';
+
+      var detailHtml = '<div class="preflight-detail-grid">';
+      detailHtml += '<span class="detail-label">STATUS</span><span class="detail-value">' + esc(statusLabel2) + '</span>';
+      detailHtml += '<span class="detail-label">DURATION</span><span class="detail-value">' + esc(dur2) + '</span>';
+      detailHtml += '<span class="detail-label">VALUE</span><span class="detail-value">' + esc(valStr) + '</span>';
+      if (result.status !== 'skip') {
+        detailHtml += '<span class="detail-label">EXPECTED</span><span class="detail-value">' + esc(expectedStr) + '</span>';
       }
+      if (errorStr) {
+        detailHtml += '<span class="detail-label" style="color:#ff3366">ERROR</span><span class="detail-value" style="color:#ff3366">' + esc(errorStr) + '</span>';
+      }
+      if (reasonStr && result.status === 'skip') {
+        detailHtml += '<span class="detail-label" style="color:#ffaa00">REASON</span><span class="detail-value" style="color:#ffaa00">' + esc(reasonStr) + '</span>';
+      }
+      detailHtml += '</div>';
+
+      errEl.innerHTML = detailHtml;
+
+      // Set border color based on status
+      errEl.classList.remove('nogo-border', 'scrub-border');
+      if (result.status === 'fail') errEl.classList.add('nogo-border');
+      if (result.status === 'skip') errEl.classList.add('scrub-border');
+
+      // Mark row as clickable
+      row.classList.remove('has-error');
+      row.classList.add('has-detail');
+
+      // Restore expanded state if was open before
+      errEl.classList.toggle('visible', !!pf.expanded[testId]);
     }
   }
 
@@ -2620,8 +2672,8 @@ body {
       if (statusEl) { statusEl.className = 'preflight-test-status standby'; statusEl.textContent = 'STANDBY'; }
       if (valEl) valEl.textContent = '';
       if (durEl) durEl.textContent = '';
-      if (row) row.classList.remove('has-error');
-      if (errEl) { errEl.classList.remove('visible'); errEl.textContent = ''; }
+      if (row) { row.classList.remove('has-error'); row.classList.remove('has-detail'); }
+      if (errEl) { errEl.classList.remove('visible', 'nogo-border', 'scrub-border'); errEl.innerHTML = ''; }
     }
     pf.results = {};
     pf.expanded = {};
