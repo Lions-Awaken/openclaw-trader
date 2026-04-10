@@ -1207,115 +1207,658 @@
 
   <!-- ABOUT -->
   <div id="section-about" class="section">
-    <div class="card about-section">
-      <h2>What is OpenClaw Trader?</h2>
-      <p>OpenClaw Trader is an <strong>autonomous swing trading agent</strong> that runs 24/7 on a
-      NVIDIA Jetson Orin Nano. It monitors the US equity market, identifies high-probability setups
-      using a multi-signal hybrid strategy, sizes positions with ATR-based risk management, executes
-      trades via Alpaca Markets, and learns from every outcome through a RAG memory system.</p>
+    <style>
+      /* HOW IT WORKS — section-specific styles */
+      .hiw-section-header {
+        font-family: 'Orbitron', monospace;
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: var(--cyan);
+        margin: 0 0 16px 0;
+        letter-spacing: 0.5px;
+      }
+      .hiw-body {
+        font-size: 1rem;
+        line-height: 1.8;
+        color: rgba(224, 224, 232, 0.88);
+      }
+      .hiw-body p {
+        margin-bottom: 14px;
+      }
+      .hiw-body strong {
+        color: var(--text);
+      }
 
-      <p>The agent is <strong>aggressive but bounded</strong> &mdash; it hunts for real edge while
-      enforcing hard risk limits: 5% risk per trade, max 3 concurrent positions, circuit breakers
-      for consecutive losses, weekly drawdowns, and VIX spikes. When in doubt, it does nothing.
-      Cash is a position.</p>
+      /* Cron table */
+      .hiw-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+        margin-top: 8px;
+      }
+      .hiw-table th {
+        text-align: left;
+        padding: 10px 14px;
+        font-family: 'Orbitron', monospace;
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--cyan);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        border-bottom: 2px solid var(--border);
+        background: rgba(34, 211, 238, 0.04);
+      }
+      .hiw-table td {
+        padding: 11px 14px;
+        border-bottom: 1px solid rgba(30, 30, 46, 0.6);
+        vertical-align: top;
+        line-height: 1.6;
+        color: rgba(224, 224, 232, 0.85);
+        font-size: 0.93rem;
+      }
+      .hiw-table tr:hover td {
+        background: rgba(34, 211, 238, 0.025);
+      }
+      .hiw-table td:first-child {
+        font-weight: 700;
+        color: var(--cyan);
+        white-space: nowrap;
+        font-size: 0.88rem;
+      }
+      .hiw-table td:nth-child(2) {
+        font-weight: 600;
+        color: var(--purple);
+        white-space: nowrap;
+      }
+
+      /* Tumbler chain cards */
+      .tumbler-chain {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .tumbler-card {
+        border-left: 4px solid var(--border);
+        border-radius: 0 10px 10px 0;
+        padding: 18px 20px;
+        margin-bottom: 4px;
+        position: relative;
+        transition: border-left-color 0.2s;
+      }
+      .tumbler-card:hover {
+        border-left-color: var(--cyan);
+      }
+      .tumbler-card.t1 { border-left-color: rgba(34, 211, 238, 0.6); background: rgba(34, 211, 238, 0.03); }
+      .tumbler-card.t2 { border-left-color: rgba(34, 211, 238, 0.5); background: rgba(34, 211, 238, 0.025); }
+      .tumbler-card.t3 { border-left-color: rgba(139, 92, 246, 0.5); background: rgba(139, 92, 246, 0.03); }
+      .tumbler-card.t4 { border-left-color: rgba(139, 92, 246, 0.65); background: rgba(139, 92, 246, 0.04); }
+      .tumbler-card.t5 { border-left-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.03); }
+      .tumbler-card.tgate { border-left-color: rgba(34, 197, 94, 0.6); background: rgba(34, 197, 94, 0.03); }
+
+      .tumbler-card-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .tumbler-badge {
+        font-family: 'Orbitron', monospace;
+        font-size: 0.78rem;
+        font-weight: 900;
+        padding: 3px 10px;
+        border-radius: 6px;
+        letter-spacing: 1px;
+        white-space: nowrap;
+      }
+      .tumbler-badge.t1 { color: var(--cyan); border: 1px solid rgba(34, 211, 238, 0.4); background: rgba(34, 211, 238, 0.08); }
+      .tumbler-badge.t2 { color: var(--cyan); border: 1px solid rgba(34, 211, 238, 0.35); background: rgba(34, 211, 238, 0.06); }
+      .tumbler-badge.t3 { color: var(--purple); border: 1px solid rgba(139, 92, 246, 0.4); background: rgba(139, 92, 246, 0.08); }
+      .tumbler-badge.t4 { color: var(--purple); border: 1px solid rgba(139, 92, 246, 0.5); background: rgba(139, 92, 246, 0.1); }
+      .tumbler-badge.t5 { color: var(--red); border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08); }
+      .tumbler-badge.tgate { color: var(--green); border: 1px solid rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.08); }
+
+      .tumbler-title {
+        font-weight: 700;
+        font-size: 1.02rem;
+        color: var(--text);
+      }
+      .tumbler-cost {
+        margin-left: auto;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 2px 10px;
+        border-radius: 12px;
+      }
+      .tumbler-cost.free { color: var(--green); background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.25); }
+      .tumbler-cost.cheap { color: var(--yellow); background: rgba(234, 179, 8, 0.1); border: 1px solid rgba(234, 179, 8, 0.25); }
+      .tumbler-cost.expensive { color: var(--red); background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); }
+
+      .tumbler-body {
+        font-size: 0.93rem;
+        line-height: 1.7;
+        color: rgba(224, 224, 232, 0.82);
+      }
+      .tumbler-body ul {
+        margin: 6px 0 0 0;
+        padding-left: 18px;
+      }
+      .tumbler-body li {
+        margin-bottom: 4px;
+      }
+
+      .tumbler-connector {
+        width: 2px;
+        height: 12px;
+        background: var(--border);
+        margin-left: 28px;
+      }
+
+      /* Shadow agent table */
+      .hiw-agent-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.93rem;
+        margin-top: 8px;
+      }
+      .hiw-agent-table th {
+        text-align: left;
+        padding: 10px 14px;
+        font-family: 'Orbitron', monospace;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--cyan);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        border-bottom: 2px solid var(--border);
+        background: rgba(34, 211, 238, 0.04);
+      }
+      .hiw-agent-table td {
+        padding: 11px 14px;
+        border-bottom: 1px solid rgba(30, 30, 46, 0.6);
+        vertical-align: top;
+        line-height: 1.6;
+        color: rgba(224, 224, 232, 0.85);
+        font-size: 0.92rem;
+      }
+      .hiw-agent-table tr:hover td { background: rgba(139, 92, 246, 0.025); }
+      .hiw-agent-table td:first-child {
+        font-family: 'Orbitron', monospace;
+        font-size: 0.78rem;
+        font-weight: 800;
+        color: var(--cyan);
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+      }
+      .hiw-agent-table td:nth-child(2) {
+        font-size: 0.82rem;
+        color: var(--dim);
+        white-space: nowrap;
+      }
+
+      /* Infra table */
+      .hiw-infra-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.93rem;
+        margin-top: 8px;
+      }
+      .hiw-infra-table th {
+        text-align: left;
+        padding: 10px 14px;
+        font-family: 'Orbitron', monospace;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--cyan);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        border-bottom: 2px solid var(--border);
+        background: rgba(34, 211, 238, 0.04);
+      }
+      .hiw-infra-table td {
+        padding: 11px 14px;
+        border-bottom: 1px solid rgba(30, 30, 46, 0.6);
+        vertical-align: top;
+        line-height: 1.6;
+        color: rgba(224, 224, 232, 0.85);
+        font-size: 0.92rem;
+      }
+      .hiw-infra-table tr:hover td { background: rgba(34, 211, 238, 0.025); }
+      .hiw-infra-table td:first-child {
+        font-family: 'Orbitron', monospace;
+        font-size: 0.8rem;
+        font-weight: 800;
+        color: var(--cyan);
+        white-space: nowrap;
+      }
+
+      /* Budget gate */
+      .budget-gate {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+      .budget-tier {
+        flex: 1;
+        min-width: 180px;
+        padding: 14px 16px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+      }
+      .budget-tier.high { border-color: rgba(34, 197, 94, 0.3); background: rgba(34, 197, 94, 0.04); }
+      .budget-tier.mid { border-color: rgba(234, 179, 8, 0.3); background: rgba(234, 179, 8, 0.04); }
+      .budget-tier.low { border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.04); }
+      .budget-tier .bt-threshold {
+        font-family: 'Orbitron', monospace;
+        font-size: 0.82rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      .budget-tier.high .bt-threshold { color: var(--green); }
+      .budget-tier.mid .bt-threshold { color: var(--yellow); }
+      .budget-tier.low .bt-threshold { color: var(--red); }
+      .budget-tier .bt-desc { font-size: 0.9rem; color: rgba(224, 224, 232, 0.8); }
+
+      /* Calibration steps */
+      .calib-steps {
+        counter-reset: calib-counter;
+        padding-left: 0;
+        list-style: none;
+        margin: 8px 0;
+      }
+      .calib-steps li {
+        counter-increment: calib-counter;
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+        padding: 12px 0;
+        border-bottom: 1px solid rgba(30, 30, 46, 0.5);
+        font-size: 0.95rem;
+        line-height: 1.7;
+        color: rgba(224, 224, 232, 0.85);
+      }
+      .calib-steps li:last-child { border-bottom: none; }
+      .calib-steps li::before {
+        content: counter(calib-counter);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(139, 92, 246, 0.15);
+        border: 1px solid rgba(139, 92, 246, 0.3);
+        color: var(--purple);
+        font-family: 'Orbitron', monospace;
+        font-size: 0.75rem;
+        font-weight: 800;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+
+      /* Circuit breaker list */
+      .circuit-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 10px;
+        margin-top: 8px;
+      }
+      .circuit-list li {
+        padding: 14px 16px;
+        border-left: 3px solid rgba(239, 68, 68, 0.5);
+        border-radius: 0 8px 8px 0;
+        background: rgba(239, 68, 68, 0.04);
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: rgba(224, 224, 232, 0.85);
+      }
+      .circuit-list li strong { color: var(--text); }
+
+      /* Interactive workflow button */
+      .hiw-workflow-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 28px;
+        border: 2px solid var(--cyan);
+        border-radius: 10px;
+        background: rgba(34, 211, 238, 0.06);
+        color: var(--cyan);
+        font-family: 'Orbitron', monospace;
+        font-size: 0.9rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-decoration: none;
+        transition: all 0.2s;
+        cursor: pointer;
+      }
+      .hiw-workflow-btn:hover {
+        background: rgba(34, 211, 238, 0.12);
+        box-shadow: 0 0 20px rgba(34, 211, 238, 0.2);
+        color: var(--cyan);
+        text-decoration: none;
+      }
+
+      .hiw-formula {
+        font-family: monospace;
+        font-size: 0.95rem;
+        background: rgba(0,0,0,0.3);
+        padding: 10px 16px;
+        border-radius: 8px;
+        border-left: 3px solid rgba(139, 92, 246, 0.4);
+        color: var(--purple);
+        margin: 10px 0;
+        display: inline-block;
+        width: 100%;
+      }
+
+      @media (max-width: 768px) {
+        .hiw-section-header { font-size: 1.1rem; }
+        .budget-gate { flex-direction: column; }
+        .circuit-list { grid-template-columns: 1fr; }
+      }
+    </style>
+
+    <!-- SECTION 1 — What is openclaw-trader? -->
+    <div class="card">
+      <h2 class="hiw-section-header">What is openclaw-trader?</h2>
+      <div class="hiw-body">
+        <p>openclaw-trader is an autonomous AI swing trading system running 24/7 on <strong>ridley</strong> &mdash; a NVIDIA Jetson Orin Nano 8GB. It monitors a <strong>39-ticker watchlist</strong> of AI infrastructure stocks (NVDA, AMD, AVGO, SMCI, MRVL and others), identifies high-probability swing setups using a multi-stage AI reasoning chain, and executes paper trades via the Alpaca API.</p>
+        <p>The system is built around an <strong>adversarial ensemble</strong>: one live profile makes trading decisions, while <strong>6 shadow agents</strong> run in parallel, silently evaluating the same candidates and recording their disagreements. Those disagreements become training data for a weekly calibration loop that learns which agents are consistently right.</p>
+        <p>The system is <strong>conservative by design</strong>. When in doubt, it does nothing. Cash is a position.</p>
+      </div>
     </div>
 
-    <div class="card about-section">
-      <h2>The 6-Signal System</h2>
-      <p>A trade requires <strong>minimum 4 of 6 signals aligned</strong> before entry:</p>
+    <!-- SECTION 2 — Daily Cron Timeline -->
+    <div class="card">
+      <h2 class="hiw-section-header">Daily Cron Timeline</h2>
+      <div style="overflow-x:auto">
+        <table class="hiw-table">
+          <thead>
+            <tr>
+              <th>Time (ET)</th>
+              <th>Pipeline</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>5:00 AM</td><td>Health Check</td><td>59 automated checks across 13 groups. Alerts to Slack on failure.</td></tr>
+            <tr><td>5:30 AM</td><td>Catalyst Ingest</td><td>5-source market catalyst detection &mdash; finnhub, SEC EDGAR, QuiverQuant, yfinance, FRED</td></tr>
+            <tr><td>6:00 AM</td><td>Form 4 Ingest</td><td>SEC EDGAR insider filing signals</td></tr>
+            <tr><td>6:35 AM</td><td>Scanner (morning)</td><td>Full scan pipeline &mdash; see below</td></tr>
+            <tr><td>7:00 AM</td><td>Options Flow Ingest</td><td>Unusual options activity signals</td></tr>
+            <tr><td>9:00 AM</td><td>Catalyst Ingest</td><td>Second catalyst run before midday scan</td></tr>
+            <tr><td>9:30 AM</td><td>Scanner (midday)</td><td>Same pipeline, second run</td></tr>
+            <tr><td>Every 30m</td><td>Position Manager</td><td>Trailing stops, time stops, EOD flatten</td></tr>
+            <tr><td>1:30 PM</td><td>Meta Daily</td><td>Claude reflects on shadow divergences, flags unanimous dissent</td></tr>
+            <tr><td>2:00 PM</td><td>Daily Report</td><td>Ops report to Telegram + Slack</td></tr>
+            <tr><td>Sunday 4:00 PM</td><td>Meta Weekly</td><td>Weekly strategy review + pattern discovery</td></tr>
+            <tr><td>Sunday 4:30 PM</td><td>Calibrator</td><td>Grades past divergences, updates DWM weights per agent</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SECTION 3 — The Scanner Pipeline (T1–T5) -->
+    <div class="card">
+      <h2 class="hiw-section-header">The Scanner Pipeline — T1 through T5 Tumbler Chain</h2>
+      <div class="tumbler-chain">
+
+        <div class="tumbler-card t1">
+          <div class="tumbler-card-header">
+            <span class="tumbler-badge t1">T1</span>
+            <span class="tumbler-title">Signal Scoring</span>
+            <span class="tumbler-cost free">FREE</span>
+          </div>
+          <div class="tumbler-body">
+            <p>39 watchlist tickers scored against 6 binary signals: Trend, Momentum, Volume, Catalyst, Sentiment, Flow</p>
+            <ul>
+              <li>Score 0&ndash;6. Only tickers scoring &ge; 3 advance.</li>
+              <li>Pure computation &mdash; no AI inference involved.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tumbler-connector"></div>
+
+        <div class="tumbler-card t2">
+          <div class="tumbler-card-header">
+            <span class="tumbler-badge t2">T2</span>
+            <span class="tumbler-title">Fundamental Analysis (RAG)</span>
+            <span class="tumbler-cost free">FREE</span>
+          </div>
+          <div class="tumbler-body">
+            <ul>
+              <li>Retrieves similar past inference chains and trade learnings via pgvector similarity search</li>
+              <li>Congressional trade disclosures get confidence boost if filed within 40 days</li>
+              <li>Hard veto if sentiment score &lt; &minus;0.5</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tumbler-connector"></div>
+
+        <div class="tumbler-card t3">
+          <div class="tumbler-card-header">
+            <span class="tumbler-badge t3">T3</span>
+            <span class="tumbler-title">Flow &amp; Cross-Asset (Ollama on ridley GPU)</span>
+            <span class="tumbler-cost free">FREE (local)</span>
+          </div>
+          <div class="tumbler-body">
+            <ul>
+              <li>First LLM call &mdash; runs locally on ridley's Jetson GPU via Ollama (<code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">qwen2.5:3b</code>)</li>
+              <li>Analyzes how this setup compares to past chains and outcomes</li>
+              <li>Confidence adjustment: &plusmn;0.10</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tumbler-connector"></div>
+
+        <div class="tumbler-card t4">
+          <div class="tumbler-card-header">
+            <span class="tumbler-badge t4">T4</span>
+            <span class="tumbler-title">Pattern Match (Claude Haiku &mdash; Anthropic API)</span>
+            <span class="tumbler-cost cheap">~$0.001/call</span>
+          </div>
+          <div class="tumbler-body">
+            <ul>
+              <li>Matches against known pattern templates with documented outcomes</li>
+              <li>Evaluates quality and coherence of the full trade thesis</li>
+              <li>Confidence adjustment: &plusmn;0.10</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tumbler-connector"></div>
+
+        <div class="tumbler-card t5">
+          <div class="tumbler-card-header">
+            <span class="tumbler-badge t5">T5</span>
+            <span class="tumbler-title">Counterfactual (Claude Sonnet &mdash; Anthropic API)</span>
+            <span class="tumbler-cost expensive">~$0.005/call</span>
+          </div>
+          <div class="tumbler-body">
+            <ul>
+              <li>Devil's advocate &mdash; constructs the strongest argument AGAINST the trade</li>
+              <li>Asymmetric adjustment: can drop confidence by 0.15 but raise it only 0.05</li>
+              <li>Most expensive tumbler; only fires when budget allows</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tumbler-connector"></div>
+
+        <div class="tumbler-card tgate">
+          <div class="tumbler-card-header">
+            <span class="tumbler-badge tgate">GATE</span>
+            <span class="tumbler-title">Execution Gate</span>
+          </div>
+          <div class="tumbler-body">
+            <p>Trade only executes if <strong>ALL THREE</strong> conditions are met:</p>
+            <ul>
+              <li>Decision = <code style="background:rgba(34,197,94,0.12);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--green)">enter</code> or <code style="background:rgba(34,197,94,0.12);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--green)">strong_enter</code></li>
+              <li>Final confidence &ge; 0.60</li>
+              <li>At least 3 tumblers completed</li>
+            </ul>
+            <p style="margin-top:10px;font-size:0.88rem;color:var(--dim)">
+              Stopping rules: <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">veto_signal</code> &nbsp;
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">confidence_floor</code> &nbsp;
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">time_limit</code> &nbsp;
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">resource_limit</code> &nbsp;
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">congress_signal_stale</code>
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- SECTION 3.5 — Interactive Workflow Widget -->
+    <div class="card" style="text-align:center;padding:32px 24px">
+      <h2 class="hiw-section-header" style="margin-bottom:12px">Interactive Workflow</h2>
+      <p class="hiw-body" style="margin-bottom:24px;color:var(--dim)">Full end-to-end pipeline visualization &mdash; scanner to execution gate</p>
+      <a href="/static/openclaw_workflow_interactive.html" target="_blank" class="hiw-workflow-btn">
+        Open Interactive Workflow &rarr;
+      </a>
+    </div>
+
+    <!-- SECTION 4 — The Adversarial Ensemble -->
+    <div class="card">
+      <h2 class="hiw-section-header">The Adversarial Ensemble &mdash; 6 Shadow Agents</h2>
+
+      <p class="hiw-body" style="margin-bottom:16px">Six agents silently evaluate every candidate the live profile sees, then record their verdict. Their disagreements are training data.</p>
+
+      <div class="budget-gate">
+        <div class="budget-tier high">
+          <div class="bt-threshold">&ge; 40% Claude budget</div>
+          <div class="bt-desc">All 6 shadows run</div>
+        </div>
+        <div class="budget-tier mid">
+          <div class="bt-threshold">20&ndash;40% Claude budget</div>
+          <div class="bt-desc">Regime Watcher, Form 4 Insider, and Kronos only</div>
+        </div>
+        <div class="budget-tier low">
+          <div class="bt-threshold">&lt; 20% Claude budget</div>
+          <div class="bt-desc">Kronos only (zero API cost)</div>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="hiw-agent-table">
+          <thead>
+            <tr>
+              <th>Agent</th>
+              <th>Type</th>
+              <th>Persona</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>SKEPTIC</td>
+              <td>LLM (Claude)</td>
+              <td>Require overwhelming evidence. Confidence floors HIGH.</td>
+            </tr>
+            <tr>
+              <td>CONTRARIAN</td>
+              <td>LLM (Claude)</td>
+              <td>Assume the trade is wrong. Find reasons NOT to enter.</td>
+            </tr>
+            <tr>
+              <td>REGIME_WATCHER</td>
+              <td>LLM (Ollama only)</td>
+              <td>Ignore the ticker. Is this a good time to enter ANYTHING?</td>
+            </tr>
+            <tr>
+              <td>OPTIONS_FLOW</td>
+              <td>LLM (Claude)</td>
+              <td>Primary signal: unusual options activity &mdash; sweeps, dark pool.</td>
+            </tr>
+            <tr>
+              <td>FORM4_INSIDER</td>
+              <td>LLM (Claude)</td>
+              <td>Primary signal: Form 4 purchase filings. CFOs = strongest signal.</td>
+            </tr>
+            <tr>
+              <td>KRONOS_TECHNICALS</td>
+              <td>GPU (Jetson, no LLM)</td>
+              <td>Pure price pattern. 50 Monte Carlo paths, 15-bar OHLCV horizon.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SECTION 5 — The Calibration Loop -->
+    <div class="card">
+      <h2 class="hiw-section-header">The Calibration Loop &mdash; DWM</h2>
+      <p class="hiw-body" style="margin-bottom:16px">Every Sunday, the calibrator grades all ungraded divergences from the past 30 days:</p>
+      <ol class="calib-steps">
+        <li>Fetches ungraded <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">shadow_divergences</code> where <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">shadow_was_right</code> is null</li>
+        <li>Grades each: was the shadow agent right to dissent?
+          <ul style="margin-top:6px;padding-left:18px;font-size:0.9rem;color:var(--dim)">
+            <li>Kronos: checks actual close price at 10 trading days after signal</li>
+            <li>LLM agents: checks <code style="background:rgba(0,0,0,0.2);padding:1px 5px;border-radius:3px;font-size:0.82rem">inference_chains.actual_outcome</code></li>
+          </ul>
+        </li>
+        <li>Fitness score: <span class="hiw-formula">fitness = times_correct / times_dissented</span></li>
+        <li>DWM weight: <span class="hiw-formula">new_weight = 1.0 &times; (1 + 0.5 &times; (fitness &minus; median_fitness))</span>&nbsp;&nbsp;<span style="font-size:0.85rem;color:var(--dim)">clamped [0.05, 3.0]</span></li>
+      </ol>
+    </div>
+
+    <!-- SECTION 6 — Meta Daily Reflection -->
+    <div class="card">
+      <h2 class="hiw-section-header">Meta Daily Reflection &mdash; 1:30 PM</h2>
+      <p class="hiw-body" style="margin-bottom:16px">Every afternoon, Claude reviews the day's shadow divergences looking for <strong>unanimous dissent</strong> &mdash; all 6 shadows simultaneously disagreed with the live profile. If found:</p>
       <div class="signal-list">
-        <div class="signal-item"><span class="num">Signal 1</span> &mdash; <strong>Trend</strong> (30-35%): Price above 21 EMA, 21 EMA above 50 EMA, price above 200 SMA</div>
-        <div class="signal-item"><span class="num">Signal 2</span> &mdash; <strong>Momentum</strong> (20-25%): RSI(14) between 35-65 or Williams %R crossing above -80</div>
-        <div class="signal-item"><span class="num">Signal 3</span> &mdash; <strong>Volume</strong> (15%): OBV trending up 3+ days, volume 1.5x 20-day average on breakouts</div>
-        <div class="signal-item"><span class="num">Signal 4</span> &mdash; <strong>Fundamental Catalyst</strong> (15%): Earnings beat, analyst upgrade, CapEx news</div>
-        <div class="signal-item"><span class="num">Signal 5</span> &mdash; <strong>Sentiment</strong> (10-15%): Finnhub + Perplexity news score > +0.3 (below -0.5 is a hard veto)</div>
-        <div class="signal-item"><span class="num">Signal 6</span> &mdash; <strong>Flow</strong> (optional): Unusual options activity, insider buying, congressional trades</div>
+        <div class="signal-item"><span class="num">1</span> Full divergence data injected into Claude Sonnet prompt as HIGH PRIORITY</div>
+        <div class="signal-item"><span class="num">2</span> Instruction: "Analyze what the shadows saw that the live profile missed"</div>
+        <div class="signal-item"><span class="num">3</span> Output written to <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">meta_reflections</code> table</div>
+        <div class="signal-item"><span class="num">4</span> The reflection becomes RAG context for future T2 tumbler calls</div>
       </div>
     </div>
 
-    <div class="card about-section">
-      <h2>Technology Stack</h2>
-      <div class="tool-grid">
-        <div class="tool-card">
-          <div class="name">Jetson Orin Nano</div>
-          <div class="desc">Always-on ARM edge computer. 8GB RAM, GPU-accelerated inference. Runs the entire trading pipeline locally.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">OpenClaw Runtime</div>
-          <div class="desc">AI agent daemon with cron scheduling, MCP tool integration, and persistent memory. Orchestrates all trading operations.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">Qwen 2.5 3B (Ollama)</div>
-          <div class="desc">Local LLM for fast screening, regime checks, and midday portfolio reviews. Free, no API calls, instant inference on Jetson GPU.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">Claude Sonnet 4.6 (Anthropic)</div>
-          <div class="desc">Heavy reasoning model for pre-market scans, signal evaluation, trade decisions, and nightly reflections. Used when precision matters.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">Alpaca Markets + MCP Server</div>
-          <div class="desc">Commission-free trading API with 43 MCP tool endpoints. Paper and live trading, fractional shares, real-time market data.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">Supabase pgvector</div>
-          <div class="desc">PostgreSQL with vector embeddings for RAG memory. Every trade decision is embedded and searchable &mdash; the agent learns from similar past setups.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">Finnhub + Perplexity</div>
-          <div class="desc">Real-time market news, sentiment scoring, insider trading data, and AI-powered research synthesis.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">Telegram Bot</div>
-          <div class="desc">Trade approval flow for positions over $100. Sends alerts, P&L updates, and end-of-day summaries directly to your phone.</div>
-        </div>
+    <!-- SECTION 7 — Infrastructure -->
+    <div class="card">
+      <h2 class="hiw-section-header">Infrastructure</h2>
+      <div style="overflow-x:auto">
+        <table class="hiw-infra-table">
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>What it is</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>ridley</td><td>NVIDIA Jetson Orin Nano 8GB &mdash; all trading scripts, Ollama, Kronos GPU inference</td></tr>
+            <tr><td>motherbrain</td><td>Orchestrator machine where Picard lives</td></tr>
+            <tr><td>Supabase</td><td>PostgreSQL + pgvector RAG database</td></tr>
+            <tr><td>Alpaca</td><td>Paper trading API</td></tr>
+            <tr><td>Ollama</td><td>Local LLM runtime on ridley (qwen2.5:3b) &mdash; zero API cost</td></tr>
+            <tr><td>Anthropic API</td><td>Claude Haiku (T4) and Claude Sonnet (T5, meta daily)</td></tr>
+            <tr><td>Kronos-small</td><td>24.7M parameter financial time series model on ridley GPU</td></tr>
+            <tr><td>Fly.io</td><td>Dashboard hosting (openclaw-trader-dash.fly.dev)</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <div class="card about-section">
-      <h2>Daily Schedule (Eastern Time)</h2>
-      <div class="tool-grid">
-        <div class="tool-card">
-          <div class="name">8:45 AM &mdash; Pre-Market Scan</div>
-          <div class="desc">Regime check, circuit breaker check, full watchlist scan, signal evaluation for candidates scoring 4+, position sizing, Telegram alerts.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">9:35 AM &mdash; Market Open</div>
-          <div class="desc">Check all open positions against current prices. Execute pending exits for stop losses or profit targets hit at open.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">12:30 PM &mdash; Midday Check</div>
-          <div class="desc">Review positions vs stop/target levels. Check for regime shifts. Scan sentiment for news since morning.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">4:05 PM &mdash; Market Close</div>
-          <div class="desc">Time stop enforcement (day 10 = forced exit). Update position log. Nightly reflection &mdash; what worked, what didn't, pattern recognition.</div>
-        </div>
-        <div class="tool-card">
-          <div class="name">Sunday 6 PM &mdash; Weekly Maintenance</div>
-          <div class="desc">Watchlist cleanup, new candidate screening, sector news review, weekly P&L summary to Telegram.</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card about-section">
-      <h2>Risk Management</h2>
-      <p>The agent enforces these rules without exception:</p>
-      <ul>
-        <li><strong>Max risk per trade:</strong> 5% of account ($25 on a $500 base)</li>
-        <li><strong>Position sizing:</strong> ATR-based stops determine share count (never manual)</li>
-        <li><strong>Stop loss:</strong> 1.5x ATR below entry &mdash; never moved down, only up</li>
-        <li><strong>Max concurrent positions:</strong> 3</li>
-        <li><strong>Time stop:</strong> Force exit after 10 trading days regardless of P&L</li>
-        <li><strong>Take profit ladder:</strong> 40% at 1.5R, 40% at 2.5R, 20% trailing at 1x ATR</li>
-      </ul>
-      <h3>Circuit Breakers</h3>
-      <ul>
-        <li><strong>3 consecutive losses</strong> &rarr; 24hr pause + 50% position size for next 5 trades</li>
-        <li><strong>Weekly loss &ge; 8%</strong> &rarr; Halt until Monday</li>
-        <li><strong>Account drawdown &ge; 15%</strong> &rarr; Full halt, requires manual approval</li>
-        <li><strong>VIX > 28</strong> &rarr; No new entries</li>
+    <!-- SECTION 8 — Circuit Breakers and Risk Limits -->
+    <div class="card">
+      <h2 class="hiw-section-header">Circuit Breakers and Risk Limits</h2>
+      <ul class="circuit-list">
+        <li><strong>VIX &gt; 28</strong> &rarr; scanner stands down for the session</li>
+        <li><strong>Portfolio drawdown &gt; 15%</strong> &rarr; circuit breaker trips</li>
+        <li><strong>3 consecutive losses</strong> &rarr; circuit breaker trips</li>
+        <li><strong>Max 3 concurrent positions</strong></li>
+        <li><strong>5% max risk per trade</strong> (ATR-based sizing)</li>
+        <li><strong>10-day max hold period</strong> (time stop)</li>
       </ul>
     </div>
+
   </div>
 
   <!-- LOGGING -->
