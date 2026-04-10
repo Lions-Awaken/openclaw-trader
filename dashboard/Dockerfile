@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir \
     anthropic==0.88.0
 
 COPY server.py index.html login.html theme.css systems-console.html ./
+COPY static/ ./static/
 
 # Non-root user
 RUN adduser --disabled-password --no-create-home appuser
