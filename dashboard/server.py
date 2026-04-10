@@ -3960,6 +3960,28 @@ async def get_shadow_unanimous(
     return sorted(unanimous, key=lambda x: x["date"], reverse=True)
 
 
+@app.get("/api/shadow/kronos/latest")
+async def get_shadow_kronos_latest(request: Request, oc_session: str | None = Cookie(None)):
+    _require_auth(request, oc_session)
+    # Query shadow_divergences for the most recent KRONOS_TECHNICALS entries
+    # Returns: ticker, shadow_decision, shadow_confidence (bullish_prob),
+    #          divergence_date, live_decision
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/shadow_divergences",
+        headers=sb_headers(),
+        params={
+            "select": "ticker,shadow_decision,shadow_confidence,live_decision,divergence_date,created_at",
+            "shadow_profile": "eq.KRONOS_TECHNICALS",
+            "order": "created_at.desc",
+            "limit": "10",
+        },
+    )
+    if resp.status_code != 200:
+        return []
+    return resp.json()
+
+
 # ============================================================================
 # System Health API Routes
 # ============================================================================

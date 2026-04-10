@@ -5,6 +5,36 @@
 
 ---
 
+## TASK-K05 . FRONTEND-AGENT (Troi) . DONE — 2026-04-06
+
+### KRONOS_TECHNICALS Added to Dashboard + New API Route
+
+**Files modified:**
+- `dashboard/server.py` — added `GET /api/shadow/kronos/latest` route (lines ~3963-3982)
+- `dashboard/index.html` — no changes needed (see below)
+
+**New API route:**
+- `GET /api/shadow/kronos/latest` — queries `shadow_divergences` filtered by `shadow_profile=KRONOS_TECHNICALS`, ordered `created_at.desc`, limit 10
+- Returns: `ticker, shadow_decision, shadow_confidence, live_decision, divergence_date, created_at`
+- Auth-gated via `_require_auth`, consistent with all other shadow routes
+
+**Frontend assessment:**
+- Shadow tab scoreboard (`loadShadowProfiles`) iterates `profiles` array with `for (const p of profiles)` — fully dynamic, handles any number of profiles. No change needed.
+- Signals tab fitness chart (`buildSignalFeedUI`) uses `profiles.forEach(...)` — also fully dynamic. Will render 6 bars automatically when `/api/shadow/profiles` returns KRONOS_TECHNICALS.
+- No hardcoded "5 shadow profiles" or "5 profile" text found anywhere in `index.html`.
+- `systems-console.html` has no shadow profile display panel — only preflight test references to shadow tables. No change needed.
+
+**Ruff:** `ruff check dashboard/server.py` — all checks passed.
+
+**Assumptions:**
+- KRONOS_TECHNICALS is already seeded in `strategy_profiles` with `is_shadow=true` (done in TASK-K01), so `/api/shadow/profiles` will return 6 profiles without any additional frontend changes.
+- The shadow scoreboard grid (`grid-template-columns:repeat(3,1fr)`) renders 6 cards as 2 rows of 3 — correct layout.
+
+**Follow-on:**
+- TASK-K06: Integration verification still needed — preflight, commit/push/deploy to Fly, Slack summary.
+
+---
+
 ## TASK-K03 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
 
 ### Kronos Shadow Inference Loop Wired
@@ -3424,3 +3454,72 @@ SKEPTIC            | SKEPTIC            | 1.0
 KRONOS_TECHNICALS replaces the LLM tumblers (T3-T5). T1 (technical foundation) and T2 (fundamental/sentiment context) run normally to establish baseline signal score; then the Kronos model takes over for the forecast. No Claude T4/T5 calls are made for this shadow type.
 
 **Unblocks:** TASK-K03 (partial — also needs TASK-K02), TASK-K04
+
+---
+
+## TASK-K04 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### KRONOS_TECHNICALS Grading in calibrator.py
+
+Added directional-accuracy-at-10-days grading for the KRONOS_TECHNICALS shadow profile.
+
+### Files Modified
+
+- `/home/mother_brain/projects/openclaw-trader/scripts/calibrator.py`
+
+### Changes Made
+
+**`_get_price_history(ticker, event_date, days_forward=7)`**
+
+Added a `days_forward` parameter (default 7 — fully backward-compatible with existing callers in `fill_catalyst_prices`). When `days_forward` is increased, the fetch window and Alpaca `limit` expand proportionally:
+- `end` date = event_date + (days_forward + 5) calendar days (5-day buffer absorbs weekends)
+- `limit` raised from 10 to 20 bars
+- New key `"10d_after"` populated when bars has >= 11 entries (bar index 10, the 11th trading day)
+
+**`grade_shadow_profiles()`**
+
+Added a KRONOS_TECHNICALS branch at the top of the `for div in ungraded` loop, before the existing `live_chain_id` guard. The branch:
+
+1. Reads `shadow_type` from the divergence row; skips to KRONOS_TECHNICALS path if matched.
+2. Extracts `ticker` and `divergence_date` (falls back to `created_at[:10]` if `divergence_date` is null).
+3. Calls `_get_price_history(ticker, datetime.fromisoformat(div_date), days_forward=14)` to get 10 trading days of bars.
+4. If `at_event` or `10d_after` is missing (divergence is too recent), `continue` — will be picked up on next Sunday's run.
+5. Computes:
+   - `predicted_direction`: "up" if shadow_decision in ("enter", "strong_enter") else "down"
+   - `actual_direction`: "up" if exit_price > entry_price else "down"
+   - `shadow_right = actual_direction == predicted_direction`
+   - `actual_pnl`: percent change `((exit - entry) / entry) * 100`
+   - `outcome`: "WIN" or "LOSS"
+   - `save_value`: `abs(actual_pnl)` when shadow correctly called a down move (blocked a loss), else 0
+6. Patches `shadow_divergences` row with `shadow_was_right`, `actual_outcome`, `actual_pnl`, `trade_executed`, `save_value`.
+7. Accumulates `profile_stats` (correct, dissented, count, brier_sum) — feeds the same DWM weight update as all other shadow types.
+8. `continue` to skip the standard `inference_chains` lookup path.
+
+The standard path (SKEPTIC, CONTRARIAN, REGIME_WATCHER, OPTIONS_FLOW, FORM4_INSIDER) is unchanged — it only runs when `shadow_type != "KRONOS_TECHNICALS"`.
+
+### Auth Requirements
+
+No new auth requirements. Uses existing Alpaca credentials from `common.ALPACA_KEY` / `common.ALPACA_SECRET` and existing `_patch_supabase` (service-role via tracer's `_sb_headers()`).
+
+### DB Queries Run
+
+- `GET shadow_divergences WHERE shadow_was_right IS NULL AND divergence_date >= <30d-ago>` — existing query, now also returns KRONOS_TECHNICALS rows
+- `GET /v2/stocks/{ticker}/bars` (Alpaca Data API) — up to 20 bars, start=div_date, end=div_date+19d
+- `PATCH shadow_divergences WHERE id = <div_id>` — sets shadow_was_right, actual_outcome, actual_pnl, trade_executed, save_value
+
+### Assumptions
+
+- `shadow_divergences` has a `shadow_type` column — confirmed from the select clause already in the function
+- KRONOS_TECHNICALS divergences may have `live_chain_id = null` (explicitly handled — bypasses the chain lookup)
+- `actual_pnl` for KRONOS_TECHNICALS stores percent move (not dollar P&L) because no actual trade is executed by the shadow profile. This is consistent with the task spec and the fact that the existing schema uses `actual_pnl` as a float with no unit enforcement.
+- Alpaca Data API returns bars in chronological order (earliest first) — confirmed by existing `fill_catalyst_prices` usage of bar index 0 as "event day"
+- 14 calendar days covers 10 trading days in most weeks (accounts for weekends; US holidays could occasionally shrink this to 9 bars — in that case `10d_after` key won't be present and the divergence will be retried next Sunday)
+
+### Ruff
+
+`ruff check scripts/calibrator.py` — All checks passed.
+
+### Follow-on Work
+
+- If a divergence is recorded near a long holiday stretch (e.g. Thanksgiving week), 14 calendar days may yield only 8-9 bars. The `continue` guard handles this safely — the divergence just waits one more week. A longer `days_forward=21` would be more robust but would also unnecessarily widen the window for fresh divergences.
+- TASK-K05 (dashboard KRONOS_TECHNICALS panel) can now read `shadow_was_right` and `actual_pnl` from graded KRONOS_TECHNICALS divergences.

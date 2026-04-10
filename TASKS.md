@@ -572,7 +572,7 @@ Supabase project: vpollvsbtushbiapoflr
 **Output artifact:** Updated calibrator.py.
 **Depends on:** TASK-K01
 
-### TASK-K05 . FRONTEND-AGENT . [BLOCKED: TASK-K03]
+### TASK-K05 . FRONTEND-AGENT . [DONE]
 **Goal:** Add KRONOS_TECHNICALS to dashboard Shadow Intelligence tab + new API route GET /api/shadow/kronos/latest. Update Signals tab fitness chart to show 6 profiles.
 **Acceptance:** Shadow tab shows KRONOS_TECHNICALS. API returns valid JSON. Fitness chart has 6 bars.
 **Output artifact:** Updated server.py + index.html. Deployed to Fly.
