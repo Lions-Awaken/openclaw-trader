@@ -1600,6 +1600,35 @@
         .budget-gate { flex-direction: column; }
         .circuit-list { grid-template-columns: 1fr; }
       }
+
+      /* Collapsible section headers */
+      .hiw-collapse-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        padding: 4px 0;
+      }
+      .hiw-collapse-header:hover {
+        opacity: 0.8;
+      }
+      .hiw-chevron {
+        font-size: 20px;
+        color: var(--cyan, #22d3ee);
+        transition: transform 0.3s ease;
+        flex-shrink: 0;
+        margin-left: 12px;
+      }
+      .hiw-collapse-body {
+        overflow: hidden;
+        transition: max-height 0.4s ease, opacity 0.3s ease;
+      }
+      .hiw-collapse-body.collapsed {
+        max-height: 0 !important;
+        opacity: 0;
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+      }
     </style>
 
     <!-- INTERACTIVE WORKFLOW WIDGET — top of How It Works tab -->
@@ -1622,48 +1651,62 @@
 
     <!-- SECTION 1 — What is openclaw-trader? -->
     <div class="card">
-      <h2 class="hiw-section-header">What is openclaw-trader?</h2>
-      <div class="hiw-body">
-        <p>openclaw-trader is an autonomous AI swing trading system running 24/7 on <strong>ridley</strong> &mdash; a NVIDIA Jetson Orin Nano 8GB. It monitors a <strong>39-ticker watchlist</strong> of AI infrastructure stocks (NVDA, AMD, AVGO, SMCI, MRVL and others), identifies high-probability swing setups using a multi-stage AI reasoning chain, and executes paper trades via the Alpaca API.</p>
-        <p>The system is built around an <strong>adversarial ensemble</strong>: one live profile makes trading decisions, while <strong>6 shadow agents</strong> run in parallel, silently evaluating the same candidates and recording their disagreements. Those disagreements become training data for a weekly calibration loop that learns which agents are consistently right.</p>
-        <p>The system is <strong>conservative by design</strong>. When in doubt, it does nothing. Cash is a position.</p>
+      <div class="hiw-collapse-header" onclick="toggleHiwSection(1)">
+        <h2 class="hiw-section-header" style="margin:0;">What is openclaw-trader?</h2>
+        <span class="hiw-chevron" id="hiw-chevron-1">&#9660;</span>
+      </div>
+      <div class="hiw-collapse-body" id="hiw-body-1">
+        <div class="hiw-body" style="margin-top:16px;">
+          <p>openclaw-trader is an autonomous AI swing trading system running 24/7 on <strong>ridley</strong> &mdash; a NVIDIA Jetson Orin Nano 8GB. It monitors a <strong>39-ticker watchlist</strong> of AI infrastructure stocks (NVDA, AMD, AVGO, SMCI, MRVL and others), identifies high-probability swing setups using a multi-stage AI reasoning chain, and executes paper trades via the Alpaca API.</p>
+          <p>The system is built around an <strong>adversarial ensemble</strong>: one live profile makes trading decisions, while <strong>6 shadow agents</strong> run in parallel, silently evaluating the same candidates and recording their disagreements. Those disagreements become training data for a weekly calibration loop that learns which agents are consistently right.</p>
+          <p>The system is <strong>conservative by design</strong>. When in doubt, it does nothing. Cash is a position.</p>
+        </div>
       </div>
     </div>
 
     <!-- SECTION 2 — Daily Cron Timeline -->
     <div class="card">
-      <h2 class="hiw-section-header">Daily Cron Timeline</h2>
-      <div style="overflow-x:auto">
-        <table class="hiw-table">
-          <thead>
-            <tr>
-              <th>Time (ET)</th>
-              <th>Pipeline</th>
-              <th>What it does</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>5:00 AM</td><td>Health Check</td><td>59 automated checks across 13 groups. Alerts to Slack on failure.</td></tr>
-            <tr><td>5:30 AM</td><td>Catalyst Ingest</td><td>5-source market catalyst detection &mdash; finnhub, SEC EDGAR, QuiverQuant, yfinance, FRED</td></tr>
-            <tr><td>6:00 AM</td><td>Form 4 Ingest</td><td>SEC EDGAR insider filing signals</td></tr>
-            <tr><td>6:35 AM</td><td>Scanner (morning)</td><td>Full scan pipeline &mdash; see below</td></tr>
-            <tr><td>7:00 AM</td><td>Options Flow Ingest</td><td>Unusual options activity signals</td></tr>
-            <tr><td>9:00 AM</td><td>Catalyst Ingest</td><td>Second catalyst run before midday scan</td></tr>
-            <tr><td>9:30 AM</td><td>Scanner (midday)</td><td>Same pipeline, second run</td></tr>
-            <tr><td>Every 30m</td><td>Position Manager</td><td>Trailing stops, time stops, EOD flatten</td></tr>
-            <tr><td>1:30 PM</td><td>Meta Daily</td><td>Claude reflects on shadow divergences, flags unanimous dissent</td></tr>
-            <tr><td>2:00 PM</td><td>Daily Report</td><td>Ops report to Telegram + Slack</td></tr>
-            <tr><td>Sunday 4:00 PM</td><td>Meta Weekly</td><td>Weekly strategy review + pattern discovery</td></tr>
-            <tr><td>Sunday 4:30 PM</td><td>Calibrator</td><td>Grades past divergences, updates DWM weights per agent</td></tr>
-          </tbody>
-        </table>
+      <div class="hiw-collapse-header" onclick="toggleHiwSection(2)">
+        <h2 class="hiw-section-header" style="margin:0;">Daily Cron Timeline</h2>
+        <span class="hiw-chevron" id="hiw-chevron-2">&#9660;</span>
+      </div>
+      <div class="hiw-collapse-body" id="hiw-body-2">
+        <div style="overflow-x:auto; margin-top:16px;">
+          <table class="hiw-table">
+            <thead>
+              <tr>
+                <th>Time (ET)</th>
+                <th>Pipeline</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>5:00 AM</td><td>Health Check</td><td>59 automated checks across 13 groups. Alerts to Slack on failure.</td></tr>
+              <tr><td>5:30 AM</td><td>Catalyst Ingest</td><td>5-source market catalyst detection &mdash; finnhub, SEC EDGAR, QuiverQuant, yfinance, FRED</td></tr>
+              <tr><td>6:00 AM</td><td>Form 4 Ingest</td><td>SEC EDGAR insider filing signals</td></tr>
+              <tr><td>6:35 AM</td><td>Scanner (morning)</td><td>Full scan pipeline &mdash; see below</td></tr>
+              <tr><td>7:00 AM</td><td>Options Flow Ingest</td><td>Unusual options activity signals</td></tr>
+              <tr><td>9:00 AM</td><td>Catalyst Ingest</td><td>Second catalyst run before midday scan</td></tr>
+              <tr><td>9:30 AM</td><td>Scanner (midday)</td><td>Same pipeline, second run</td></tr>
+              <tr><td>Every 30m</td><td>Position Manager</td><td>Trailing stops, time stops, EOD flatten</td></tr>
+              <tr><td>1:30 PM</td><td>Meta Daily</td><td>Claude reflects on shadow divergences, flags unanimous dissent</td></tr>
+              <tr><td>2:00 PM</td><td>Daily Report</td><td>Ops report to Telegram + Slack</td></tr>
+              <tr><td>Sunday 4:00 PM</td><td>Meta Weekly</td><td>Weekly strategy review + pattern discovery</td></tr>
+              <tr><td>Sunday 4:30 PM</td><td>Calibrator</td><td>Grades past divergences, updates DWM weights per agent</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- SECTION 3 — The Scanner Pipeline (T1–T5) -->
     <div class="card">
-      <h2 class="hiw-section-header">The Scanner Pipeline — T1 through T5 Tumbler Chain</h2>
-      <div class="tumbler-chain">
+      <div class="hiw-collapse-header" onclick="toggleHiwSection(3)">
+        <h2 class="hiw-section-header" style="margin:0;">The Scanner Pipeline &mdash; T1 through T5 Tumbler Chain</h2>
+        <span class="hiw-chevron" id="hiw-chevron-3">&#9660;</span>
+      </div>
+      <div class="hiw-collapse-body" id="hiw-body-3">
+      <div class="tumbler-chain" style="margin-top:16px;">
 
         <div class="tumbler-card t1">
           <div class="tumbler-card-header">
@@ -1773,13 +1816,18 @@
         </div>
 
       </div>
+      </div>
     </div>
 
     <!-- SECTION 4 — The Adversarial Ensemble -->
     <div class="card">
-      <h2 class="hiw-section-header">The Adversarial Ensemble &mdash; 6 Shadow Agents</h2>
+      <div class="hiw-collapse-header" onclick="toggleHiwSection(4)">
+        <h2 class="hiw-section-header" style="margin:0;">The Adversarial Ensemble &mdash; 6 Shadow Agents</h2>
+        <span class="hiw-chevron" id="hiw-chevron-4">&#9660;</span>
+      </div>
+      <div class="hiw-collapse-body" id="hiw-body-4">
 
-      <p class="hiw-body" style="margin-bottom:16px">Six agents silently evaluate every candidate the live profile sees, then record their verdict. Their disagreements are training data.</p>
+      <p class="hiw-body" style="margin-bottom:16px; margin-top:16px;">Six agents silently evaluate every candidate the live profile sees, then record their verdict. Their disagreements are training data.</p>
 
       <div class="budget-gate">
         <div class="budget-tier high">
@@ -1839,73 +1887,94 @@
           </tbody>
         </table>
       </div>
+      </div>
     </div>
 
     <!-- SECTION 5 — The Calibration Loop -->
     <div class="card">
-      <h2 class="hiw-section-header">The Calibration Loop &mdash; DWM</h2>
-      <p class="hiw-body" style="margin-bottom:16px">Every Sunday, the calibrator grades all ungraded divergences from the past 30 days:</p>
-      <ol class="calib-steps">
-        <li>Fetches ungraded <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">shadow_divergences</code> where <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">shadow_was_right</code> is null</li>
-        <li>Grades each: was the shadow agent right to dissent?
-          <ul style="margin-top:6px;padding-left:18px;font-size:0.9rem;color:var(--dim)">
-            <li>Kronos: checks actual close price at 10 trading days after signal</li>
-            <li>LLM agents: checks <code style="background:rgba(0,0,0,0.2);padding:1px 5px;border-radius:3px;font-size:0.82rem">inference_chains.actual_outcome</code></li>
-          </ul>
-        </li>
-        <li>Fitness score: <span class="hiw-formula">fitness = times_correct / times_dissented</span></li>
-        <li>DWM weight: <span class="hiw-formula">new_weight = 1.0 &times; (1 + 0.5 &times; (fitness &minus; median_fitness))</span>&nbsp;&nbsp;<span style="font-size:0.85rem;color:var(--dim)">clamped [0.05, 3.0]</span></li>
-      </ol>
+      <div class="hiw-collapse-header" onclick="toggleHiwSection(5)">
+        <h2 class="hiw-section-header" style="margin:0;">The Calibration Loop &mdash; DWM</h2>
+        <span class="hiw-chevron" id="hiw-chevron-5">&#9660;</span>
+      </div>
+      <div class="hiw-collapse-body" id="hiw-body-5">
+        <p class="hiw-body" style="margin-bottom:16px; margin-top:16px;">Every Sunday, the calibrator grades all ungraded divergences from the past 30 days:</p>
+        <ol class="calib-steps">
+          <li>Fetches ungraded <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">shadow_divergences</code> where <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">shadow_was_right</code> is null</li>
+          <li>Grades each: was the shadow agent right to dissent?
+            <ul style="margin-top:6px;padding-left:18px;font-size:0.9rem;color:var(--dim)">
+              <li>Kronos: checks actual close price at 10 trading days after signal</li>
+              <li>LLM agents: checks <code style="background:rgba(0,0,0,0.2);padding:1px 5px;border-radius:3px;font-size:0.82rem">inference_chains.actual_outcome</code></li>
+            </ul>
+          </li>
+          <li>Fitness score: <span class="hiw-formula">fitness = times_correct / times_dissented</span></li>
+          <li>DWM weight: <span class="hiw-formula">new_weight = 1.0 &times; (1 + 0.5 &times; (fitness &minus; median_fitness))</span>&nbsp;&nbsp;<span style="font-size:0.85rem;color:var(--dim)">clamped [0.05, 3.0]</span></li>
+        </ol>
+      </div>
     </div>
 
     <!-- SECTION 6 — Meta Daily Reflection -->
     <div class="card">
-      <h2 class="hiw-section-header">Meta Daily Reflection &mdash; 1:30 PM</h2>
-      <p class="hiw-body" style="margin-bottom:16px">Every afternoon, Claude reviews the day's shadow divergences looking for <strong>unanimous dissent</strong> &mdash; all 6 shadows simultaneously disagreed with the live profile. If found:</p>
-      <div class="signal-list">
-        <div class="signal-item"><span class="num">1</span> Full divergence data injected into Claude Sonnet prompt as HIGH PRIORITY</div>
-        <div class="signal-item"><span class="num">2</span> Instruction: "Analyze what the shadows saw that the live profile missed"</div>
-        <div class="signal-item"><span class="num">3</span> Output written to <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">meta_reflections</code> table</div>
-        <div class="signal-item"><span class="num">4</span> The reflection becomes RAG context for future T2 tumbler calls</div>
+      <div class="hiw-collapse-header" onclick="toggleHiwSection(6)">
+        <h2 class="hiw-section-header" style="margin:0;">Meta Daily Reflection &mdash; 1:30 PM</h2>
+        <span class="hiw-chevron" id="hiw-chevron-6">&#9660;</span>
+      </div>
+      <div class="hiw-collapse-body" id="hiw-body-6">
+        <p class="hiw-body" style="margin-bottom:16px; margin-top:16px;">Every afternoon, Claude reviews the day's shadow divergences looking for <strong>unanimous dissent</strong> &mdash; all 6 shadows simultaneously disagreed with the live profile. If found:</p>
+        <div class="signal-list">
+          <div class="signal-item"><span class="num">1</span> Full divergence data injected into Claude Sonnet prompt as HIGH PRIORITY</div>
+          <div class="signal-item"><span class="num">2</span> Instruction: "Analyze what the shadows saw that the live profile missed"</div>
+          <div class="signal-item"><span class="num">3</span> Output written to <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">meta_reflections</code> table</div>
+          <div class="signal-item"><span class="num">4</span> The reflection becomes RAG context for future T2 tumbler calls</div>
+        </div>
       </div>
     </div>
 
     <!-- SECTION 7 — Infrastructure -->
     <div class="card">
-      <h2 class="hiw-section-header">Infrastructure</h2>
-      <div style="overflow-x:auto">
-        <table class="hiw-infra-table">
-          <thead>
-            <tr>
-              <th>Component</th>
-              <th>What it is</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>ridley</td><td>NVIDIA Jetson Orin Nano 8GB &mdash; all trading scripts, Ollama, Kronos GPU inference</td></tr>
-            <tr><td>motherbrain</td><td>Orchestrator machine where Picard lives</td></tr>
-            <tr><td>Supabase</td><td>PostgreSQL + pgvector RAG database</td></tr>
-            <tr><td>Alpaca</td><td>Paper trading API</td></tr>
-            <tr><td>Ollama</td><td>Local LLM runtime on ridley (qwen2.5:3b) &mdash; zero API cost</td></tr>
-            <tr><td>Anthropic API</td><td>Claude Haiku (T4) and Claude Sonnet (T5, meta daily)</td></tr>
-            <tr><td>Kronos-small</td><td>24.7M parameter financial time series model on ridley GPU</td></tr>
-            <tr><td>Fly.io</td><td>Dashboard hosting (openclaw-trader-dash.fly.dev)</td></tr>
-          </tbody>
-        </table>
+      <div class="hiw-collapse-header" onclick="toggleHiwSection(7)">
+        <h2 class="hiw-section-header" style="margin:0;">Infrastructure</h2>
+        <span class="hiw-chevron" id="hiw-chevron-7">&#9660;</span>
+      </div>
+      <div class="hiw-collapse-body" id="hiw-body-7">
+        <div style="overflow-x:auto; margin-top:16px;">
+          <table class="hiw-infra-table">
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>What it is</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>ridley</td><td>NVIDIA Jetson Orin Nano 8GB &mdash; all trading scripts, Ollama, Kronos GPU inference</td></tr>
+              <tr><td>motherbrain</td><td>Orchestrator machine where Picard lives</td></tr>
+              <tr><td>Supabase</td><td>PostgreSQL + pgvector RAG database</td></tr>
+              <tr><td>Alpaca</td><td>Paper trading API</td></tr>
+              <tr><td>Ollama</td><td>Local LLM runtime on ridley (qwen2.5:3b) &mdash; zero API cost</td></tr>
+              <tr><td>Anthropic API</td><td>Claude Haiku (T4) and Claude Sonnet (T5, meta daily)</td></tr>
+              <tr><td>Kronos-small</td><td>24.7M parameter financial time series model on ridley GPU</td></tr>
+              <tr><td>Fly.io</td><td>Dashboard hosting (openclaw-trader-dash.fly.dev)</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- SECTION 8 — Circuit Breakers and Risk Limits -->
     <div class="card">
-      <h2 class="hiw-section-header">Circuit Breakers and Risk Limits</h2>
-      <ul class="circuit-list">
-        <li><strong>VIX &gt; 28</strong> &rarr; scanner stands down for the session</li>
-        <li><strong>Portfolio drawdown &gt; 15%</strong> &rarr; circuit breaker trips</li>
-        <li><strong>3 consecutive losses</strong> &rarr; circuit breaker trips</li>
-        <li><strong>Max 3 concurrent positions</strong></li>
-        <li><strong>5% max risk per trade</strong> (ATR-based sizing)</li>
-        <li><strong>10-day max hold period</strong> (time stop)</li>
-      </ul>
+      <div class="hiw-collapse-header" onclick="toggleHiwSection(8)">
+        <h2 class="hiw-section-header" style="margin:0;">Circuit Breakers and Risk Limits</h2>
+        <span class="hiw-chevron" id="hiw-chevron-8">&#9660;</span>
+      </div>
+      <div class="hiw-collapse-body" id="hiw-body-8">
+        <ul class="circuit-list" style="margin-top:16px;">
+          <li><strong>VIX &gt; 28</strong> &rarr; scanner stands down for the session</li>
+          <li><strong>Portfolio drawdown &gt; 15%</strong> &rarr; circuit breaker trips</li>
+          <li><strong>3 consecutive losses</strong> &rarr; circuit breaker trips</li>
+          <li><strong>Max 3 concurrent positions</strong></li>
+          <li><strong>5% max risk per trade</strong> (ATR-based sizing)</li>
+          <li><strong>10-day max hold period</strong> (time stop)</li>
+        </ul>
+      </div>
     </div>
 
   </div>
@@ -2250,6 +2319,27 @@ function toggleWorkflowWidget() {
     body.style.maxHeight = '0px';
     body.style.opacity = '0';
     icon.style.transform = 'rotate(-90deg)';
+  }
+}
+
+function toggleHiwSection(n) {
+  var body = document.getElementById('hiw-body-' + n);
+  var chevron = document.getElementById('hiw-chevron-' + n);
+  if (!body || !chevron) return;
+
+  if (body.classList.contains('collapsed')) {
+    body.classList.remove('collapsed');
+    body.style.maxHeight = body.scrollHeight + 'px';
+    body.style.opacity = '1';
+    chevron.style.transform = 'rotate(0deg)';
+    // After transition, remove max-height so content can resize naturally
+    setTimeout(function() { body.style.maxHeight = 'none'; }, 400);
+  } else {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    // Force reflow
+    body.offsetHeight;
+    body.classList.add('collapsed');
+    chevron.style.transform = 'rotate(-90deg)';
   }
 }
 
