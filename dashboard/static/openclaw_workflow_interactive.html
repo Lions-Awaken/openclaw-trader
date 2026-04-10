@@ -36,7 +36,7 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Orbitron', monospace, sans-serif;
-  font-size: 26px;
+  font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
@@ -73,7 +73,7 @@ html, body {
 }
 
 .widget-title {
-  font-size: 2.1rem;
+  font-size: 1.05rem;
   font-weight: 900;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -83,7 +83,7 @@ html, body {
 }
 
 .widget-subtitle {
-  font-size: 1.36rem;
+  font-size: 0.68rem;
   color: var(--dim);
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -91,7 +91,7 @@ html, body {
 }
 
 .step-counter {
-  font-size: 1.5rem;
+  font-size: 0.75rem;
   color: var(--cyan);
   letter-spacing: 1px;
   font-weight: 700;
@@ -179,7 +179,7 @@ html, body {
 }
 
 .detail-title {
-  font-size: 2.2rem;
+  font-size: 1.1rem;
   font-weight: 900;
   letter-spacing: 1.5px;
   color: var(--step-color, var(--cyan));
@@ -190,7 +190,7 @@ html, body {
 }
 
 .detail-desc {
-  font-size: 1.56rem;
+  font-size: 0.78rem;
   color: rgba(232,232,240,0.8);
   line-height: 1.75;
   margin-bottom: 16px;
@@ -212,14 +212,14 @@ html, body {
 }
 
 .meta-chip .chip-label {
-  font-size: 1.16rem;
+  font-size: 0.58rem;
   color: var(--dim);
   letter-spacing: 1.5px;
   text-transform: uppercase;
 }
 
 .meta-chip .chip-value {
-  font-size: 1.56rem;
+  font-size: 0.78rem;
   font-weight: 700;
   color: var(--text);
   letter-spacing: 0.5px;
@@ -228,7 +228,7 @@ html, body {
 
 .chip-value.table-name {
   color: var(--purple);
-  font-size: 1.44rem;
+  font-size: 0.72rem;
 }
 
 .chip-value.cost-free { color: var(--green); }
@@ -261,9 +261,9 @@ html, body {
 }
 
 .db-badge {
-  padding: 8px 20px;
+  padding: 4px 10px;
   border-radius: 6px;
-  font-size: 1.24rem;
+  font-size: 0.62rem;
   letter-spacing: 1px;
   text-transform: uppercase;
   font-weight: 700;
@@ -312,13 +312,13 @@ html, body {
 }
 
 .nav-btn {
-  padding: 18px 44px;
+  padding: 9px 22px;
   border-radius: 8px;
   border: 1px solid rgba(34,211,238,0.35);
   background: rgba(34,211,238,0.04);
   color: var(--cyan);
   font-family: 'Orbitron', monospace;
-  font-size: 1.44rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -382,8 +382,8 @@ html, body {
 }
 
 .dot {
-  width: 14px;
-  height: 14px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: rgba(255,255,255,0.1);
   transition: all 0.3s ease;
@@ -437,7 +437,7 @@ html, body {
 
   <!-- NODE DIAGRAM -->
   <div class="diagram-card">
-    <svg id="diagramSvg" class="diagram-svg" viewBox="0 0 1920 640" xmlns="http://www.w3.org/2000/svg">
+    <svg id="diagramSvg" class="diagram-svg" viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <!-- glow filters -->
         <filter id="glowCyan" x="-50%" y="-50%" width="200%" height="200%">
@@ -472,9 +472,9 @@ html, body {
       <g id="nodesGroup"></g>
       <!-- Ball -->
       <g id="ballGroup">
-        <circle id="ballOuter" cx="0" cy="0" r="32" fill="rgba(34,211,238,0.15)" filter="url(#ballGlow)"/>
-        <circle id="ballRing" cx="0" cy="0" r="20" fill="none" stroke="#22d3ee" stroke-width="3" opacity="0.6"/>
-        <circle id="ballCore" cx="0" cy="0" r="12" fill="url(#ballGrad)" filter="url(#softGlow)"/>
+        <circle id="ballOuter" cx="0" cy="0" r="16" fill="rgba(34,211,238,0.15)" filter="url(#ballGlow)"/>
+        <circle id="ballRing" cx="0" cy="0" r="10" fill="none" stroke="#22d3ee" stroke-width="3" opacity="0.6"/>
+        <circle id="ballCore" cx="0" cy="0" r="6" fill="url(#ballGrad)" filter="url(#softGlow)"/>
       </g>
       <!-- Group labels rendered by JS -->
       <g id="labelsGroup"></g>
@@ -576,46 +576,45 @@ const GROUP_LABEL = {
 };
 
 /* ================================================================
-   NODE LAYOUT — viewBox 1920×640
-   All positions are doubled from the original 960×320 layout.
+   NODE LAYOUT — viewBox 960×320
    ================================================================ */
-const SVG_W = 1920;
-const SVG_H = 640;
-const R = 22;   /* node radius — doubled from 11 */
+const SVG_W = 960;
+const SVG_H = 320;
+const R = 11;   /* node radius */
 
-// Layout: [cx, cy] for each step (index 0 = step 1) — all coords doubled
+// Layout: [cx, cy] for each step (index 0 = step 1)
 const NODE_POS = [
-  /* Pre-market row y=110 */
-  [ 180, 110],   // 1  Health Check
-  [ 460, 110],   // 2  Catalyst Ingest
-  [ 740, 110],   // 3  Form 4 Ingest
+  /* Pre-market row y=55 */
+  [  90,  55],   // 1  Health Check
+  [ 230,  55],   // 2  Catalyst Ingest
+  [ 370,  55],   // 3  Form 4 Ingest
 
-  /* Scanner row y=230 */
-  [ 180, 230],  // 4  Scanner Setup
-  [ 460, 230],  // 5  T1 Signal Scoring
-  [ 740, 230],  // 6  Signal Enrichment
+  /* Scanner row y=115 */
+  [  90, 115],  // 4  Scanner Setup
+  [ 230, 115],  // 5  T1 Signal Scoring
+  [ 370, 115],  // 6  Signal Enrichment
 
-  /* Tumbler row y=350 */
-  [ 280, 350],  // 7  T2 Fundamental
-  [ 600, 350],  // 8  T3 Flow
-  [ 920, 350],  // 9  T4 Pattern
-  [1240, 350],  // 10 T5 Counterfactual
+  /* Tumbler row y=175 */
+  [ 140, 175],  // 7  T2 Fundamental
+  [ 300, 175],  // 8  T3 Flow
+  [ 460, 175],  // 9  T4 Pattern
+  [ 620, 175],  // 10 T5 Counterfactual
 
-  /* Execution row y=470 */
-  [ 960, 470],  // 11 Execution Gate
-  [1280, 470],  // 12 Budget Gate
+  /* Execution row y=235 */
+  [ 480, 235],  // 11 Execution Gate
+  [ 640, 235],  // 12 Budget Gate
 
-  /* Shadow agents row y=580 */
-  [ 220, 580],  // 13 Skeptic
-  [ 480, 580],  // 14 Contrarian
-  [ 740, 580],  // 15 Regime Watcher
-  [1000, 580],  // 16 Options Flow
-  [1260, 580],  // 17 Form 4 Insider
-  [1520, 580],  // 18 Kronos
+  /* Shadow agents row y=290 */
+  [ 110, 290],  // 13 Skeptic
+  [ 240, 290],  // 14 Contrarian
+  [ 370, 290],  // 15 Regime Watcher
+  [ 500, 290],  // 16 Options Flow
+  [ 630, 290],  // 17 Form 4 Insider
+  [ 760, 290],  // 18 Kronos
 
   /* Post-market row */
-  [1600, 350],  // 19 Calibrator
-  [1760, 230],  // 20 Meta Daily
+  [ 800, 175],  // 19 Calibrator
+  [ 880, 115],  // 20 Meta Daily
 ];
 
 /* Edges: pairs of 0-based step indices */
@@ -662,12 +661,12 @@ function renderDiagram() {
   nodesG.innerHTML  = '';
   labelsG.innerHTML = '';
 
-  /* --- Group background bands (y coords doubled) --- */
+  /* --- Group background bands --- */
   const groupRows = [
-    { group: 'pre-market',  y1:  70, y2: 150 },
-    { group: 'scanner',     y1: 190, y2: 270 },
-    { group: 'tumbler',     y1: 310, y2: 400 },
-    { group: 'shadow',      y1: 534, y2: 620 },
+    { group: 'pre-market',  y1:  35, y2:  75 },
+    { group: 'scanner',     y1:  95, y2: 135 },
+    { group: 'tumbler',     y1: 155, y2: 200 },
+    { group: 'shadow',      y1: 267, y2: 310 },
   ];
 
   groupRows.forEach(gr => {
@@ -691,7 +690,7 @@ function renderDiagram() {
     text.setAttribute('y', (gr.y1 + gr.y2) / 2 + 8);
     text.setAttribute('text-anchor', 'end');
     text.setAttribute('font-family', 'Orbitron, monospace');
-    text.setAttribute('font-size', '14');
+    text.setAttribute('font-size', '7');
     text.setAttribute('font-weight', '700');
     text.setAttribute('fill', color);
     text.setAttribute('fill-opacity', '0.4');
@@ -700,18 +699,18 @@ function renderDiagram() {
     labelsG.appendChild(text);
   });
 
-  /* --- Execution / calibration / meta labels (coords doubled) --- */
+  /* --- Execution / calibration / meta labels --- */
   [
-    { group: 'execution',   x: 1190, y: 440 },
-    { group: 'calibration', x: 1660, y: 330 },
-    { group: 'meta',        x: 1800, y: 214 },
+    { group: 'execution',   x: 595, y: 220 },
+    { group: 'calibration', x: 830, y: 165 },
+    { group: 'meta',        x: 900, y: 107 },
   ].forEach(item => {
     const text = document.createElementNS('http://www.w3.org/2000/svg','text');
     text.setAttribute('x', item.x);
     text.setAttribute('y', item.y);
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('font-family', 'Orbitron, monospace');
-    text.setAttribute('font-size', '14');
+    text.setAttribute('font-size', '7');
     text.setAttribute('font-weight', '700');
     text.setAttribute('fill', GROUP_COLOR[item.group]);
     text.setAttribute('fill-opacity', '0.45');
@@ -738,19 +737,19 @@ function renderDiagram() {
     if (isFeedback) {
       line.setAttribute('stroke', GROUP_COLOR['meta']);
       line.setAttribute('stroke-opacity', '0.25');
-      line.setAttribute('stroke-width', '2');
-      line.setAttribute('stroke-dasharray', '6 8');
+      line.setAttribute('stroke-width', '1');
+      line.setAttribute('stroke-dasharray', '3 4');
     } else if (isActive) {
       line.setAttribute('stroke', '#22d3ee');
       line.setAttribute('stroke-opacity', '0.6');
-      line.setAttribute('stroke-width', '3');
+      line.setAttribute('stroke-width', '1.5');
     } else if (bothVisited) {
       line.setAttribute('stroke', '#33ff88');
       line.setAttribute('stroke-opacity', '0.2');
-      line.setAttribute('stroke-width', '2');
+      line.setAttribute('stroke-width', '1');
     } else {
       line.setAttribute('stroke', 'rgba(255,255,255,0.07)');
-      line.setAttribute('stroke-width', '2');
+      line.setAttribute('stroke-width', '1');
     }
 
     edgesG.appendChild(line);
@@ -807,7 +806,7 @@ function renderDiagram() {
     // Step number label inside
     const numText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     numText.setAttribute('x', cx);
-    numText.setAttribute('y', cy + 6);
+    numText.setAttribute('y', cy + 3);
     numText.setAttribute('text-anchor', 'middle');
     numText.setAttribute('font-family', 'Orbitron, monospace');
     numText.setAttribute('font-size', '14');
@@ -819,10 +818,10 @@ function renderDiagram() {
     // Node label below
     const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     labelText.setAttribute('x', cx);
-    labelText.setAttribute('y', cy + R + 20);
+    labelText.setAttribute('y', cy + R + 10);
     labelText.setAttribute('text-anchor', 'middle');
     labelText.setAttribute('font-family', 'Orbitron, monospace');
-    labelText.setAttribute('font-size', '11');
+    labelText.setAttribute('font-size', '5.5');
     labelText.setAttribute('font-weight', '700');
     labelText.setAttribute('fill', isActive ? color : isVisited ? 'rgba(51,255,136,0.55)' : 'rgba(255,255,255,0.22)');
     labelText.setAttribute('letter-spacing', '0.5');
