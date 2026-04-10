@@ -534,8 +534,61 @@ All tests follow the existing pattern: try/except wrapped, write to system_healt
 
 ---
 
+## Track 2 — Kronos Shadow Agent Build
+
+Source: Slack canvas F0ARYA82R0W
+Track 1 (fix broken system): ALL 4 ITEMS DONE in session 2026-04-08/09
+Supabase project: vpollvsbtushbiapoflr
+
+---
+
+### TASK-K00 . BACKEND-AGENT . [DONE]
+**Goal:** Set up the Kronos environment on ridley — install cuSPARSELt 0.7.1.0, pin numpy==1.26.1, install PyTorch 2.5.0a0 from NVIDIA JetPack wheel, install huggingface-hub + safetensors + pandas, clone Kronos repo to /home/ridley/Kronos, verify `torch.cuda.is_available()` returns True, run smoke test inference with Kronos-small.
+**Acceptance:** `python3 -c "import torch; print(torch.cuda.is_available())"` returns True on ridley. Kronos smoke test completes without OOM. `pip3 show torch | grep Version` shows 2.5.0.
+**Output artifact:** Environment setup log + smoke test output in PROGRESS.md.
+**Depends on:** nothing
+
+### TASK-K01 . BACKEND-AGENT . [DONE]
+**Goal:** Add KRONOS_TECHNICALS shadow profile to shadow_profiles.py with immutable system prompt + seed in Supabase strategy_profiles (is_shadow=true, shadow_type='KRONOS_TECHNICALS', dwm_weight=1.0, fitness_score=0.0, min_tumbler_depth=2, uses_kronos=True).
+**Acceptance:** `get_shadow_context('KRONOS_TECHNICALS')` returns non-empty string containing "OHLCV" and "Monte Carlo". 6 shadow profiles in strategy_profiles. `get_max_tumbler_depth('KRONOS_TECHNICALS') == 2`.
+**Output artifact:** Updated shadow_profiles.py + migration applied.
+**Depends on:** TASK-K00
+
+### TASK-K02 . BACKEND-AGENT . [DONE]
+**Goal:** Create `scripts/kronos_agent.py` — standalone inference module with memory lifecycle management. unload_ollama() -> load Kronos -> 50 Monte Carlo paths over 15-bar horizon -> compute bullish_prob -> unload -> gc.collect + CUDA clear. Uses yfinance for 252 daily OHLCV bars. Bullish > 0.60, bearish < 0.40.
+**Acceptance:** `run_kronos_inference('NVDA')` returns dict with bullish_prob float. No OOM. Ollama unloaded before, reloaded after.
+**Output artifact:** New scripts/kronos_agent.py.
+**Depends on:** TASK-K00
+
+### TASK-K03 . BACKEND-AGENT . [DONE]
+**Goal:** Wire KRONOS_TECHNICALS into scanner shadow inference loop. Branch on shadow_type=='KRONOS_TECHNICALS' to call run_kronos_inference() instead of run_inference(). Map output to divergence format. Set OLLAMA_KEEP_ALIVE=0 in ridley .env.
+**Acceptance:** Scanner produces shadow_divergences rows with shadow_profile='KRONOS_TECHNICALS'. Kronos completes for at least 1 ticker. Ollama recovers after.
+**Output artifact:** Updated scanner.py + .env.
+**Depends on:** TASK-K01, TASK-K02
+
+### TASK-K04 . BACKEND-AGENT . [DONE]
+**Goal:** Add directional_accuracy_10d grading for KRONOS_TECHNICALS in calibrator.py grade_shadow_profiles(). Check if 10-day price movement matched predicted direction.
+**Acceptance:** grade_shadow_profiles() handles KRONOS_TECHNICALS without error.
+**Output artifact:** Updated calibrator.py.
+**Depends on:** TASK-K01
+
+### TASK-K05 . FRONTEND-AGENT . [BLOCKED: TASK-K03]
+**Goal:** Add KRONOS_TECHNICALS to dashboard Shadow Intelligence tab + new API route GET /api/shadow/kronos/latest. Update Signals tab fitness chart to show 6 profiles.
+**Acceptance:** Shadow tab shows KRONOS_TECHNICALS. API returns valid JSON. Fitness chart has 6 bars.
+**Output artifact:** Updated server.py + index.html. Deployed to Fly.
+**Depends on:** TASK-K03
+
+### TASK-K06 . PICARD . [BLOCKED: TASK-K03, TASK-K04, TASK-K05]
+**Goal:** Integration verification — scanner with 6 shadow profiles, dashboard shows Kronos, preflight passes, commit/push/deploy, Slack summary.
+**Acceptance:** All systems go. Slack posted.
+**Output artifact:** Final summary in PROGRESS.md.
+**Depends on:** TASK-K03, TASK-K04, TASK-K05
+
+---
+
 ## Completed — Prior Sessions
 
+### Full Preflight Coverage + Mission Readiness (2026-04-09): TASK-PF-01 through TASK-PF-03 + Group Q . [DONE]
 ### Optimization Audit (2026-04-08): TASK-OPT-01 through TASK-OPT-11 . [DONE]
 ### System Simulator + NASA Preflight (2026-04-07): TASK-SIM-01 through TASK-SIM-05 . [DONE]
 ### Health Monitor + Signal Diversification (2026-04-07): TASK-HM-01 through TASK-SD-06 + TASK-INT-01 . [DONE]

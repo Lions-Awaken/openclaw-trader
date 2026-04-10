@@ -5,6 +5,258 @@
 
 ---
 
+## TASK-K03 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Kronos Shadow Inference Loop Wired
+
+**Files modified:**
+- `scripts/scanner.py` — added Kronos import block + Kronos branch in `_run_shadow_inference()`
+
+**What was done:**
+
+1. Added guarded import at top of scanner.py (lines 50-54):
+   - `try: from kronos_agent import run_kronos_inference; KRONOS_AVAILABLE = True`
+   - `except ImportError: KRONOS_AVAILABLE = False`
+   - Scanner will not crash on mother_brain where kronos_agent is not installed.
+
+2. Added Kronos branch inside `_run_shadow_inference()`, at the top of the per-profile loop, before `shadow_results_for_profile` and `run_inference()`:
+   - Triggers when `shadow_profile.get("shadow_type") == "KRONOS_TECHNICALS"`
+   - Caps at top 5 candidates sorted by `total_score` (descending) — Kronos is ~25s/ticker
+   - Calls `run_kronos_inference(ticker)` for each
+   - Maps output: `direction == "bullish"` → `"enter"`, else `"skip"`; `bullish_prob` → `final_confidence`
+   - Builds `shadow_result_data` dict with `inference_chain_id: None` (no tumbler chain created)
+   - Calls `_record_divergence()` if live_result exists for that ticker
+   - Populates `shadow_summary["KRONOS_TECHNICALS"]` with candidates/enters/skips counts
+   - `continue` after the Kronos block — normal `run_inference()` path skipped
+   - 0.5s thermal sleep between tickers
+
+3. Updated budget gate logic:
+   - Tier 3 (< 20% budget): previously cleared all shadows; now keeps only KRONOS_TECHNICALS (zero Claude cost)
+   - Tier 2 (20-40% budget): now includes KRONOS_TECHNICALS alongside REGIME_WATCHER + FORM4_INSIDER
+
+4. Set `OLLAMA_KEEP_ALIVE=0` in `~/.openclaw/workspace/.env` on ridley — tells Ollama to drop GPU model after each request, freeing VRAM for Kronos.
+
+**`_record_divergence` compatibility:**
+- Function accepts `inference_chain_id: None` without issue — it's read via `.get()` and passed to Supabase as JSON `null`, which is valid for the nullable FK column.
+
+**DB queries this path runs:**
+- `_record_divergence` calls `_post_to_supabase("shadow_divergences", ...)` — inserts one row per ticker where live and Kronos disagree on enter/skip.
+- No inference_chains rows created (Kronos bypasses the tumbler engine entirely).
+
+**Assumptions:**
+- `kronos_agent.run_kronos_inference(ticker)` returns a dict with at minimum `"direction"` (str: "bullish"/"bearish") and `"bullish_prob"` (float 0-1). This matches the TASK-K02 acceptance criteria.
+- `shadow_divergences` table accepts `null` for `shadow_chain_id` (inference_chain_id).
+- The `dwm_weight > 0.05` filter in `_load_shadow_profiles()` passes for KRONOS_TECHNICALS (seeded with `dwm_weight=1.0` in TASK-K01).
+
+**Follow-on work noticed:**
+- TASK-K04: `calibrator.py` `grade_shadow_profiles()` needs to handle KRONOS_TECHNICALS — directional accuracy grading, not tumbler-based. Not done here.
+- TASK-K05: Dashboard needs KRONOS_TECHNICALS in Shadow Intelligence tab + fitness chart updated to 6 profiles.
+- The `shadow_result.set(...)` call at the end of the shadow block uses `budget_remaining_pct` — this variable is set in the outer `else` branch but not in the Tier 3/Tier 2 branches. If Kronos runs in Tier 3, `budget_remaining_pct` is still defined (set before the if/elif), so no NameError. Verified safe.
+
+---
+
+## TASK-K00 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Kronos Environment Setup on ridley
+
+All steps completed successfully. Full command log below.
+
+**Step 1 — cuSPARSELt**
+Already present: `libcusparselt0-cuda-12 0.8.1.1-1 arm64` (bundled with JetPack R36.4.7). Version 0.8.1.1 exceeds the required 0.7.1.0. No action needed.
+
+**Step 2 — numpy pin**
+Downgraded from 2.2.6 to 1.26.1:
+```
+pip3 install 'numpy==1.26.1'
+Successfully installed numpy-1.26.1
+```
+
+**Step 3 — PyTorch 2.5.0a0 (NVIDIA JetPack 6.1 wheel)**
+Wheel: `torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl` (807 MB)
+```
+Successfully installed filelock-3.25.2 jinja2-3.1.6 mpmath-1.3.0 networkx-3.4.2 sympy-1.13.1 torch-2.5.0a0+872d972e41.nv24.8
+```
+
+**Step 4 — CUDA verification**
+```
+torch=2.5.0a0+872d972e41.nv24.08, cuda=True, device=Orin
+```
+CUDA confirmed True on Orin GPU.
+
+**Step 5 — HuggingFace + safetensors + pandas**
+```
+Successfully installed click-8.3.2 hf-xet-1.4.3 huggingface-hub-1.10.1 safetensors-0.7.0 shellingham-1.5.4 tqdm-4.67.3 typer-0.24.1
+```
+pandas was already installed (2.3.3).
+
+**Step 6 — Kronos repo cloned**
+```
+git clone https://github.com/shiyu-coder/Kronos.git /home/ridley/Kronos
+```
+Contents: `examples/ figures/ finetune/ finetune_csv/ LICENSE model/ README.md requirements.txt tests/ webui/`
+
+**Step 7 — einops installed (required by Kronos)**
+```
+Successfully installed einops-0.8.1
+```
+
+**Step 8 — Kronos imports verified**
+```
+cd /home/ridley/Kronos && python3 -c 'from model import Kronos, KronosTokenizer, KronosPredictor; print("Kronos imports OK")'
+Kronos imports OK
+```
+
+**Step 9 — Model weights downloaded**
+- `NeoQuasar/Kronos-small` → `/home/ridley/.cache/huggingface/hub/models--NeoQuasar--Kronos-small/snapshots/901c26c1332695a2a8f243eb2f37243a37bea320`
+- `NeoQuasar/Kronos-Tokenizer-base` → `/home/ridley/.cache/huggingface/hub/models--NeoQuasar--Kronos-Tokenizer-base/snapshots/0e0117387f39004a9016484a186a908917e22426`
+
+**Step 10 — Smoke test PASSED**
+```
+Device: cuda:0
+Running prediction (sample_count=10)...
+Prediction shape: (15, 6)
+Prediction columns: ['open', 'high', 'low', 'close', 'volume', 'amount']
+Mean predicted close: 133.05
+Smoke test PASSED
+Memory freed
+```
+
+**Step 11 — Memory after cleanup**
+```
+Mem:  7.4Gi total   2.3Gi used   889Mi free   4.3Gi buff/cache   4.8Gi available
+Swap: 5.0Gi total   657Mi used   4.3Gi free
+```
+RAM returned to healthy baseline after model unload + `gc.collect()` + `torch.cuda.empty_cache()`.
+
+**Acceptance criteria met:**
+- `python3 -c "import torch; print(torch.cuda.is_available())"` → `True`
+- `pip3 show torch | grep Version` → `Version: 2.5.0a0+872d972e41.nv24.8` (matches 2.5.0)
+- Smoke test completed without OOM
+
+**IMPORTANT API discovery — Kronos actual interface differs from task spec:**
+
+The task spec assumed `KronosPredictor.from_pretrained()` and tensor input. The real API is:
+```python
+tokenizer = KronosTokenizer.from_pretrained('NeoQuasar/Kronos-Tokenizer-base')
+model = Kronos.from_pretrained('NeoQuasar/Kronos-small')
+predictor = KronosPredictor(model, tokenizer, max_context=512)
+
+pred_df = predictor.predict(
+    df=ohlcv_dataframe,          # pd.DataFrame with open/high/low/close/volume/amount columns
+    x_timestamp=pd.Series(...),  # MUST be pd.Series (not DatetimeIndex) for .dt accessor
+    y_timestamp=pd.Series(...),  # pd.Series of prediction timestamps
+    pred_len=15,
+    T=1.0,
+    top_p=0.9,
+    sample_count=10,             # Monte Carlo samples (not num_samples)
+    verbose=False,
+)
+# Returns pd.DataFrame with columns: open, high, low, close, volume, amount
+```
+
+Key notes for TASK-K02 (kronos_agent.py):
+- `KronosPredictor` auto-detects CUDA if `device=None` — no need to pass it explicitly
+- Input timestamps MUST be `pd.Series`, not `pd.DatetimeIndex` — the `.dt` accessor only works on Series
+- The `amount` column (= volume * avg_price) is required; if omitted it's auto-filled as `volume * mean_price`
+- `sample_count` drives Monte Carlo stochasticity; 50 samples will take proportionally longer than 10
+- Output is a single aggregated DataFrame (averaged over samples internally), NOT a distribution
+- For bullish_prob computation in TASK-K02, will need to call `predict()` multiple times with `sample_count=1` and collect the distribution, OR use `predict_batch()` for efficiency
+
+**Files created/modified:**
+- No files in openclaw-trader repo modified — this was pure ridley environment setup
+- Kronos repo cloned to `/home/ridley/Kronos/`
+
+**Unblocks:** TASK-K01, TASK-K02
+
+---
+
+## TASK-K02 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Kronos Inference Agent — scripts/kronos_agent.py
+
+**File created:** `scripts/kronos_agent.py` (also synced to ridley at `/home/ridley/openclaw-trader/scripts/kronos_agent.py`)
+
+**Live test on ridley — PASSED:**
+```
+[kronos] Starting inference for NVDA (50 paths)...
+[kronos] Inference complete for NVDA — GPU memory freed
+
+[kronos] Result:
+  ticker: NVDA
+  bullish_prob: 0.86
+  bearish_prob: 0.14
+  direction: bullish
+  current_price: 183.91000366210938
+  mean_predicted_price: 191.32
+  horizon: 10
+  paths: 50
+  elapsed_ms: 25180
+```
+50/50 paths completed, no OOM, GPU memory freed after. ~25s wall-clock for full 50-path run.
+
+**Actual Kronos API used (verified from /home/ridley/Kronos/model/kronos.py):**
+```python
+model = Kronos.from_pretrained("NeoQuasar/Kronos-small")
+tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
+predictor = KronosPredictor(model, tokenizer, max_context=512)
+
+pred_df = predictor.predict(
+    df=ohlcva_df,           # pd.DataFrame: open, high, low, close, volume, amount
+    x_timestamp=x_ts,       # pd.Series of historical datetimes (NOT DatetimeIndex)
+    y_timestamp=y_ts,       # pd.Series of future datetimes, length == pred_len
+    pred_len=15,
+    T=1.0, top_k=0, top_p=0.9,
+    sample_count=1,
+    verbose=False,
+)
+# Returns pd.DataFrame indexed by y_timestamp, columns: open, high, low, close, volume, amount
+```
+
+**Monte Carlo approach:** 50 independent `predict(sample_count=1)` calls. Close price at `iloc[10]` (bar index 10 of 15) compared to `current_price`. Bullish fraction = bullish_prob.
+
+**Memory lifecycle:**
+1. `unload_ollama()` — POST keep_alive=0 to Ollama, sleep 1s
+2. Load Kronos model + tokenizer (auto-dispatches to cuda:0)
+3. 50 Monte Carlo prediction paths
+4. `del predictor, model, tokenizer; gc.collect(); torch.cuda.empty_cache()` — always runs in `finally`
+
+**Public interface for TASK-K03 (scanner integration):**
+```python
+from scripts.kronos_agent import run_kronos_inference
+
+result = run_kronos_inference("NVDA")
+# result keys: ticker, bullish_prob, bearish_prob, direction,
+#              current_price, mean_predicted_price, horizon, paths, elapsed_ms
+# direction: "bullish" | "bearish" | "neutral"
+# On failure: adds 'error' key, sets bullish_prob=0.5, direction='neutral'
+```
+
+**Thresholds:**
+- bullish_prob >= 0.60 -> direction = "bullish"
+- bullish_prob <= 0.40 -> direction = "bearish"
+- otherwise -> direction = "neutral"
+
+**Constants (importable for K03):**
+```python
+BULLISH_THRESHOLD = 0.60
+BEARISH_THRESHOLD = 0.40
+HORIZON_BAR = 10
+NUM_PATHS = 50
+PREDICTION_LENGTH = 15
+```
+
+**Assumptions made:**
+- yfinance `auto_adjust=True` (splits/dividends adjusted) — consistent with how scanner uses Alpaca adjusted data
+- Future timestamps generated via `pd.bdate_range` (Mon-Fri business days, no holiday calendar)
+- The `amount` column is computed as `volume * (open+high+low+close)/4` if not present in yfinance output
+- Kronos model weights already cached at `/home/ridley/.cache/huggingface/hub/` — no re-download needed
+
+**Ruff:** All checks passed (zero errors, zero warnings)
+
+**Unblocks:** TASK-K03
+
+---
+
 ## HOTFIX-PRODUCTION-LOAD-SIMULATOR . BACKEND-AGENT (Geordi) . DONE — 2026-04-10
 
 ### Production Load Simulator (replaces synthetic stress burst)
@@ -3124,3 +3376,51 @@ Running on ridley — pid confirmed active, 26+ consecutive OK writes verified i
 - Consider adding a Supabase retention policy or periodic DELETE to prune system_stats rows older than N days (currently unbounded — grows at ~12 rows/minute = ~17k rows/day).
 - `power_draw` metric in `_build_metrics` is hardcoded to 0.0 — the INA3221 rails are collected but there are no dedicated columns in system_stats. Add `power_vdd_in_mw` column to schema if power monitoring is desired.
 - `swap_usage` metric is also hardcoded to 0.0 in server.py — swap data is available from collectors but system_stats has no swap columns. Future schema addition candidate.
+
+---
+
+## TASK-K01 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### KRONOS_TECHNICALS Shadow Profile — Code + Supabase Seed
+
+**Files modified:**
+- `scripts/shadow_profiles.py` — added KRONOS_TECHNICALS to both `SHADOW_SYSTEM_CONTEXTS` and `SHADOW_MAX_TUMBLER_DEPTH`
+- `supabase/migrations/20260407_kronos_technicals_shadow_profile.sql` — new migration tracking the DB changes applied live
+
+**Supabase changes applied to vpollvsbtushbiapoflr:**
+
+1. `strategy_profiles_shadow_type_check` constraint dropped and recreated to include `'KRONOS_TECHNICALS'`
+2. `inference_chains_scan_type_check` constraint dropped and recreated to include `'shadow_kronos_technicals'`
+3. `signal_evaluations_scan_type_check` constraint dropped and recreated to include `'shadow_kronos_technicals'`
+4. `strategy_profiles` row inserted: profile_name='KRONOS_TECHNICALS', shadow_type='KRONOS_TECHNICALS', is_shadow=true, active=false, min_tumbler_depth=2, max_hold_days=10, trade_style='swing', dwm_weight=1.0, fitness_score=0.0
+
+**Verification result:**
+```
+SELECT profile_name, shadow_type, dwm_weight FROM strategy_profiles WHERE is_shadow = true ORDER BY profile_name;
+
+profile_name       | shadow_type        | dwm_weight
+-------------------|--------------------|----------
+CONTRARIAN         | CONTRARIAN         | 1.0
+FORM4_INSIDER      | CONTRARIAN         | 1.0
+KRONOS_TECHNICALS  | KRONOS_TECHNICALS  | 1.0
+OPTIONS_FLOW       | SKEPTIC            | 1.0
+REGIME_WATCHER     | REGIME_WATCHER     | 1.0
+SKEPTIC            | SKEPTIC            | 1.0
+```
+
+6 rows confirmed. KRONOS_TECHNICALS present.
+
+**Acceptance criteria met:**
+- `get_shadow_context('KRONOS_TECHNICALS')` returns non-empty string containing "OHLCV" and "Monte Carlo"
+- `get_max_tumbler_depth('KRONOS_TECHNICALS') == 2`
+- 6 shadow profiles in strategy_profiles
+- `ruff check scripts/shadow_profiles.py` — All checks passed
+
+**scan_type values for KRONOS_TECHNICALS:**
+- inference_chains: `shadow_kronos_technicals`
+- signal_evaluations: `shadow_kronos_technicals`
+
+**Design note — why tumbler depth 2:**
+KRONOS_TECHNICALS replaces the LLM tumblers (T3-T5). T1 (technical foundation) and T2 (fundamental/sentiment context) run normally to establish baseline signal score; then the Kronos model takes over for the forecast. No Claude T4/T5 calls are made for this shadow type.
+
+**Unblocks:** TASK-K03 (partial — also needs TASK-K02), TASK-K04

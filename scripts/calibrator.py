@@ -306,14 +306,23 @@ def _patch_supabase_by_name(table: str, profile_name: str, data: dict) -> bool:
         return False
 
 
-def _get_price_history(ticker: str, event_date: datetime) -> dict:
-    """Fetch historical prices around event date from Alpaca."""
+def _get_price_history(ticker: str, event_date: datetime, days_forward: int = 7) -> dict:
+    """Fetch historical prices around event date from Alpaca.
+
+    Args:
+        ticker: Stock ticker symbol.
+        event_date: The reference date (entry / catalyst date).
+        days_forward: How many calendar days forward to fetch. Defaults to 7.
+            Pass 14 when you need the 10-trading-day bar (Kronos grading).
+    """
     if not ALPACA_KEY or not ALPACA_SECRET:
         return {}
 
+    # Add buffer calendar days so weekends don't swallow the final trading bar.
+    fetch_days = days_forward + 5
     try:
         start = event_date.strftime("%Y-%m-%d")
-        end = (event_date + timedelta(days=7)).strftime("%Y-%m-%d")
+        end = (event_date + timedelta(days=fetch_days)).strftime("%Y-%m-%d")
 
         resp = _client.get(
             f"{ALPACA_DATA}/v2/stocks/{ticker}/bars",
@@ -322,7 +331,7 @@ def _get_price_history(ticker: str, event_date: datetime) -> dict:
                 "start": start,
                 "end": end,
                 "timeframe": "1Day",
-                "limit": 10,
+                "limit": 20,
             },
         )
         if resp.status_code == 200:
@@ -339,6 +348,9 @@ def _get_price_history(ticker: str, event_date: datetime) -> dict:
                 prices["5d_after"] = float(bars[4].get("c", 0))
             elif len(bars) >= 3:
                 prices["5d_after"] = float(bars[-1].get("c", 0))
+            # 10-trading-day bar (bar index 10 = 11th bar)
+            if len(bars) >= 11:
+                prices["10d_after"] = float(bars[10].get("c", 0))
 
             return prices
     except Exception as e:
@@ -423,7 +435,70 @@ def grade_shadow_profiles() -> dict:
     profile_stats: dict[str, dict] = {}  # {profile_name: {correct, dissented, brier_sum, count}}
 
     for div in ungraded:
-        # Look up actual outcome from inference_chains
+        shadow_type = div.get("shadow_type", "")
+        divergence = div  # alias used in KRONOS_TECHNICALS block for clarity
+
+        # ── KRONOS_TECHNICALS: directional accuracy at 10-day horizon ──────────
+        if shadow_type == "KRONOS_TECHNICALS":
+            # Kronos divergences may have no live_chain_id — grade via price data.
+            ticker = divergence.get("ticker")
+            if not ticker:
+                continue
+
+            div_date = divergence.get("divergence_date") or (divergence.get("created_at") or "")[:10]
+            if not div_date:
+                continue
+
+            shadow_decision = divergence.get("shadow_decision", "")
+            live_decision = divergence.get("live_decision", "")
+            live_was_entry = live_decision in ("enter", "strong_enter")
+
+            try:
+                price_data = _get_price_history(
+                    ticker,
+                    datetime.fromisoformat(div_date),
+                    days_forward=14,  # 14 cal days comfortably covers 10 trading days
+                )
+                if not price_data.get("at_event") or not price_data.get("10d_after"):
+                    # Not enough time has passed for 10-day evaluation yet
+                    continue
+
+                entry_price = price_data["at_event"]
+                exit_price = price_data["10d_after"]
+                actual_direction = "up" if exit_price > entry_price else "down"
+                predicted_direction = "up" if shadow_decision in ("enter", "strong_enter") else "down"
+
+                shadow_right = actual_direction == predicted_direction
+                actual_pnl = ((exit_price - entry_price) / entry_price) * 100  # percent move
+                outcome = "WIN" if actual_direction == "up" else "LOSS"
+                save_value = abs(actual_pnl) if shadow_right and actual_direction == "down" else 0.0
+
+            except Exception:
+                continue
+
+            _patch_supabase("shadow_divergences", div["id"], {
+                "shadow_was_right": shadow_right,
+                "actual_outcome": outcome,
+                "actual_pnl": round(actual_pnl, 4),
+                "trade_executed": live_was_entry,
+                "save_value": round(save_value, 2),
+            })
+
+            pname = div["shadow_profile"]
+            if pname not in profile_stats:
+                profile_stats[pname] = {"correct": 0, "dissented": 0, "brier_sum": 0.0, "count": 0}
+            profile_stats[pname]["dissented"] += 1
+            profile_stats[pname]["count"] += 1
+            if shadow_right:
+                profile_stats[pname]["correct"] += 1
+
+            shadow_conf = float(div.get("shadow_confidence") or 0.5)
+            actual_val = 1.0 if shadow_right else 0.0
+            profile_stats[pname]["brier_sum"] += (shadow_conf - actual_val) ** 2
+            graded_count += 1
+            continue
+
+        # ── Standard path: look up actual outcome from inference_chains ─────────
         live_chain_id = div.get("live_chain_id")
         if not live_chain_id:
             continue

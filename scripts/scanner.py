@@ -47,6 +47,12 @@ from inference_engine import (
 )
 from tracer import PipelineTracer, _post_to_supabase, set_active_tracer, traced
 
+try:
+    from kronos_agent import run_kronos_inference
+    KRONOS_AVAILABLE = True
+except ImportError:
+    KRONOS_AVAILABLE = False
+
 TODAY = date.today().isoformat()
 
 # Liquid universe — broad coverage across sectors
@@ -808,17 +814,22 @@ def _run_shadow_inference(
             )
 
             if budget_remaining_pct < 0.20:
-                # Tier 3: Budget critical — skip all shadows
-                print(f"[scanner] Budget critical ({budget_remaining_pct:.0%}) — skipping all shadows")
+                # Tier 3: Budget critical — skip all Claude-dependent shadows
+                # Kronos uses local GPU only (no Claude budget) — always keep it
+                print(f"[scanner] Budget critical ({budget_remaining_pct:.0%}) — skipping Claude shadows, keeping Kronos")
                 shadow_result.set({"skipped": "budget_critical", "remaining_pct": budget_remaining_pct})
-                shadow_profiles = []
+                shadow_profiles = [
+                    p for p in shadow_profiles
+                    if p.get("shadow_type") == "KRONOS_TECHNICALS"
+                ]
             elif budget_remaining_pct < 0.40:
                 # Tier 2: Budget tight — run only cheap shadows (no Claude at T4/T5)
                 # REGIME_WATCHER stops at T3 (no Claude calls). FORM4_INSIDER is low-frequency.
-                print(f"[scanner] Budget tight ({budget_remaining_pct:.0%}) — running REGIME_WATCHER + FORM4_INSIDER only")
+                # KRONOS_TECHNICALS uses no Claude budget at all — always include.
+                print(f"[scanner] Budget tight ({budget_remaining_pct:.0%}) — running REGIME_WATCHER + FORM4_INSIDER + KRONOS_TECHNICALS only")
                 shadow_profiles = [
                     p for p in shadow_profiles
-                    if p.get("shadow_type") == "REGIME_WATCHER"
+                    if p.get("shadow_type") in ("REGIME_WATCHER", "KRONOS_TECHNICALS")
                     or p.get("profile_name") == "FORM4_INSIDER"
                 ]
             # else: Tier 1 — budget healthy, shadow_profiles unchanged
@@ -827,6 +838,73 @@ def _run_shadow_inference(
                 for shadow_profile in shadow_profiles:
                     pname = shadow_profile.get("profile_name", "?")
                     print(f"\n[scanner] Shadow inference: {pname}")
+
+                    # -------------------------------------------------------
+                    # Kronos branch — direct probabilistic forecast, no Claude
+                    # -------------------------------------------------------
+                    if shadow_profile.get("shadow_type") == "KRONOS_TECHNICALS":
+                        if not KRONOS_AVAILABLE:
+                            print("[scanner] Skipping KRONOS_TECHNICALS — kronos_agent not available")
+                            continue
+                        # Limit to top 5 candidates by total_score — Kronos is ~25s/ticker
+                        kronos_candidates = sorted(
+                            candidates, key=lambda c: c.get("total_score", 0), reverse=True
+                        )[:5]
+                        kronos_enters = 0
+                        kronos_skips = 0
+                        for cand in kronos_candidates:
+                            ticker = cand["ticker"]
+                            try:
+                                kronos_result = run_kronos_inference(ticker)
+                                kronos_decision = (
+                                    "enter"
+                                    if kronos_result["direction"] == "bullish"
+                                    else "skip"
+                                )
+                                kronos_confidence = kronos_result["bullish_prob"]
+
+                                shadow_result_data = {
+                                    "ticker": ticker,
+                                    "final_decision": kronos_decision,
+                                    "final_confidence": kronos_confidence,
+                                    "stopping_reason": f"kronos_{kronos_result['direction']}",
+                                    "profile_name": "KRONOS_TECHNICALS",
+                                    "tumblers": [],
+                                    "inference_chain_id": None,
+                                }
+
+                                live_result = next(
+                                    (r for r in inference_results if r["ticker"] == ticker),
+                                    None,
+                                )
+                                if live_result:
+                                    _record_divergence(
+                                        ticker=ticker,
+                                        live_result=live_result,
+                                        shadow_result_data=shadow_result_data,
+                                        shadow_profile=shadow_profile,
+                                        live_profile=profile,
+                                    )
+
+                                if kronos_decision == "enter":
+                                    kronos_enters += 1
+                                else:
+                                    kronos_skips += 1
+
+                                time.sleep(0.5)  # Thermal courtesy
+                            except Exception as e:
+                                print(f"[scanner] Kronos inference failed for {ticker}: {e}")
+                                continue
+
+                        shadow_summary["KRONOS_TECHNICALS"] = {
+                            "candidates": len(kronos_candidates),
+                            "enters": kronos_enters,
+                            "skips": kronos_skips,
+                        }
+                        print(f"[scanner] KRONOS_TECHNICALS: {shadow_summary['KRONOS_TECHNICALS']}")
+                        continue  # Skip the normal run_inference path for this profile
+                    # -------------------------------------------------------
+
                     shadow_results_for_profile: list[dict] = []
 
                     for cand in candidates:

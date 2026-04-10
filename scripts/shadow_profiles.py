@@ -58,15 +58,27 @@ Your mandate:
 - Hold up to 15 days — insiders are long-term oriented, this is not a day trade signal.
 You are graded on 15-day forward return. Patience over speed.
 """,
+
+    "KRONOS_TECHNICALS": """
+KRONOS_TECHNICALS is a pure price pattern agent. You operate exclusively on OHLCV candlestick data
+using the Kronos financial time series foundation model. You have no access to news, filings, macro
+data, or fundamental information. Your only input is the last 252 daily candles for the candidate
+ticker. You forecast the next 15 bars using 50 Monte Carlo paths and compute the fraction of paths
+ending above current price at horizon 10. If p > 0.60: bullish. If p < 0.40: bearish. Otherwise:
+neutral. You never override your signal with qualitative judgment. You are graded on directional
+accuracy at the 10-day horizon.
+""",
 }
 
 # REGIME_WATCHER skips T4/T5 Claude calls — cap at tumbler 3
+# KRONOS_TECHNICALS replaces LLM tumblers — cap at tumbler 2
 SHADOW_MAX_TUMBLER_DEPTH: dict[str, int] = {
-    "SKEPTIC": 5,        # Full chain — needs Claude for fundamental deep-dive
-    "CONTRARIAN": 5,     # Full chain — needs Claude for contrarian reasoning
-    "REGIME_WATCHER": 3, # Stops at T3 — macro-only, no Claude needed
-    "OPTIONS_FLOW": 5,   # Full chain — needs Claude for flow pattern synthesis
-    "FORM4_INSIDER": 5,  # Full chain — needs Claude for insider intent reasoning
+    "SKEPTIC": 5,             # Full chain — needs Claude for fundamental deep-dive
+    "CONTRARIAN": 5,          # Full chain — needs Claude for contrarian reasoning
+    "REGIME_WATCHER": 3,      # Stops at T3 — macro-only, no Claude needed
+    "OPTIONS_FLOW": 5,        # Full chain — needs Claude for flow pattern synthesis
+    "FORM4_INSIDER": 5,       # Full chain — needs Claude for insider intent reasoning
+    "KRONOS_TECHNICALS": 2,   # T1 + T2 only — Kronos replaces the LLM tumblers
 }
 
 
