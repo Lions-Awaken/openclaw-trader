@@ -36,7 +36,7 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Orbitron', monospace, sans-serif;
-  font-size: 13px;
+  font-size: 26px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
@@ -73,7 +73,7 @@ html, body {
 }
 
 .widget-title {
-  font-size: 1.05rem;
+  font-size: 2.1rem;
   font-weight: 900;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -83,7 +83,7 @@ html, body {
 }
 
 .widget-subtitle {
-  font-size: 0.68rem;
+  font-size: 1.36rem;
   color: var(--dim);
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -91,11 +91,11 @@ html, body {
 }
 
 .step-counter {
-  font-size: 0.75rem;
+  font-size: 1.5rem;
   color: var(--cyan);
   letter-spacing: 1px;
   font-weight: 700;
-  padding: 6px 14px;
+  padding: 12px 28px;
   border: 1px solid rgba(34,211,238,0.3);
   border-radius: 8px;
   background: rgba(34,211,238,0.05);
@@ -130,7 +130,7 @@ html, body {
    GROUP LABELS
    ================================================================ */
 .group-label {
-  font-size: 0.58rem;
+  font-size: 1.16rem;
   letter-spacing: 2px;
   text-transform: uppercase;
   font-weight: 700;
@@ -154,9 +154,9 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 22px 24px;
+  padding: 44px 48px;
   margin-bottom: 14px;
-  min-height: 140px;
+  min-height: 280px;
   position: relative;
   overflow: hidden;
 }
@@ -171,7 +171,7 @@ html, body {
 }
 
 .detail-step-num {
-  font-size: 0.6rem;
+  font-size: 1.2rem;
   color: var(--dim);
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -179,7 +179,7 @@ html, body {
 }
 
 .detail-title {
-  font-size: 1.1rem;
+  font-size: 2.2rem;
   font-weight: 900;
   letter-spacing: 1.5px;
   color: var(--step-color, var(--cyan));
@@ -190,7 +190,7 @@ html, body {
 }
 
 .detail-desc {
-  font-size: 0.78rem;
+  font-size: 1.56rem;
   color: rgba(232,232,240,0.8);
   line-height: 1.75;
   margin-bottom: 16px;
@@ -212,14 +212,14 @@ html, body {
 }
 
 .meta-chip .chip-label {
-  font-size: 0.58rem;
+  font-size: 1.16rem;
   color: var(--dim);
   letter-spacing: 1.5px;
   text-transform: uppercase;
 }
 
 .meta-chip .chip-value {
-  font-size: 0.78rem;
+  font-size: 1.56rem;
   font-weight: 700;
   color: var(--text);
   letter-spacing: 0.5px;
@@ -228,7 +228,7 @@ html, body {
 
 .chip-value.table-name {
   color: var(--purple);
-  font-size: 0.72rem;
+  font-size: 1.44rem;
 }
 
 .chip-value.cost-free { color: var(--green); }
@@ -242,12 +242,12 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 14px 16px;
+  padding: 28px 32px;
   margin-bottom: 14px;
 }
 
 .db-strip-label {
-  font-size: 0.58rem;
+  font-size: 1.16rem;
   color: var(--dim);
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -257,13 +257,13 @@ html, body {
 .db-table-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 14px;
 }
 
 .db-badge {
-  padding: 4px 10px;
+  padding: 8px 20px;
   border-radius: 6px;
-  font-size: 0.62rem;
+  font-size: 1.24rem;
   letter-spacing: 1px;
   text-transform: uppercase;
   font-weight: 700;
@@ -312,13 +312,13 @@ html, body {
 }
 
 .nav-btn {
-  padding: 9px 22px;
+  padding: 18px 44px;
   border-radius: 8px;
   border: 1px solid rgba(34,211,238,0.35);
   background: rgba(34,211,238,0.04);
   color: var(--cyan);
   font-family: 'Orbitron', monospace;
-  font-size: 0.72rem;
+  font-size: 1.44rem;
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -337,29 +337,53 @@ html, body {
   cursor: not-allowed;
 }
 
-.nav-btn.auto-on {
+.nav-btn.playing {
   border-color: rgba(255,170,34,0.6);
   background: rgba(255,170,34,0.08);
   color: var(--amber);
   box-shadow: var(--glow-amber);
 }
 
-.nav-btn.auto-on:hover {
+.nav-btn.playing:hover {
   background: rgba(255,170,34,0.14);
+}
+
+.nav-btn.stop-btn {
+  border-color: rgba(255,51,68,0.5);
+  background: rgba(255,51,68,0.05);
+  color: var(--red);
+}
+
+.nav-btn.stop-btn:hover {
+  background: rgba(255,51,68,0.12);
+  border-color: var(--red);
+  box-shadow: 0 0 10px rgba(255,51,68,0.3);
+}
+
+.nav-btn.restart-btn {
+  border-color: rgba(168,85,247,0.5);
+  background: rgba(168,85,247,0.05);
+  color: var(--purple);
+}
+
+.nav-btn.restart-btn:hover {
+  background: rgba(168,85,247,0.12);
+  border-color: var(--purple);
+  box-shadow: var(--glow-purple);
 }
 
 .dot-progress {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: center;
   max-width: 420px;
 }
 
 .dot {
-  width: 7px;
-  height: 7px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: rgba(255,255,255,0.1);
   transition: all 0.3s ease;
@@ -413,23 +437,23 @@ html, body {
 
   <!-- NODE DIAGRAM -->
   <div class="diagram-card">
-    <svg id="diagramSvg" class="diagram-svg" viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg">
+    <svg id="diagramSvg" class="diagram-svg" viewBox="0 0 1920 640" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <!-- glow filters -->
         <filter id="glowCyan" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="4" result="blur"/>
+          <feGaussianBlur stdDeviation="8" result="blur"/>
           <feComposite in="SourceGraphic" in2="blur" operator="over"/>
         </filter>
         <filter id="glowGreen" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feGaussianBlur stdDeviation="6" result="blur"/>
           <feComposite in="SourceGraphic" in2="blur" operator="over"/>
         </filter>
         <filter id="glowAmber" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="4" result="blur"/>
+          <feGaussianBlur stdDeviation="8" result="blur"/>
           <feComposite in="SourceGraphic" in2="blur" operator="over"/>
         </filter>
         <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
-          <feGaussianBlur stdDeviation="6" result="blur"/>
+          <feGaussianBlur stdDeviation="12" result="blur"/>
           <feComposite in="SourceGraphic" in2="blur" operator="over"/>
         </filter>
         <!-- Ball glow -->
@@ -439,7 +463,7 @@ html, body {
           <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
         </radialGradient>
         <filter id="ballGlow" x="-200%" y="-200%" width="500%" height="500%">
-          <feGaussianBlur stdDeviation="8" result="blur"/>
+          <feGaussianBlur stdDeviation="16" result="blur"/>
           <feComposite in="SourceGraphic" in2="blur" operator="over"/>
         </filter>
       </defs>
@@ -448,9 +472,9 @@ html, body {
       <g id="nodesGroup"></g>
       <!-- Ball -->
       <g id="ballGroup">
-        <circle id="ballOuter" cx="0" cy="0" r="16" fill="rgba(34,211,238,0.15)" filter="url(#ballGlow)"/>
-        <circle id="ballRing" cx="0" cy="0" r="10" fill="none" stroke="#22d3ee" stroke-width="1.5" opacity="0.6"/>
-        <circle id="ballCore" cx="0" cy="0" r="6" fill="url(#ballGrad)" filter="url(#softGlow)"/>
+        <circle id="ballOuter" cx="0" cy="0" r="32" fill="rgba(34,211,238,0.15)" filter="url(#ballGlow)"/>
+        <circle id="ballRing" cx="0" cy="0" r="20" fill="none" stroke="#22d3ee" stroke-width="3" opacity="0.6"/>
+        <circle id="ballCore" cx="0" cy="0" r="12" fill="url(#ballGrad)" filter="url(#softGlow)"/>
       </g>
       <!-- Group labels rendered by JS -->
       <g id="labelsGroup"></g>
@@ -484,11 +508,13 @@ html, body {
     <div class="db-table-strip" id="dbStrip"></div>
   </div>
 
-  <!-- NAV -->
+  <!-- NAV: PREV | RESTART | [dots] | PLAY/PAUSE | STOP | NEXT -->
   <div class="nav-row">
     <button class="nav-btn" id="btnPrev" onclick="navigate(-1)">&#9664; PREV</button>
+    <button class="nav-btn restart-btn" id="btnRestart" onclick="restartPlay()">&#x27F2; RESTART</button>
     <div class="dot-progress" id="dotProgress"></div>
-    <button class="nav-btn" id="btnAuto" onclick="toggleAuto()">&#9654;&#9654; AUTO</button>
+    <button class="nav-btn" id="btnPlayPause" onclick="togglePlayPause()">&#9654; PLAY</button>
+    <button class="nav-btn stop-btn" id="btnStop" onclick="stopPlay()">&#9632; STOP</button>
     <button class="nav-btn" id="btnNext" onclick="navigate(1)">NEXT &#9654;</button>
   </div>
 
@@ -550,46 +576,46 @@ const GROUP_LABEL = {
 };
 
 /* ================================================================
-   NODE LAYOUT — viewBox 960×320
-   Row heights: row0=40, row_spacing=50 → row tops: 40, 90, 140, 190, 240, 280
+   NODE LAYOUT — viewBox 1920×640
+   All positions are doubled from the original 960×320 layout.
    ================================================================ */
-const SVG_W = 960;
-const SVG_H = 320;
-const R = 11;   /* node radius */
+const SVG_W = 1920;
+const SVG_H = 640;
+const R = 22;   /* node radius — doubled from 11 */
 
-// Layout: [cx, cy] for each step (index 0 = step 1)
+// Layout: [cx, cy] for each step (index 0 = step 1) — all coords doubled
 const NODE_POS = [
-  /* Pre-market row y=55 */
-  [ 90, 55],   // 1  Health Check
-  [230, 55],   // 2  Catalyst Ingest
-  [370, 55],   // 3  Form 4 Ingest
+  /* Pre-market row y=110 */
+  [ 180, 110],   // 1  Health Check
+  [ 460, 110],   // 2  Catalyst Ingest
+  [ 740, 110],   // 3  Form 4 Ingest
 
-  /* Scanner row y=115 */
-  [ 90, 115],  // 4  Scanner Setup
-  [230, 115],  // 5  T1 Signal Scoring
-  [370, 115],  // 6  Signal Enrichment
+  /* Scanner row y=230 */
+  [ 180, 230],  // 4  Scanner Setup
+  [ 460, 230],  // 5  T1 Signal Scoring
+  [ 740, 230],  // 6  Signal Enrichment
 
-  /* Tumbler row y=175 */
-  [140, 175],  // 7  T2 Fundamental
-  [300, 175],  // 8  T3 Flow
-  [460, 175],  // 9  T4 Pattern
-  [620, 175],  // 10 T5 Counterfactual
+  /* Tumbler row y=350 */
+  [ 280, 350],  // 7  T2 Fundamental
+  [ 600, 350],  // 8  T3 Flow
+  [ 920, 350],  // 9  T4 Pattern
+  [1240, 350],  // 10 T5 Counterfactual
 
-  /* Execution row y=235 */
-  [480, 235],  // 11 Execution Gate
-  [640, 235],  // 12 Budget Gate
+  /* Execution row y=470 */
+  [ 960, 470],  // 11 Execution Gate
+  [1280, 470],  // 12 Budget Gate
 
-  /* Shadow agents row y=290 */
-  [110, 290],  // 13 Skeptic
-  [240, 290],  // 14 Contrarian
-  [370, 290],  // 15 Regime Watcher
-  [500, 290],  // 16 Options Flow
-  [630, 290],  // 17 Form 4 Insider
-  [760, 290],  // 18 Kronos
+  /* Shadow agents row y=580 */
+  [ 220, 580],  // 13 Skeptic
+  [ 480, 580],  // 14 Contrarian
+  [ 740, 580],  // 15 Regime Watcher
+  [1000, 580],  // 16 Options Flow
+  [1260, 580],  // 17 Form 4 Insider
+  [1520, 580],  // 18 Kronos
 
-  /* Post-market row y=235 (right side) */
-  [800, 175],  // 19 Calibrator
-  [880, 115],  // 20 Meta Daily
+  /* Post-market row */
+  [1600, 350],  // 19 Calibrator
+  [1760, 230],  // 20 Meta Daily
 ];
 
 /* Edges: pairs of 0-based step indices */
@@ -617,78 +643,79 @@ const FEEDBACK_EDGES = new Set(['19,6']);
 /* ================================================================
    STATE
    ================================================================ */
-let currentStep = 0;   /* 0-based */
+let currentStep  = 0;   /* 0-based */
 let autoTimer    = null;
+let isPlaying    = false;
 let visitedSteps = new Set([0]);
 
 /* ================================================================
    RENDER DIAGRAM
    ================================================================ */
 function renderDiagram() {
-  const svg = document.getElementById('diagramSvg');
+  const svg    = document.getElementById('diagramSvg');
   const edgesG = document.getElementById('edgesGroup');
   const nodesG = document.getElementById('nodesGroup');
   const labelsG = document.getElementById('labelsGroup');
 
   // Clear
-  edgesG.innerHTML = '';
-  nodesG.innerHTML = '';
+  edgesG.innerHTML  = '';
+  nodesG.innerHTML  = '';
   labelsG.innerHTML = '';
 
-  /* --- Group background bands --- */
+  /* --- Group background bands (y coords doubled) --- */
   const groupRows = [
-    { group: 'pre-market',  y1: 35, y2: 75 },
-    { group: 'scanner',     y1: 95, y2: 135 },
-    { group: 'tumbler',     y1: 155, y2: 200 },
-    { group: 'shadow',      y1: 267, y2: 310 },
+    { group: 'pre-market',  y1:  70, y2: 150 },
+    { group: 'scanner',     y1: 190, y2: 270 },
+    { group: 'tumbler',     y1: 310, y2: 400 },
+    { group: 'shadow',      y1: 534, y2: 620 },
   ];
 
   groupRows.forEach(gr => {
     const color = GROUP_COLOR[gr.group];
     const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    rect.setAttribute('x', '4');
+    rect.setAttribute('x', '8');
     rect.setAttribute('y', gr.y1);
-    rect.setAttribute('width', SVG_W - 8);
+    rect.setAttribute('width', SVG_W - 16);
     rect.setAttribute('height', gr.y2 - gr.y1);
-    rect.setAttribute('rx', '6');
+    rect.setAttribute('rx', '12');
     rect.setAttribute('fill', color);
     rect.setAttribute('fill-opacity', '0.03');
     rect.setAttribute('stroke', color);
     rect.setAttribute('stroke-opacity', '0.08');
-    rect.setAttribute('stroke-width', '1');
+    rect.setAttribute('stroke-width', '2');
     edgesG.appendChild(rect);
 
     // group label at right edge
     const text = document.createElementNS('http://www.w3.org/2000/svg','text');
-    text.setAttribute('x', SVG_W - 10);
-    text.setAttribute('y', (gr.y1 + gr.y2) / 2 + 4);
+    text.setAttribute('x', SVG_W - 20);
+    text.setAttribute('y', (gr.y1 + gr.y2) / 2 + 8);
     text.setAttribute('text-anchor', 'end');
     text.setAttribute('font-family', 'Orbitron, monospace');
-    text.setAttribute('font-size', '7');
+    text.setAttribute('font-size', '14');
     text.setAttribute('font-weight', '700');
     text.setAttribute('fill', color);
     text.setAttribute('fill-opacity', '0.4');
-    text.setAttribute('letter-spacing', '1');
+    text.setAttribute('letter-spacing', '2');
     text.textContent = GROUP_LABEL[gr.group];
     labelsG.appendChild(text);
   });
 
-  /* --- Execution / calibration / meta labels --- */
+  /* --- Execution / calibration / meta labels (coords doubled) --- */
   [
-    { group: 'execution',   x: 595, y: 220 },
-    { group: 'calibration', x: 830, y: 165 },
-    { group: 'meta',        x: 900, y: 107 },
+    { group: 'execution',   x: 1190, y: 440 },
+    { group: 'calibration', x: 1660, y: 330 },
+    { group: 'meta',        x: 1800, y: 214 },
   ].forEach(item => {
     const text = document.createElementNS('http://www.w3.org/2000/svg','text');
     text.setAttribute('x', item.x);
     text.setAttribute('y', item.y);
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('font-family', 'Orbitron, monospace');
-    text.setAttribute('font-size', '7');
+    text.setAttribute('font-size', '14');
     text.setAttribute('font-weight', '700');
     text.setAttribute('fill', GROUP_COLOR[item.group]);
     text.setAttribute('fill-opacity', '0.45');
-    text.setAttribute('letter-spacing', '1');
+    text.setAttribute('letter-spacing', '2');
     text.textContent = GROUP_LABEL[item.group];
     labelsG.appendChild(text);
   });
@@ -711,19 +738,19 @@ function renderDiagram() {
     if (isFeedback) {
       line.setAttribute('stroke', GROUP_COLOR['meta']);
       line.setAttribute('stroke-opacity', '0.25');
-      line.setAttribute('stroke-width', '1');
-      line.setAttribute('stroke-dasharray', '3 4');
+      line.setAttribute('stroke-width', '2');
+      line.setAttribute('stroke-dasharray', '6 8');
     } else if (isActive) {
       line.setAttribute('stroke', '#22d3ee');
       line.setAttribute('stroke-opacity', '0.6');
-      line.setAttribute('stroke-width', '1.5');
+      line.setAttribute('stroke-width', '3');
     } else if (bothVisited) {
       line.setAttribute('stroke', '#33ff88');
       line.setAttribute('stroke-opacity', '0.2');
-      line.setAttribute('stroke-width', '1');
+      line.setAttribute('stroke-width', '2');
     } else {
       line.setAttribute('stroke', 'rgba(255,255,255,0.07)');
-      line.setAttribute('stroke-width', '1');
+      line.setAttribute('stroke-width', '2');
     }
 
     edgesG.appendChild(line);
@@ -746,7 +773,7 @@ function renderDiagram() {
       const glowRing = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       glowRing.setAttribute('cx', cx);
       glowRing.setAttribute('cy', cy);
-      glowRing.setAttribute('r', R + 7);
+      glowRing.setAttribute('r', R + 14);
       glowRing.setAttribute('fill', color);
       glowRing.setAttribute('fill-opacity', '0.12');
       glowRing.setAttribute('stroke', 'none');
@@ -763,16 +790,16 @@ function renderDiagram() {
       circle.setAttribute('fill', color);
       circle.setAttribute('fill-opacity', '0.25');
       circle.setAttribute('stroke', color);
-      circle.setAttribute('stroke-width', '2');
+      circle.setAttribute('stroke-width', '4');
       circle.setAttribute('filter', 'url(#glowCyan)');
     } else if (isVisited) {
       circle.setAttribute('fill', 'rgba(51,255,136,0.08)');
       circle.setAttribute('stroke', 'rgba(51,255,136,0.35)');
-      circle.setAttribute('stroke-width', '1');
+      circle.setAttribute('stroke-width', '2');
     } else {
       circle.setAttribute('fill', 'rgba(255,255,255,0.03)');
       circle.setAttribute('stroke', 'rgba(255,255,255,0.15)');
-      circle.setAttribute('stroke-width', '1');
+      circle.setAttribute('stroke-width', '2');
     }
 
     g.appendChild(circle);
@@ -780,10 +807,10 @@ function renderDiagram() {
     // Step number label inside
     const numText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     numText.setAttribute('x', cx);
-    numText.setAttribute('y', cy + 3);
+    numText.setAttribute('y', cy + 6);
     numText.setAttribute('text-anchor', 'middle');
     numText.setAttribute('font-family', 'Orbitron, monospace');
-    numText.setAttribute('font-size', '7');
+    numText.setAttribute('font-size', '14');
     numText.setAttribute('font-weight', '900');
     numText.setAttribute('fill', isActive ? color : isVisited ? 'rgba(51,255,136,0.7)' : 'rgba(255,255,255,0.3)');
     numText.textContent = step.id;
@@ -792,15 +819,15 @@ function renderDiagram() {
     // Node label below
     const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     labelText.setAttribute('x', cx);
-    labelText.setAttribute('y', cy + R + 10);
+    labelText.setAttribute('y', cy + R + 20);
     labelText.setAttribute('text-anchor', 'middle');
     labelText.setAttribute('font-family', 'Orbitron, monospace');
-    labelText.setAttribute('font-size', '5.5');
+    labelText.setAttribute('font-size', '11');
     labelText.setAttribute('font-weight', '700');
     labelText.setAttribute('fill', isActive ? color : isVisited ? 'rgba(51,255,136,0.55)' : 'rgba(255,255,255,0.22)');
-    labelText.setAttribute('letter-spacing', '0.3');
+    labelText.setAttribute('letter-spacing', '0.5');
 
-    // Shorten labels to fit small circles
+    // Shorten labels to fit circles
     const SHORT = [
       "HEALTH","CATALYST","FORM4","SETUP","T1 SCORE","ENRICH",
       "T2 FUND","T3 FLOW","T4 PATT","T5 COUNT",
@@ -847,7 +874,7 @@ function moveBall(stepIdx) {
    UPDATE DETAIL PANEL
    ================================================================ */
 function updateDetail() {
-  const step = STEPS[currentStep];
+  const step  = STEPS[currentStep];
   const color = GROUP_COLOR[step.group];
 
   const panel = document.getElementById('detailPanel');
@@ -862,7 +889,6 @@ function updateDetail() {
   titleEl.style.textShadow = `0 0 20px ${hexToRgba(color, 0.5)}`;
 
   document.getElementById('detailDesc').textContent = step.desc;
-
   document.getElementById('detailTable').textContent = step.table;
 
   const costEl = document.getElementById('detailCost');
@@ -882,9 +908,6 @@ function updateDetail() {
   panel.classList.remove('animating');
   void panel.offsetWidth;
   panel.classList.add('animating');
-
-  // Top border color
-  panel.style.setProperty('--step-color', color);
 }
 
 /* ================================================================
@@ -923,6 +946,20 @@ function updateProgress() {
 }
 
 /* ================================================================
+   UPDATE PLAY/PAUSE BUTTON APPEARANCE
+   ================================================================ */
+function syncPlayPauseBtn() {
+  const btn = document.getElementById('btnPlayPause');
+  if (isPlaying) {
+    btn.textContent = '⏸ PAUSE';
+    btn.classList.add('playing');
+  } else {
+    btn.textContent = '▶ PLAY';
+    btn.classList.remove('playing');
+  }
+}
+
+/* ================================================================
    GO TO STEP
    ================================================================ */
 function goToStep(idx) {
@@ -939,31 +976,67 @@ function goToStep(idx) {
    NAVIGATE
    ================================================================ */
 function navigate(delta) {
-  goToStep(currentStep + delta);
+  const next = currentStep + delta;
+  if (next < 0 || next >= STEPS.length) return;
+  goToStep(next);
 }
 
 /* ================================================================
-   AUTO-PLAY
+   PLAY / PAUSE
    ================================================================ */
-function toggleAuto() {
-  const btn = document.getElementById('btnAuto');
-  if (autoTimer) {
+function togglePlayPause() {
+  if (isPlaying) {
+    // Pause
     clearInterval(autoTimer);
     autoTimer = null;
-    btn.classList.remove('auto-on');
-    btn.textContent = '▶▶ AUTO';
+    isPlaying = false;
   } else {
-    btn.classList.add('auto-on');
-    btn.textContent = '⏸ PAUSE';
+    // Play from current position
+    isPlaying = true;
     autoTimer = setInterval(() => {
       if (currentStep >= STEPS.length - 1) {
-        // loop back
         goToStep(0);
       } else {
         navigate(1);
       }
     }, 3000);
   }
+  syncPlayPauseBtn();
+}
+
+/* ================================================================
+   STOP — halt and reset to step 1
+   ================================================================ */
+function stopPlay() {
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  }
+  isPlaying = false;
+  visitedSteps = new Set([0]);
+  goToStep(0);
+  syncPlayPauseBtn();
+}
+
+/* ================================================================
+   RESTART — jump to step 1, start auto-playing
+   ================================================================ */
+function restartPlay() {
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  }
+  visitedSteps = new Set([0]);
+  goToStep(0);
+  isPlaying = true;
+  autoTimer = setInterval(() => {
+    if (currentStep >= STEPS.length - 1) {
+      goToStep(0);
+    } else {
+      navigate(1);
+    }
+  }, 3000);
+  syncPlayPauseBtn();
 }
 
 /* ================================================================
@@ -1002,6 +1075,7 @@ function init() {
 
   // First render
   goToStep(0);
+  syncPlayPauseBtn();
 }
 
 // Wait for fonts
