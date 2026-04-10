@@ -33,6 +33,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.staticfiles import StaticFiles
 
 app = FastAPI(title="OpenClaw Trader Dashboard", docs_url=None, redoc_url=None)
 
@@ -84,7 +85,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        # Allow /static/* assets to be embedded via iframe (workflow widget, etc.)
+        if not request.url.path.startswith("/static/"):
+            response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
@@ -561,6 +564,10 @@ async def revoke_magic_link(request: Request, oc_session: str | None = Cookie(No
 @app.get("/theme.css")
 async def theme_css():
     return FileResponse(Path(__file__).parent / "theme.css", media_type="text/css")
+
+
+# Static files — workflow widget, standalone HTML tools, etc.
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
 # Dashboard Route
