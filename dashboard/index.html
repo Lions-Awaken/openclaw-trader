@@ -1615,7 +1615,7 @@
         </div>
         <div id="workflow-widget-body" style="margin-top: 1rem; transition: max-height 0.4s ease, opacity 0.3s ease; overflow: hidden;">
             <div style="width:100%; border-radius:8px; overflow:hidden; border:1px solid rgba(0,255,238,0.08);">
-                <iframe src="/static/openclaw_workflow_interactive.html" style="width:100%; height:900px; border:none;" scrolling="no" title="openclaw-trader interactive workflow"></iframe>
+                <iframe src="/static/openclaw_workflow_interactive.html" style="width:100%; height:1100px; border:none;" scrolling="no" title="openclaw-trader interactive workflow"></iframe>
             </div>
         </div>
     </div>
@@ -2243,7 +2243,7 @@ function toggleWorkflowWidget() {
   var body = document.getElementById('workflow-widget-body');
   var icon = document.getElementById('workflow-toggle-icon');
   if (body.style.maxHeight === '0px') {
-    body.style.maxHeight = '1000px';
+    body.style.maxHeight = '1200px';
     body.style.opacity = '1';
     icon.style.transform = 'rotate(0deg)';
   } else {
