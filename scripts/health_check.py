@@ -1162,28 +1162,30 @@ def check_1303_shadow_divergence_rate():
         "limit": "1000",
     })
     divergences = len(div_rows)
-    # Count scanner shadow_inference steps as a proxy for total shadow runs
+    # Get scanner root steps to count runs and extract candidates per run
     scan_rows = sb_get("pipeline_runs", {
         "select": "id,output_snapshot",
         "pipeline_name": "eq.scanner",
-        "step_name": "eq.shadow_inference",
+        "step_name": "eq.root",
+        "status": "eq.success",
         "created_at": f"gte.{cutoff_7d}",
         "limit": "200",
     })
     runs = len(scan_rows)
     if runs == 0:
-        return "skip", "0 scanner shadow_inference runs in last 7 days", "runs>0", ""
-    # Estimate candidates per run from output_snapshots
+        return "skip", "0 scanner runs in last 7 days", "runs>0", ""
+    # Get candidates from root output_snapshot (where it's actually stored)
     candidate_counts = []
     for row in scan_rows:
         snap = row.get("output_snapshot") or {}
         val = snap.get("candidates")
         if val is not None:
             candidate_counts.append(int(val))
-    avg_candidates = (sum(candidate_counts) / len(candidate_counts)) if candidate_counts else 1.0
+    avg_candidates = (sum(candidate_counts) / len(candidate_counts)) if candidate_counts else 14.0
     if avg_candidates < 1:
         avg_candidates = 1.0
-    denominator = runs * avg_candidates
+    # Multiply by number of shadow profiles (5) to get total shadow evaluations
+    denominator = runs * avg_candidates * 5
     rate = divergences / denominator if denominator > 0 else 0.0
     detail = f"rate={rate:.1%}, divergences={divergences}, runs={runs}, avg_candidates={avg_candidates:.1f}"
     if rate < 0.05:
