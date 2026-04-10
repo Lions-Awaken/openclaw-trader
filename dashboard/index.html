@@ -50,6 +50,36 @@
     text-decoration: none;
   }
   .logout-btn:hover { color: var(--red); border-color: var(--red); }
+  /* When Sign Out lives inside the top-right cluster, override absolute positioning */
+  .header-logout {
+    position: static;
+    top: auto;
+    right: auto;
+  }
+
+  /* HOW IT WORKS prominent CTA button */
+  .how-it-works-btn {
+    margin-top: 16px;
+    padding: 14px 40px;
+    background: transparent;
+    border: 2px solid var(--cyan, #22d3ee);
+    color: var(--cyan, #22d3ee);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 6px;
+    box-shadow: 0 0 15px rgba(34,211,238,0.2);
+    transition: all 0.3s ease;
+    display: inline-block;
+  }
+  .how-it-works-btn:hover {
+    box-shadow: 0 0 30px rgba(34,211,238,0.5), 0 0 60px rgba(34,211,238,0.2);
+    background: rgba(34,211,238,0.08);
+    border-color: var(--cyan, #22d3ee);
+  }
 
   .header { position: relative; }
 
@@ -692,23 +722,33 @@
     <div class="header-brand">
       <div class="title-box-tight"><h1>OpenClaw Trader</h1></div>
       <div class="subtitle">Autonomous Trading Agent</div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">
+
+      <button onclick="showSection('about')" class="how-it-works-btn">HOW IT WORKS</button>
+
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:14px;">
         <div class="paper-badge" id="mode-badge">Paper Trading</div>
         <div class="active-profile-badge" id="activeProfileBadge">---</div>
-        <button class="header-icon-btn header-icon-purple" onclick="showSection('logging')" title="System Observability">
-          <svg width="30" height="30" viewBox="0 0 100 100" fill="none">
-            <path d="M16.60 18.72 L26.20 9.12 Q27.12 8.20 28.42 8.20 L71.58 8.20 Q72.88 8.20 73.80 9.12 L83.40 18.72 Q84.32 19.64 84.32 20.94 L84.32 37.06 Q84.32 38.36 83.40 39.28 L73.80 48.88 Q72.88 49.80 71.58 49.80 L55.98 49.80 Q54.68 49.80 54.68 51.10 L54.68 90.97 Q54.68 92.27 53.38 92.27 L46.62 92.27 Q45.32 92.27 45.32 90.97 L45.32 51.10 Q45.32 49.80 44.02 49.80 L28.42 49.80 Q27.12 49.80 26.20 48.88 L16.60 39.28 Q15.68 38.36 15.68 37.06 L15.68 20.94 Q15.68 19.64 16.60 18.72 Z"
-              fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-          </svg>
-        </button>
-        <a href="/systems" class="header-icon-btn header-icon-cyan" title="Systems Console — Ridley Hardware Monitor">
-          <svg width="30" height="30" viewBox="0 0 100 100" fill="none">
-            <path d="M16.60 18.72 L26.20 9.12 Q27.12 8.20 28.42 8.20 L71.58 8.20 Q72.88 8.20 73.80 9.12 L83.40 18.72 Q84.32 19.64 84.32 20.94 L84.32 37.06 Q84.32 38.36 83.40 39.28 L73.80 48.88 Q72.88 49.80 71.58 49.80 L55.98 49.80 Q54.68 49.80 54.68 51.10 L54.68 90.97 Q54.68 92.27 53.38 92.27 L46.62 92.27 Q45.32 92.27 45.32 90.97 L45.32 51.10 Q45.32 49.80 44.02 49.80 L28.42 49.80 Q27.12 49.80 26.20 48.88 L16.60 39.28 Q15.68 38.36 15.68 37.06 L15.68 20.94 Q15.68 19.64 16.60 18.72 Z"
-              fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-          </svg>
-        </a>
       </div>
-      <a href="/logout" class="logout-btn header-logout">Sign Out</a>
+
+      <!-- Top-right cluster: Sign Out + Mjolnir icons -->
+      <div style="position:absolute;top:10px;right:10px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+        <a href="/logout" class="logout-btn header-logout">Sign Out</a>
+        <div style="display:flex;gap:6px;">
+          <button class="header-icon-btn header-icon-purple" onclick="showSection('logging')" title="System Observability">
+            <svg width="30" height="30" viewBox="0 0 100 100" fill="none">
+              <path d="M16.60 18.72 L26.20 9.12 Q27.12 8.20 28.42 8.20 L71.58 8.20 Q72.88 8.20 73.80 9.12 L83.40 18.72 Q84.32 19.64 84.32 20.94 L84.32 37.06 Q84.32 38.36 83.40 39.28 L73.80 48.88 Q72.88 49.80 71.58 49.80 L55.98 49.80 Q54.68 49.80 54.68 51.10 L54.68 90.97 Q54.68 92.27 53.38 92.27 L46.62 92.27 Q45.32 92.27 45.32 90.97 L45.32 51.10 Q45.32 49.80 44.02 49.80 L28.42 49.80 Q27.12 49.80 26.20 48.88 L16.60 39.28 Q15.68 38.36 15.68 37.06 L15.68 20.94 Q15.68 19.64 16.60 18.72 Z"
+                fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <a href="/systems" class="header-icon-btn header-icon-cyan" title="Systems Console — Ridley Hardware Monitor">
+            <svg width="30" height="30" viewBox="0 0 100 100" fill="none">
+              <path d="M16.60 18.72 L26.20 9.12 Q27.12 8.20 28.42 8.20 L71.58 8.20 Q72.88 8.20 73.80 9.12 L83.40 18.72 Q84.32 19.64 84.32 20.94 L84.32 37.06 Q84.32 38.36 83.40 39.28 L73.80 48.88 Q72.88 49.80 71.58 49.80 L55.98 49.80 Q54.68 49.80 54.68 51.10 L54.68 90.97 Q54.68 92.27 53.38 92.27 L46.62 92.27 Q45.32 92.27 45.32 90.97 L45.32 51.10 Q45.32 49.80 44.02 49.80 L28.42 49.80 Q27.12 49.80 26.20 48.88 L16.60 39.28 Q15.68 38.36 15.68 37.06 L15.68 20.94 Q15.68 19.64 16.60 18.72 Z"
+                fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+            </svg>
+          </a>
+        </div>
+      </div>
+
       <button class="share-access-btn" onclick="toggleSharePanel()">Share Access</button>
 
       <div class="strategy-profile-btn" onclick="toggleStrategyPanel()">PROFILES</div>
