@@ -2504,6 +2504,28 @@ document.fonts.ready.then(wfInit);
 })(); /* end IIFE */
             </script>
 
+            <script>
+// Watch for workflow step changes and update chat placeholder + context indicator
+(function() {
+    var lastStep = -1;
+    setInterval(function() {
+        var idx = window._workflowStepIndex || 0;
+        if (idx !== lastStep) {
+            lastStep = idx;
+            var step = window._workflowCurrentStep;
+            var input = document.getElementById('chat-input');
+            if (input && step) {
+                input.placeholder = 'Ask about Step ' + (idx + 1) + ': ' + step.title + '...';
+            }
+            var ctx = document.getElementById('chat-step-context');
+            if (ctx && step) {
+                ctx.textContent = 'CONTEXT: STEP ' + (idx + 1) + ' \u2014 ' + step.title;
+            }
+        }
+    }, 500);
+})();
+            </script>
+
             <!-- AI Chat — inside the workflow container -->
             <div style="margin-top: 1.5rem; border-top: 1px solid rgba(0,255,238,0.08); padding-top: 1rem;">
                 <div class="buildlog-frame" style="display:flex;flex-direction:column;height:500px;min-height:400px;">
@@ -2524,6 +2546,9 @@ document.fonts.ready.then(wfInit);
                                 I have access to all of OpenClaw's data.
                             </div>
                         </div>
+                    </div>
+                    <div id="chat-step-context" style="padding:8px 24px;font-size:0.7rem;color:var(--cyan,#22d3ee);letter-spacing:1px;text-transform:uppercase;opacity:0.7;">
+                        CONTEXT: STEP 1 — HEALTH CHECK
                     </div>
                     <div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end">
                         <textarea id="chat-input" rows="1" placeholder="Ask about your positions, trades, strategy..."
@@ -5357,7 +5382,11 @@ async function chatSend() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ messages: chatMessages }),
+      body: JSON.stringify({
+          messages: chatMessages,
+          current_step: window._workflowCurrentStep || null,
+          current_step_index: window._workflowStepIndex || 0,
+      }),
     });
 
     if (!resp.ok) {
