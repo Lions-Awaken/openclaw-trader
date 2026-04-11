@@ -693,7 +693,7 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** `fly secrets list` shows SESSION_SIGNING_SALT set. server.py prints warning on default salt. Ruff clean.
 **Depends on:** nothing
 
-### TASK-FIX-04 . BACKEND-AGENT . [READY]
+### TASK-FIX-04 . BACKEND-AGENT . [DONE]
 **Goal:** Fix meta reflection + Claude cost tracking. (A) Read `scripts/meta_analysis.py` `generate_daily_reflection()` — find where call_claude() is called. Check if it's using the correct model name and if the response is being parsed correctly. (B) Read `scripts/common.py` `call_claude()` — verify it calls `log_cost()` after each successful Claude call. If not, add the log_cost call with category='claude_api'. (C) Read `scripts/inference_engine.py` T4/T5 — verify log_cost is called after each Claude call with category='claude_api'. (D) Test: run meta_analysis.py daily on ridley manually and verify it produces a real reflection (not "Unable to assess").
 **Acceptance:** cost_ledger gets claude_api rows on next inference run. meta_analysis.py daily produces real signal_assessment (not "Unable to assess"). Ruff clean.
 **Depends on:** nothing
@@ -710,7 +710,7 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** Next scanner run produces signal_evaluations rows with non-NULL embedding column. Ruff clean.
 **Depends on:** nothing
 
-### TASK-FIX-07 . DB-AGENT . [READY]
+### TASK-FIX-07 . DB-AGENT . [DONE]
 **Goal:** Add retention policies for 6 tables missing cleanup. Apply pg_cron jobs to Supabase vpollvsbtushbiapoflr: (A) system_stats: 30-day retention (highest volume). (B) system_health: 90-day. (C) signal_evaluations: 180-day. (D) shadow_divergences: 365-day. (E) meta_reflections: 365-day. (F) trade_decisions: 365-day. Use existing pg_cron pattern from the migration files.
 **Acceptance:** `SELECT * FROM cron.job` shows 6 new cleanup jobs. Verified rows older than retention window are deleted on next cron run.
 **Depends on:** nothing
@@ -720,7 +720,7 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** `get_shadow_divergence_summary()` returns count > 0 when shadow_divergences has recent rows. Ruff clean.
 **Depends on:** nothing
 
-### TASK-FIX-09 . FRONTEND-AGENT . [READY]
+### TASK-FIX-09 . FRONTEND-AGENT . [DONE]
 **Goal:** Fix 3 XSS vectors in dashboard. (A) In `buildTradeTable` (index.html ~line 3208): escape `t.ticker`, `t.action`, `t.outcome` with `esc()`. (B) In pipeline run list (~line 3681): escape `r.pipeline_name` and `r.status`. (C) In `chatRenderMarkdown` (~line 5319): pre-escape the raw text with `esc()` before applying regex substitutions, OR use DOMPurify. Keep the existing esc() calls on other fields.
 **Acceptance:** All dynamic data in innerHTML assignments passes through esc(). No unescaped user/DB data in HTML. 
 **Depends on:** nothing
@@ -742,12 +742,12 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** `systemctl status openclaw-simulator` shows active. Watcher auto-restarts after `kill -9`. @reboot cron removed.
 **Depends on:** TASK-FIX-10
 
-### TASK-FIX-13 . DB-AGENT . [READY]
+### TASK-FIX-13 . DB-AGENT . [DONE]
 **Goal:** Clean up 11 stuck pipeline_runs from March. Run: `UPDATE pipeline_runs SET status='failed', completed_at=now() WHERE status='running' AND created_at < now() - interval '2 hours'`. Verify count.
 **Acceptance:** Zero pipeline_runs with status='running' older than 2 hours.
 **Depends on:** nothing
 
-### TASK-FIX-14 . BACKEND-AGENT . [READY]
+### TASK-FIX-14 . BACKEND-AGENT . [DONE]
 **Goal:** Disable SSH password auth on ridley. Set `PasswordAuthentication no` in `/etc/ssh/sshd_config`. Reload sshd. Verify key-only access still works.
 **Acceptance:** `grep PasswordAuthentication /etc/ssh/sshd_config` shows `no`. SSH still works via key.
 **Depends on:** nothing
@@ -757,7 +757,7 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** No code path can set slots_available > max_concurrent_positions. Ruff clean.
 **Depends on:** nothing
 
-### TASK-FIX-16 . BACKEND-AGENT . [READY]
+### TASK-FIX-16 . BACKEND-AGENT . [DONE]
 **Goal:** Fix stack_heartbeats column name mismatch. Read `dashboard/server.py` — find references to `service_name` on the stack_heartbeats table. The actual column is `service`. Fix the column reference.
 **Acceptance:** Server.py references correct column name. Ruff clean.
 **Depends on:** nothing

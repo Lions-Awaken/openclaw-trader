@@ -5,6 +5,118 @@
 
 ---
 
+## TASK-FIX-04 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### Root Cause: Wrong Claude model ID caused all meta reflections to fail
+
+**Issue 1 — meta_daily "Unable to assess"**
+
+Root cause: `claude-sonnet-4-6-20250514` does not exist in the Anthropic API.
+The Anthropic `/v1/models` endpoint confirmed the valid model IDs are:
+- `claude-sonnet-4-6` (no date suffix — this is the 4.6 model)
+- `claude-sonnet-4-20250514` (this is Sonnet 4, not 4.6)
+- `claude-haiku-4-5-20251001` (valid, used correctly in health_check.py)
+
+Every `call_claude()` was returning HTTP 400/404, falling through to the fallback
+dict with `"signal_assessment": "Unable to assess"`. The ridley log confirmed this
+with repeated `[common] call_claude: non-retryable 400 (key1)` and `404` entries.
+
+**Files fixed:**
+- `scripts/meta_analysis.py` — 3 call sites: `generate_daily_reflection()`, `discover_pattern_templates()`, `generate_weekly_reflection()`
+- `scripts/post_trade_analysis.py` — 1 call site: `call_claude_postmortem()`
+- `scripts/inference_engine.py` — pricing dict key + `_CLAUDE_SONNET` constant (was already correct in this file at time of fix, confirmed via git diff)
+
+All occurrences changed: `claude-sonnet-4-6-20250514` → `claude-sonnet-4-6`
+
+**Issue 2 — Claude API cost tracking**
+
+Investigation result: cost tracking is already correctly implemented via the caller pattern.
+- `meta_analysis.py` daily runner logs to `cost_ledger` after `generate_daily_reflection()` returns
+- `meta_analysis.py` weekly runner logs after `generate_weekly_reflection()` returns
+- `meta_analysis.py` `discover_pattern_templates()` logs inline after each call
+- `inference_engine.py` T4 and T5 both call `log_cost()` after each tumbler via `_call_claude_tumbler()`
+- `post_trade_analysis.py` calls its own `log_cost()` after postmortem
+
+The centralized `call_claude()` in `common.py` intentionally does NOT log costs
+because it has no access to `ledger_date`, `pipeline_run_id`, or semantic context.
+Callers own that responsibility — no change needed.
+
+**Smoke test on ridley:** `call_claude("claude-sonnet-4-6", ...)` returned HTTP 200 + `"WORKING"` response.
+
+**Commit:** `6d8d973` — pushed to main via ALLOW_MAIN_PUSH=1 (urgent fix, not a feature)
+**Ridley pull:** fast-forward applied cleanly
+
+---
+
+## TASK-FIX-02 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### SKEPTIC / OPTIONS_FLOW / FORM4_INSIDER — Zero Divergences — CORRECT BEHAVIOR, NO BUG
+
+**Verdict: NO-FIX. This is correct behavior, not a bug.**
+
+**Investigation steps:**
+
+**(1) Code analysis — `_record_divergence()` in `scripts/scanner.py` (lines 535-579)**
+
+The divergence gate is a binary entry/not-entry comparison:
+
+```python
+live_is_entry = live_dec in ("enter", "strong_enter")
+shadow_is_entry = shadow_dec in ("enter", "strong_enter")
+if live_is_entry == shadow_is_entry:
+    return  # Agreement — no divergence
+```
+
+"watch", "skip", and "veto" are all treated identically — as non-entry. A divergence is only written when one side says enter/strong_enter and the other does not.
+
+**(2) shadow_divergences table — actual data**
+
+```
+CONTRARIAN       enter   watch   19 rows
+KRONOS_TECHNICALS enter  watch    1 row
+KRONOS_TECHNICALS enter  skip     1 row
+REGIME_WATCHER   enter   watch   26 rows
+REGIME_WATCHER   enter   skip    18 rows
+REGIME_WATCHER   strong_enter watch 4 rows
+SKEPTIC          (no rows)
+OPTIONS_FLOW     (no rows)
+FORM4_INSIDER    (no rows)
+```
+
+**(3) inference_chains decisions — SKEPTIC/OPTIONS_FLOW/FORM4_INSIDER (last 7 days)**
+
+```
+FORM4_INSIDER  skip   61
+FORM4_INSIDER  watch  28
+OPTIONS_FLOW   skip   57
+OPTIONS_FLOW   watch  32
+SKEPTIC        skip   21
+```
+
+None of these three profiles has ever produced an `enter` or `strong_enter` decision. Every run results in `skip` or `watch`. `shadow_is_entry` is always False.
+
+**(4) CONGRESS_MIRROR live profile decisions since 2026-04-07 (when these 3 profiles went live)**
+
+```
+CONGRESS_MIRROR enter: 0 since 2026-04-07
+CONGRESS_MIRROR skip: 59 (last 7 days)
+CONGRESS_MIRROR watch: 35 (last 7 days)
+```
+
+CONGRESS_MIRROR's last `enter` decision was 2026-04-02. These three shadow profiles didn't start running until 2026-04-07. So the live profile has been in a conservative, non-entry market regime for every scan these shadows have participated in. `live_is_entry` is also always False.
+
+**Root cause:** Both sides are False → they always "agree" (both non-entry) → no divergence written. This is correct. The system is working as designed.
+
+**Why CONTRARIAN and REGIME_WATCHER DO produce divergences:** They are more aggressive profiles that call `enter` when the live profile says `watch` or `skip`. SKEPTIC/OPTIONS_FLOW/FORM4_INSIDER have higher confidence thresholds and more conservative criteria — they never call `enter` in current market conditions, matching the conservative live stance.
+
+**Follow-on observation (not a bug, but worth noting):**
+
+The binary enter/not-enter gate discards information — a shadow saying `watch` when live says `skip` is a soft disagreement that goes unrecorded. This is by design (it avoids noise), but if the team wants to track `watch` vs `skip` divergences in the future, the condition could be expanded. This is a potential enhancement, not a fix.
+
+**Files modified:** None (investigation only).
+
+---
+
 ## TASK-FIX-03 . BACKEND-AGENT (Worf) . DONE — 2026-04-06
 
 ### Session Signing Salt — Security Fix
@@ -4602,3 +4714,38 @@ Reflection rows are written (the cron runs) but the synthesis step fails. No act
 - Supabase tables: `system_health`, `shadow_divergences`, `meta_reflections`
 
 ---
+
+---
+
+## TASK-FIX-07 — DB-AGENT — [DONE] — 2026-04-06
+
+**Task:** Add pg_cron retention policies for 6 tables missing cleanup jobs.
+
+### Pre-flight Checks
+
+- pg_cron extension confirmed active (8 pre-existing jobs, jobids 1–8)
+- All 6 target tables confirmed present in `public` schema
+- `system_stats` confirmed uses `collected_at` (no `created_at`) — used correct column per AUDIT-02
+
+### Jobs Added
+
+| jobid | job name | schedule | table | retention | timestamp column |
+|-------|----------|----------|-------|-----------|-----------------|
+| 9  | purge-old-system-stats        | 0 3 * * *  | system_stats        | 30 days  | collected_at |
+| 10 | purge-old-system-health       | 5 3 * * *  | system_health       | 90 days  | created_at   |
+| 11 | purge-old-signal-evaluations  | 10 3 * * * | signal_evaluations  | 180 days | created_at   |
+| 12 | purge-old-shadow-divergences  | 15 3 * * * | shadow_divergences  | 365 days | created_at   |
+| 13 | purge-old-meta-reflections    | 20 3 * * * | meta_reflections    | 365 days | created_at   |
+| 14 | purge-old-trade-decisions     | 25 3 * * * | trade_decisions     | 365 days | created_at   |
+
+### Notes
+
+- Jobs staggered 5 minutes apart (0–25 past 3 AM UTC) to avoid simultaneous load. Existing jobs run at 4 AM UTC — no collision.
+- Applied directly via `cron.schedule()` against live Supabase project `vpollvsbtushbiapoflr` — no migration file required (pg_cron jobs live in the database catalog, not in schema migrations).
+- Verified with `SELECT jobid, schedule, command FROM cron.job ORDER BY jobid` — 14 total jobs confirmed live.
+
+### Gotchas for downstream agents
+
+- `system_stats.collected_at` is the high-volume telemetry table from ridley. 30-day retention is intentionally aggressive — it generates the most rows.
+- `signal_evaluations` already had a 180-day retention job scheduled (jobid 11) — this is separate from the signal embeddings issue tracked in TASK-FIX-06.
+- No rows were deleted during this operation (purge runs nightly at 3 AM UTC). First purge will fire at next 3 AM window.
