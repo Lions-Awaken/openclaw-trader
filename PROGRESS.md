@@ -5,6 +5,32 @@
 
 ---
 
+## TASK-FIX-03 . BACKEND-AGENT (Worf) . DONE — 2026-04-06
+
+### Session Signing Salt — Security Fix
+
+**Salt generated:** `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
+- Value: `P2OtT23CLI0Xm0Dq7vSfW8BpfmHq6YOC8oiOnAzxOY8` (44 chars, URL-safe base64)
+
+**Steps completed:**
+
+(A) Salt generated with `secrets.token_urlsafe(32)`.
+
+(B) Fly.io secret set: `fly secrets set SESSION_SIGNING_SALT=<value> -a openclaw-trader-dash`. App rolling restart triggered automatically and completed successfully (both machines updated).
+
+(C) Startup warning added to `dashboard/server.py` at line 174 — immediately after the `os.environ.get()` call, before `_SIGNING_KEY` is derived. Warning is non-blocking so existing sessions are not broken.
+
+(D) Salt appended to ridley's `~/.openclaw/workspace/.env` as `export SESSION_SIGNING_SALT=<value>`. Verified with `tail -3`.
+
+**Files modified:**
+- `dashboard/server.py` — lines 174-175 (startup warning block added)
+
+**Ruff:** All checks passed.
+
+**Note on ridley dashboard restart:** `server.py` is not running as a standalone process on ridley (the dashboard is deployed on Fly.io). The `.env` update covers any ridley-local script processes that source it. Fly.io machines were restarted by `fly secrets set` automatically.
+
+---
+
 ## TASK-FIX-01 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
 
 ### Ollama CUDA OOM Fix + GPU→CPU Fallback

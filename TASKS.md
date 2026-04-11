@@ -683,7 +683,7 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** `curl localhost:11434/api/generate` returns 200 with valid response on ridley. inference_engine.py has CPU fallback code. Ruff clean.
 **Depends on:** nothing
 
-### TASK-FIX-02 . BACKEND-AGENT . [READY]
+### TASK-FIX-02 . BACKEND-AGENT . [DONE]
 **Goal:** Debug why SKEPTIC/OPTIONS_FLOW/FORM4_INSIDER never write divergences. Read `scripts/scanner.py` `_record_divergence()` function. The 3 missing profiles may always agree with live (both say "skip" = no divergence). Query shadow_divergences to check: do these profiles ever disagree? If they always agree, this is correct behavior (not a bug). If they DO disagree but _record_divergence filters them out, fix the filter. Report findings — this may be a NO-FIX.
 **Acceptance:** Either (A) documented as correct behavior with evidence, or (B) _record_divergence fixed and divergences now recorded. Report in PROGRESS.md.
 **Depends on:** nothing

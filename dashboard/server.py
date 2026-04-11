@@ -171,6 +171,8 @@ PASSWORD_HASH = hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
 # Signing key for session cookies — stable across password rotations.
 # Uses a fixed salt so sessions survive DASHBOARD_KEY changes.
 _SESSION_SIGNING_SALT = os.environ.get("SESSION_SIGNING_SALT", "oc-session-stable-v1")
+if _SESSION_SIGNING_SALT == "oc-session-stable-v1":
+    print("[Dashboard] WARNING: SESSION_SIGNING_SALT is using the default value. Set the SESSION_SIGNING_SALT environment variable for production security.")
 _SIGNING_KEY = hashlib.sha256(_SESSION_SIGNING_SALT.encode()).digest()
 
 SESSION_MAX_AGE = 86400 * 90  # 90 days
