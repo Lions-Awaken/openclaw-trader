@@ -29,6 +29,7 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 from common import (
     check_market_open,
+    generate_embedding,
     get_account,
     get_bars,
     get_latest_quote,
@@ -652,6 +653,9 @@ def _setup_and_check(tracer: PipelineTracer) -> dict | None:
             print(f"[scanner] Account: equity=${equity:,.0f}, buying_power=${buying_power:,.0f}, "
                   f"positions={len(open_positions)}/{max_positions}")
 
+        # Hard cap: no code path can exceed the profile's position limit
+        slots_available = min(slots_available, profile.get("max_concurrent_positions", 5))
+
     return {
         "profile": profile,
         "min_signal": min_signal,
@@ -765,7 +769,19 @@ def _run_live_inference(
             inf_result["_score"] = cand["total_score"]
             inference_results.append(inf_result)
 
-            # Log signal evaluation
+            # Log signal evaluation with embedding for RAG
+            _sigs = cand["signals"]
+            _embed_text = (
+                f"Ticker: {ticker}. "
+                f"Signals: trend={_sigs.get('trend', {}).get('passed', False)}, "
+                f"momentum={_sigs.get('momentum', {}).get('passed', False)}, "
+                f"volume={_sigs.get('volume', {}).get('passed', False)}, "
+                f"fundamental={_sigs.get('fundamental', {}).get('passed', False)}, "
+                f"sentiment={_sigs.get('sentiment', {}).get('passed', False)}, "
+                f"flow={_sigs.get('flow', {}).get('passed', False)}. "
+                f"Score: {cand['total_score']}/6. Decision: {inf_result['final_decision']}."
+            )
+            _sig_embedding = generate_embedding(_embed_text)
             tracer.log_signal_evaluation(
                 ticker=ticker,
                 signals=cand["signals"],
@@ -775,6 +791,7 @@ def _run_live_inference(
                           f"depth={inf_result['max_depth_reached']}, "
                           f"stop={inf_result.get('stopping_reason', '?')}",
                 scan_type="scanner",
+                embedding=_sig_embedding,
             )
 
         actionable = [r for r in inference_results if r["final_decision"] in ("enter", "strong_enter")]

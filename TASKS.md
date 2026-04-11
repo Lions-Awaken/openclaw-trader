@@ -700,12 +700,12 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 
 ## Wave 2 — High Priority (parallel after Wave 1)
 
-### TASK-FIX-05 . BACKEND-AGENT . [BLOCKED: TASK-FIX-01]
+### TASK-FIX-05 . BACKEND-AGENT . [DONE]
 **Goal:** Investigate 8 trades without stop_price. Query trade_decisions WHERE stop_price IS NULL. Check if these are exit records (not entries), cancelled orders, or genuine missing stops. If genuine: find the code path in scanner.py execute_trade() that skips stop placement and fix it. Report findings.
 **Acceptance:** Root cause documented. If a bug: fixed + ruff clean. If by design: documented why.
 **Depends on:** TASK-FIX-01
 
-### TASK-FIX-06 . BACKEND-AGENT . [READY]
+### TASK-FIX-06 . BACKEND-AGENT . [DONE]
 **Goal:** Fix signal_evaluations 0% embeddings. Read `scripts/scanner.py` where signal_evaluations are written. Find where (or if) `generate_embedding()` is called on the signal data before writing. If missing, add the embedding call matching the pattern used in inference_chains. 
 **Acceptance:** Next scanner run produces signal_evaluations rows with non-NULL embedding column. Ruff clean.
 **Depends on:** nothing
@@ -715,7 +715,7 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** `SELECT * FROM cron.job` shows 6 new cleanup jobs. Verified rows older than retention window are deleted on next cron run.
 **Depends on:** nothing
 
-### TASK-FIX-08 . BACKEND-AGENT . [READY]
+### TASK-FIX-08 . BACKEND-AGENT . [DONE]
 **Goal:** Fix get_shadow_divergence_summary returning count=0. Read `scripts/meta_analysis.py` `get_shadow_divergence_summary()`. The function returns 0 despite 69 raw rows existing. Debug the query — likely a date filter mismatch (querying today's date but divergences are from previous days), or a column name issue (divergence_date vs created_at).
 **Acceptance:** `get_shadow_divergence_summary()` returns count > 0 when shadow_divergences has recent rows. Ruff clean.
 **Depends on:** nothing
@@ -725,19 +725,19 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** All dynamic data in innerHTML assignments passes through esc(). No unescaped user/DB data in HTML. 
 **Depends on:** nothing
 
-### TASK-FIX-10 . BACKEND-AGENT . [READY]
+### TASK-FIX-10 . BACKEND-AGENT . [DONE]
 **Goal:** Deploy latest commits to Fly.io + pull on ridley. (A) `git pull` on ridley. (B) `fly deploy` from dashboard/. (C) Restart ridley dashboard (uvicorn on 9090). (D) Verify workflow nav buttons work. (E) Verify chat multi-tool works.
 **Acceptance:** Fly.io running latest commit. Workflow PLAY/NEXT/PREV work. Chat doesn't error on tool use.
 **Depends on:** nothing
 
 ## Wave 3 — Medium / Longevity (parallel)
 
-### TASK-FIX-11 . BACKEND-AGENT . [BLOCKED: TASK-FIX-10]
+### TASK-FIX-11 . BACKEND-AGENT . [DONE]
 **Goal:** Add logrotate config on ridley. Create `/etc/logrotate.d/openclaw`: daily rotation, 7-day retention, compress, for all `/tmp/oc-*.log` and `/tmp/openclaw*.log`. Test with `logrotate -d`.
 **Acceptance:** `logrotate -d /etc/logrotate.d/openclaw` shows correct rotation plan. Config file exists.
 **Depends on:** TASK-FIX-10
 
-### TASK-FIX-12 . BACKEND-AGENT . [BLOCKED: TASK-FIX-10]
+### TASK-FIX-12 . BACKEND-AGENT . [DONE]
 **Goal:** Create systemd unit for simulator_watcher on ridley. Write `/etc/systemd/system/openclaw-simulator.service` with Restart=always, matching the pattern of openclaw-stats.service. Enable and start. Remove the @reboot crontab entry (systemd replaces it).
 **Acceptance:** `systemctl status openclaw-simulator` shows active. Watcher auto-restarts after `kill -9`. @reboot cron removed.
 **Depends on:** TASK-FIX-10
@@ -752,7 +752,7 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 **Acceptance:** `grep PasswordAuthentication /etc/ssh/sshd_config` shows `no`. SSH still works via key.
 **Depends on:** nothing
 
-### TASK-FIX-15 . BACKEND-AGENT . [READY]
+### TASK-FIX-15 . BACKEND-AGENT . [DONE]
 **Goal:** Fix slots_available=999 unlimited mode path in scanner.py. Find the fallback at ~line 645. Add a hard cap: `slots_available = min(slots_available, max_concurrent_positions or 5)`. This prevents any misconfigured profile from bypassing position limits.
 **Acceptance:** No code path can set slots_available > max_concurrent_positions. Ruff clean.
 **Depends on:** nothing

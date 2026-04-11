@@ -327,17 +327,23 @@ def get_todays_catalysts() -> list[dict]:
 
 @traced("meta")
 def get_shadow_divergence_summary() -> dict:
-    """Get today's shadow divergences for meta-analysis context.
+    """Get recent shadow divergences (last 7 days) for meta-analysis context.
+
+    Uses a 7-day rolling window rather than exact date match so the function
+    returns data on weekends and immediately after non-trading days, when
+    divergences were logged on the previous trading day.
 
     Also importable by health_check.py and test_system.py:
         from meta_analysis import get_shadow_divergence_summary
     """
-    today = date.today().isoformat()
+    cutoff = (date.today() - timedelta(days=7)).isoformat()
     divs = sb_get("shadow_divergences", {
         "select": "ticker,live_decision,live_confidence,shadow_profile,shadow_type,"
                   "shadow_decision,shadow_confidence,shadow_stopping_reason,"
                   "first_diverged_at_tumbler,shadow_was_right,save_value",
-        "divergence_date": f"eq.{today}",
+        "divergence_date": f"gte.{cutoff}",
+        "order": "divergence_date.desc",
+        "limit": "200",
     })
 
     if not divs:
