@@ -1609,9 +1609,900 @@
             <span id="workflow-toggle-icon" style="font-size: 24px; color: var(--cyan, #22d3ee); transition: transform 0.3s;">&#9660;</span>
         </div>
         <div id="workflow-widget-body" style="margin-top: 1rem; transition: max-height 0.4s ease, opacity 0.3s ease; overflow: hidden;">
-            <div style="width:100%; border-radius:8px; overflow:hidden; border:1px solid rgba(0,255,238,0.08);">
-                <iframe src="/static/openclaw_workflow_interactive.html" style="width:100%; height:1100px; border:none;" scrolling="no" title="openclaw-trader interactive workflow"></iframe>
-            </div>
+
+            <!-- Inlined workflow widget (was iframe) -->
+            <style>
+/* ================================================================
+   WORKFLOW WIDGET — all classes prefixed wf- to avoid conflicts
+   ================================================================ */
+.wf-shell {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 12px 8px 24px;
+}
+.wf-widget-header {
+  border: 2px solid rgba(34,211,238,0.5);
+  border-radius: 12px;
+  padding: 20px 28px 16px;
+  background: var(--bg-card);
+  box-shadow: var(--glow-cyan);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.wf-widget-title {
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.wf-widget-subtitle {
+  font-size: 0.68rem;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-top: 4px;
+}
+.wf-step-counter {
+  font-size: 0.75rem;
+  color: var(--cyan);
+  letter-spacing: 1px;
+  font-weight: 700;
+  padding: 12px 28px;
+  border: 1px solid rgba(34,211,238,0.3);
+  border-radius: 8px;
+  background: rgba(34,211,238,0.05);
+  white-space: nowrap;
+}
+.wf-diagram-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 16px;
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+}
+.wf-diagram-area {
+  position: relative;
+  width: 100%;
+}
+.wf-diagram-svg {
+  width: 100%;
+  display: block;
+}
+.wf-group-label {
+  font-size: 1.16rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-weight: 700;
+  opacity: 0.4;
+}
+.wf-node-circle {
+  transition: all 0.35s ease;
+  cursor: pointer;
+}
+.wf-node-circle:hover { opacity: 0.85; }
+.wf-detail-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 44px 48px;
+  margin-bottom: 14px;
+  min-height: 280px;
+  position: relative;
+  overflow: hidden;
+}
+.wf-detail-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--step-color, var(--cyan)), transparent);
+  transition: background 0.4s;
+}
+.wf-detail-step-num {
+  font-size: 1.2rem;
+  color: var(--dim);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.wf-detail-title {
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  color: var(--step-color, var(--cyan));
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  transition: color 0.3s;
+  text-shadow: 0 0 20px var(--step-color, var(--cyan));
+}
+.wf-detail-desc {
+  font-size: 0.78rem;
+  color: rgba(232,232,240,0.8);
+  line-height: 1.75;
+  margin-bottom: 16px;
+  text-transform: none;
+  font-family: 'Orbitron', monospace;
+  font-weight: 400;
+}
+.wf-detail-meta {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.wf-meta-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wf-meta-chip .wf-chip-label {
+  font-size: 0.58rem;
+  color: var(--dim);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.wf-meta-chip .wf-chip-value {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.wf-chip-value.wf-table-name {
+  color: var(--purple);
+  font-size: 0.72rem;
+}
+.wf-chip-value.wf-cost-free { color: var(--green); }
+.wf-chip-value.wf-cost-gpu  { color: var(--cyan); }
+.wf-chip-value.wf-cost-api  { color: var(--amber); }
+.wf-db-strip-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px 32px;
+  margin-bottom: 14px;
+}
+.wf-db-strip-label {
+  font-size: 1.16rem;
+  color: var(--dim);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.wf-db-table-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.wf-db-badge {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.62rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-weight: 700;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
+  color: var(--dim);
+  transition: all 0.3s ease;
+  cursor: default;
+}
+.wf-db-badge.active {
+  border-color: rgba(168,85,247,0.7);
+  background: rgba(168,85,247,0.12);
+  color: var(--purple);
+  box-shadow: 0 0 8px rgba(168,85,247,0.3), 0 0 20px rgba(168,85,247,0.1);
+}
+.wf-progress-track {
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.wf-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  border-radius: 2px;
+  transition: width 0.4s ease;
+  box-shadow: var(--glow-cyan);
+}
+.wf-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.wf-nav-btn {
+  padding: 9px 22px;
+  border-radius: 8px;
+  border: 1px solid rgba(34,211,238,0.35);
+  background: rgba(34,211,238,0.04);
+  color: var(--cyan);
+  font-family: 'Orbitron', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.wf-nav-btn:hover {
+  background: rgba(34,211,238,0.12);
+  border-color: var(--cyan);
+  box-shadow: var(--glow-cyan);
+}
+.wf-nav-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+.wf-nav-btn.playing {
+  border-color: rgba(255,170,34,0.6);
+  background: rgba(255,170,34,0.08);
+  color: var(--amber);
+  box-shadow: var(--glow-amber);
+}
+.wf-nav-btn.playing:hover {
+  background: rgba(255,170,34,0.14);
+}
+.wf-nav-btn.wf-stop-btn {
+  border-color: rgba(255,51,68,0.5);
+  background: rgba(255,51,68,0.05);
+  color: var(--red);
+}
+.wf-nav-btn.wf-stop-btn:hover {
+  background: rgba(255,51,68,0.12);
+  border-color: var(--red);
+  box-shadow: 0 0 10px rgba(255,51,68,0.3);
+}
+.wf-nav-btn.wf-restart-btn {
+  border-color: rgba(168,85,247,0.5);
+  background: rgba(168,85,247,0.05);
+  color: var(--purple);
+}
+.wf-nav-btn.wf-restart-btn:hover {
+  background: rgba(168,85,247,0.12);
+  border-color: var(--purple);
+  box-shadow: var(--glow-purple);
+}
+.wf-dot-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 420px;
+}
+.wf-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+.wf-dot.visited {
+  background: rgba(51,255,136,0.35);
+}
+.wf-dot.active {
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan), 0 0 12px rgba(34,211,238,0.4);
+  transform: scale(1.35);
+}
+@keyframes wf-fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.wf-detail-panel.animating {
+  animation: wf-fadeSlideIn 0.3s ease forwards;
+}
+            </style>
+
+            <div class="wf-shell">
+
+              <!-- HEADER — hidden; outer dashboard card provides the title -->
+              <div class="wf-widget-header" style="display:none;">
+                <div>
+                  <div class="wf-widget-title">Adversarial Ensemble — Interactive Workflow</div>
+                  <div class="wf-widget-subtitle">20-step pipeline walkthrough &nbsp;|&nbsp; click any node to jump</div>
+                </div>
+                <div class="wf-step-counter" id="wf-stepCounter">STEP 1 OF 20</div>
+              </div>
+
+              <!-- PROGRESS BAR -->
+              <div class="wf-progress-track">
+                <div class="wf-progress-fill" id="wf-progressFill" style="width: 5%;"></div>
+              </div>
+
+              <!-- DETAIL + DB STRIP (combined, above diagram) -->
+              <div class="wf-detail-panel" id="wf-detailPanel">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+                  <div style="flex:1;min-width:200px;">
+                    <div class="wf-detail-step-num" id="wf-detailStepNum">STEP 1 OF 20 — PRE-MARKET</div>
+                    <div class="wf-detail-title" id="wf-detailTitle">HEALTH CHECK</div>
+                    <div class="wf-detail-desc" id="wf-detailDesc">Loading...</div>
+                    <div class="wf-detail-meta">
+                      <div class="wf-meta-chip">
+                        <span class="wf-chip-label">Writes To</span>
+                        <span class="wf-chip-value wf-table-name" id="wf-detailTable">—</span>
+                      </div>
+                      <div class="wf-meta-chip">
+                        <span class="wf-chip-label">API Cost</span>
+                        <span class="wf-chip-value" id="wf-detailCost">—</span>
+                      </div>
+                      <div class="wf-meta-chip">
+                        <span class="wf-chip-label">Group</span>
+                        <span class="wf-chip-value" id="wf-detailGroup">—</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="flex:0 0 auto;min-width:200px;">
+                    <div class="wf-db-strip-label" style="margin-bottom:6px;">DB Tables — active step highlighted</div>
+                    <div class="wf-db-table-strip" id="wf-dbStrip"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- NODE DIAGRAM -->
+              <div class="wf-diagram-card">
+                <svg id="wf-diagramSvg" class="wf-diagram-svg" viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <filter id="wf-glowCyan" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur stdDeviation="8" result="blur"/>
+                      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                    </filter>
+                    <filter id="wf-glowGreen" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur stdDeviation="6" result="blur"/>
+                      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                    </filter>
+                    <filter id="wf-glowAmber" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur stdDeviation="8" result="blur"/>
+                      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                    </filter>
+                    <filter id="wf-softGlow" x="-80%" y="-80%" width="260%" height="260%">
+                      <feGaussianBlur stdDeviation="12" result="blur"/>
+                      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                    </filter>
+                    <radialGradient id="wf-ballGrad" cx="50%" cy="30%" r="60%">
+                      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+                      <stop offset="60%" stop-color="#22d3ee" stop-opacity="0.85"/>
+                      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+                    </radialGradient>
+                    <filter id="wf-ballGlow" x="-200%" y="-200%" width="500%" height="500%">
+                      <feGaussianBlur stdDeviation="16" result="blur"/>
+                      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                    </filter>
+                  </defs>
+                  <g id="wf-edgesGroup"></g>
+                  <g id="wf-nodesGroup"></g>
+                  <g id="wf-ballGroup">
+                    <circle id="wf-ballOuter" cx="0" cy="0" r="16" fill="rgba(34,211,238,0.15)" filter="url(#wf-ballGlow)"/>
+                    <circle id="wf-ballRing" cx="0" cy="0" r="10" fill="none" stroke="#22d3ee" stroke-width="3" opacity="0.6"/>
+                    <circle id="wf-ballCore" cx="0" cy="0" r="6" fill="url(#wf-ballGrad)" filter="url(#wf-softGlow)"/>
+                  </g>
+                  <g id="wf-labelsGroup"></g>
+                </svg>
+              </div>
+
+              <!-- NAV: PREV | RESTART | [dots] | PLAY/PAUSE | STOP | NEXT -->
+              <div class="wf-nav-row">
+                <button class="wf-nav-btn" id="wf-btnPrev" onclick="wfNavigate(-1)">&#9664; PREV</button>
+                <button class="wf-nav-btn wf-restart-btn" id="wf-btnRestart" onclick="wfRestartPlay()">&#x27F2; RESTART</button>
+                <div class="wf-dot-progress" id="wf-dotProgress"></div>
+                <button class="wf-nav-btn" id="wf-btnPlayPause" onclick="wfTogglePlayPause()">&#9654; PLAY</button>
+                <button class="wf-nav-btn wf-stop-btn" id="wf-btnStop" onclick="wfStopPlay()">&#9632; STOP</button>
+                <button class="wf-nav-btn" id="wf-btnNext" onclick="wfNavigate(1)">NEXT &#9654;</button>
+              </div>
+
+            </div><!-- /wf-shell -->
+
+            <script>
+(function() {
+/* ================================================================
+   WORKFLOW WIDGET — IIFE to avoid polluting global scope
+   ================================================================ */
+
+/* ================================================================
+   DATA
+   ================================================================ */
+const WF_STEPS = [
+  { id: 1,  title: "HEALTH CHECK",        desc: "59 automated checks across 13 groups. Validates Ollama, Supabase, Alpaca, Claude API, crontab drift, data freshness. Alerts Slack on failure.", table: "system_health",        cost: "Free",            group: "pre-market"  },
+  { id: 2,  title: "CATALYST INGEST",     desc: "5-source market catalyst detection — Finnhub news + insiders, SEC EDGAR, QuiverQuant congressional trades, yfinance signals, FRED macro indicators. Embeds via Ollama for RAG retrieval.", table: "catalyst_events",      cost: "Free",            group: "pre-market"  },
+  { id: 3,  title: "FORM 4 INGEST",       desc: "SEC EDGAR Form 4 insider purchase filings. Scores by total value, ownership change, cluster count, filer title. CFO buys = strongest signal.", table: "form4_signals",        cost: "Free",            group: "pre-market"  },
+  { id: 4,  title: "SCANNER SETUP",       desc: "Loads active profile (CONGRESS_MIRROR), checks circuit breakers, verifies Alpaca account equity and buying power. Builds 39-ticker watchlist.", table: "pipeline_runs",        cost: "Free",            group: "scanner"     },
+  { id: 5,  title: "T1 — SIGNAL SCORING", desc: "39 tickers scored against 6 binary signals: Trend, Momentum, Volume, Catalyst, Sentiment, Flow. Score 0–6. Only tickers scoring ≥ 3 advance. Pure computation, no AI.", table: "signal_evaluations",  cost: "Free",            group: "scanner"     },
+  { id: 6,  title: "SIGNAL ENRICHMENT",   desc: "Candidates enriched with options flow data (3-day lookback) and Form 4 insider purchases (14-day lookback). Adds options_flow_net and form4_insider_score to each candidate.", table: "signal_evaluations",  cost: "Free",            group: "scanner"     },
+  { id: 7,  title: "T2 — FUNDAMENTAL",    desc: "RAG retrieves similar past inference chains and trade learnings via pgvector. Congressional disclosures get confidence boost if filed within 40 days. Hard veto if sentiment < -0.5.", table: "inference_chains",    cost: "Free",            group: "tumbler"     },
+  { id: 8,  title: "T3 — FLOW & CROSS-ASSET", desc: "First LLM call — Ollama qwen2.5:3b on ridley GPU. Analyzes how this setup compares to past chains and outcomes. Shadow context injected for shadow profiles. Confidence ±0.10.", table: "inference_chains",    cost: "Free (local GPU)", group: "tumbler"     },
+  { id: 9,  title: "T4 — PATTERN MATCH",  desc: "Claude Haiku matches against known pattern templates with documented outcomes. Evaluates quality and coherence of the full trade thesis. Confidence ±0.10.", table: "inference_chains",    cost: "~$0.001",         group: "tumbler"     },
+  { id: 10, title: "T5 — COUNTERFACTUAL", desc: "Claude Sonnet as devil's advocate — constructs the strongest argument AGAINST the trade. Asymmetric: can drop confidence by 0.15 but raise only 0.05. Calibration factor applied.", table: "inference_chains",    cost: "~$0.005",         group: "tumbler"     },
+  { id: 11, title: "EXECUTION GATE",      desc: "Trade executes ONLY if: decision = enter/strong_enter, confidence ≥ 0.60, and ≥ 3 tumblers completed. ATR-based position sizing, market buy + stop-loss.", table: "trade_decisions",     cost: "Free",            group: "execution"   },
+  { id: 12, title: "BUDGET GATE",         desc: "Controls which shadow agents run. ≥40% Claude budget: all 6. 20–40%: Regime Watcher + Form 4 + Kronos. <20%: Kronos only (zero API cost).", table: "cost_ledger",         cost: "Free",            group: "shadow"      },
+  { id: 13, title: "SKEPTIC",             desc: "Maximally conservative adversarial reviewer. Requires overwhelming evidence. Confidence floors HIGH. Heavily penalizes momentum-chasing. Graded on Conditional Brier Score.", table: "shadow_divergences",  cost: "Claude API",      group: "shadow"      },
+  { id: 14, title: "CONTRARIAN",          desc: "Assumes the trade is wrong. Overweights sector rotation, institutional distribution, price-fundamental divergence. Graded on Regime-Conditional IC.", table: "shadow_divergences",  cost: "Claude API",      group: "shadow"      },
+  { id: 15, title: "REGIME WATCHER",      desc: "Ignores the ticker entirely. Only question: 'Is this a good time to enter ANY long position?' Evaluates SPY trend, VIX, yield curve, credit spreads. Stops at T3 — no Claude cost.", table: "shadow_divergences",  cost: "Free (Ollama)",   group: "shadow"      },
+  { id: 16, title: "OPTIONS FLOW",        desc: "Momentum-focused. Primary signal: unusual options activity — sweeps, blocks, dark pool prints. Alpha decay 1–5 days. Graded on 5-day forward return.", table: "shadow_divergences",  cost: "Claude API",      group: "shadow"      },
+  { id: 17, title: "FORM 4 INSIDER",      desc: "Fundamentals-anchored. Primary signal: Form 4 purchase filings by CEOs/CFOs/board members. Cluster buys weighted heavily. Graded on 15-day forward return.", table: "shadow_divergences",  cost: "Claude API",      group: "shadow"      },
+  { id: 18, title: "KRONOS TECHNICALS",   desc: "Pure price pattern agent. 252 daily OHLCV candles → Kronos foundation model → 50 Monte Carlo paths → bullish probability at 10-day horizon. No news, no fundamentals. Local GPU only.", table: "shadow_divergences",  cost: "Free (GPU)",      group: "shadow"      },
+  { id: 19, title: "CALIBRATOR",          desc: "Sunday weekly. Grades all ungraded shadow divergences. Kronos: directional accuracy at 10 days. LLM agents: inference_chains.actual_outcome. DWM weight = 1.0 × (1 + 0.5 × (fitness − median)), clamped [0.05, 3.0].", table: "strategy_profiles",   cost: "Free",            group: "calibration" },
+  { id: 20, title: "META DAILY",          desc: "1:30 PM weekdays. Claude Sonnet reviews shadow divergences. Flags unanimous dissent (all 6 shadows disagreed with live). Output becomes RAG context for future T2 tumbler calls.", table: "meta_reflections",    cost: "~$0.02",          group: "meta"        },
+];
+
+const WF_ALL_TABLES = [
+  "system_health", "catalyst_events", "form4_signals", "pipeline_runs",
+  "signal_evaluations", "inference_chains", "trade_decisions", "cost_ledger",
+  "shadow_divergences", "strategy_profiles", "meta_reflections"
+];
+
+const WF_GROUP_COLOR = {
+  "pre-market":  "#22d3ee",
+  "scanner":     "#33ff88",
+  "tumbler":     "#a855f7",
+  "execution":   "#fb923c",
+  "shadow":      "#ffaa22",
+  "calibration": "#f472b6",
+  "meta":        "#facc15",
+};
+
+const WF_GROUP_LABEL = {
+  "pre-market":  "PRE-MARKET",
+  "scanner":     "SCANNER",
+  "tumbler":     "TUMBLER CHAIN",
+  "execution":   "EXECUTION",
+  "shadow":      "SHADOW AGENTS",
+  "calibration": "CALIBRATION",
+  "meta":        "META",
+};
+
+const WF_SVG_W = 960;
+const WF_SVG_H = 320;
+const WF_R = 11;
+
+const WF_NODE_POS = [
+  [  90,  55], [ 230,  55], [ 370,  55],
+  [  90, 115], [ 230, 115], [ 370, 115],
+  [ 140, 175], [ 300, 175], [ 460, 175], [ 620, 175],
+  [ 480, 235], [ 640, 235],
+  [ 110, 290], [ 240, 290], [ 370, 290], [ 500, 290], [ 630, 290], [ 760, 290],
+  [ 800, 175], [ 880, 115],
+];
+
+const WF_EDGES = [
+  [0,1],[1,2],[2,3],[3,4],[4,5],[5,6],
+  [6,7],[7,8],[8,9],[9,10],[10,11],
+  [11,12],[11,13],[11,14],[11,15],[11,16],[11,17],
+  [12,18],[13,18],[14,18],[15,18],[16,18],[17,18],
+  [18,19],[19,6],
+];
+
+const WF_FEEDBACK_EDGES = new Set(['19,6']);
+
+/* ================================================================
+   STATE
+   ================================================================ */
+let wfCurrentStep  = 0;
+let wfAutoTimer    = null;
+let wfIsPlaying    = false;
+let wfVisitedSteps = new Set([0]);
+
+/* Expose to parent context */
+window._workflowCurrentStep = null;
+window._workflowStepIndex   = 0;
+
+/* ================================================================
+   RENDER DIAGRAM
+   ================================================================ */
+function wfRenderDiagram() {
+  const svg    = document.getElementById('wf-diagramSvg');
+  const edgesG = document.getElementById('wf-edgesGroup');
+  const nodesG = document.getElementById('wf-nodesGroup');
+  const labelsG = document.getElementById('wf-labelsGroup');
+
+  edgesG.innerHTML  = '';
+  nodesG.innerHTML  = '';
+  labelsG.innerHTML = '';
+
+  const groupRows = [
+    { group: 'pre-market',  y1:  35, y2:  75 },
+    { group: 'scanner',     y1:  95, y2: 135 },
+    { group: 'tumbler',     y1: 155, y2: 200 },
+    { group: 'shadow',      y1: 267, y2: 310 },
+  ];
+
+  groupRows.forEach(gr => {
+    const color = WF_GROUP_COLOR[gr.group];
+    const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    rect.setAttribute('x', '8');
+    rect.setAttribute('y', gr.y1);
+    rect.setAttribute('width', WF_SVG_W - 16);
+    rect.setAttribute('height', gr.y2 - gr.y1);
+    rect.setAttribute('rx', '12');
+    rect.setAttribute('fill', color);
+    rect.setAttribute('fill-opacity', '0.03');
+    rect.setAttribute('stroke', color);
+    rect.setAttribute('stroke-opacity', '0.08');
+    rect.setAttribute('stroke-width', '2');
+    edgesG.appendChild(rect);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+    text.setAttribute('x', WF_SVG_W - 20);
+    text.setAttribute('y', (gr.y1 + gr.y2) / 2 + 8);
+    text.setAttribute('text-anchor', 'end');
+    text.setAttribute('font-family', 'Orbitron, monospace');
+    text.setAttribute('font-size', '7');
+    text.setAttribute('font-weight', '700');
+    text.setAttribute('fill', color);
+    text.setAttribute('fill-opacity', '0.4');
+    text.setAttribute('letter-spacing', '2');
+    text.textContent = WF_GROUP_LABEL[gr.group];
+    labelsG.appendChild(text);
+  });
+
+  [
+    { group: 'execution',   x: 595, y: 220 },
+    { group: 'calibration', x: 830, y: 165 },
+    { group: 'meta',        x: 900, y: 107 },
+  ].forEach(item => {
+    const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+    text.setAttribute('x', item.x);
+    text.setAttribute('y', item.y);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('font-family', 'Orbitron, monospace');
+    text.setAttribute('font-size', '7');
+    text.setAttribute('font-weight', '700');
+    text.setAttribute('fill', WF_GROUP_COLOR[item.group]);
+    text.setAttribute('fill-opacity', '0.45');
+    text.setAttribute('letter-spacing', '2');
+    text.textContent = WF_GROUP_LABEL[item.group];
+    labelsG.appendChild(text);
+  });
+
+  WF_EDGES.forEach(([a, b]) => {
+    const isFeedback = WF_FEEDBACK_EDGES.has(`${a},${b}`);
+    const [x1, y1] = WF_NODE_POS[a];
+    const [x2, y2] = WF_NODE_POS[b];
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+    const bothVisited = wfVisitedSteps.has(a) && wfVisitedSteps.has(b);
+    const isActive    = a === wfCurrentStep || b === wfCurrentStep;
+    if (isFeedback) {
+      line.setAttribute('stroke', WF_GROUP_COLOR['meta']);
+      line.setAttribute('stroke-opacity', '0.25');
+      line.setAttribute('stroke-width', '1');
+      line.setAttribute('stroke-dasharray', '3 4');
+    } else if (isActive) {
+      line.setAttribute('stroke', '#22d3ee');
+      line.setAttribute('stroke-opacity', '0.6');
+      line.setAttribute('stroke-width', '1.5');
+    } else if (bothVisited) {
+      line.setAttribute('stroke', '#33ff88');
+      line.setAttribute('stroke-opacity', '0.2');
+      line.setAttribute('stroke-width', '1');
+    } else {
+      line.setAttribute('stroke', 'rgba(255,255,255,0.07)');
+      line.setAttribute('stroke-width', '1');
+    }
+    edgesG.appendChild(line);
+  });
+
+  WF_STEPS.forEach((step, i) => {
+    const [cx, cy] = WF_NODE_POS[i];
+    const color     = WF_GROUP_COLOR[step.group];
+    const isActive  = i === wfCurrentStep;
+    const isVisited = wfVisitedSteps.has(i) && !isActive;
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'wf-node-circle');
+    g.setAttribute('data-step', i);
+    g.style.cursor = 'pointer';
+
+    if (isActive) {
+      const glowRing = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      glowRing.setAttribute('cx', cx);
+      glowRing.setAttribute('cy', cy);
+      glowRing.setAttribute('r', WF_R + 14);
+      glowRing.setAttribute('fill', color);
+      glowRing.setAttribute('fill-opacity', '0.12');
+      glowRing.setAttribute('stroke', 'none');
+      g.appendChild(glowRing);
+    }
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', cx);
+    circle.setAttribute('cy', cy);
+    circle.setAttribute('r', WF_R);
+    if (isActive) {
+      circle.setAttribute('fill', color);
+      circle.setAttribute('fill-opacity', '0.25');
+      circle.setAttribute('stroke', color);
+      circle.setAttribute('stroke-width', '4');
+      circle.setAttribute('filter', 'url(#wf-glowCyan)');
+    } else if (isVisited) {
+      circle.setAttribute('fill', 'rgba(51,255,136,0.08)');
+      circle.setAttribute('stroke', 'rgba(51,255,136,0.35)');
+      circle.setAttribute('stroke-width', '2');
+    } else {
+      circle.setAttribute('fill', 'rgba(255,255,255,0.03)');
+      circle.setAttribute('stroke', 'rgba(255,255,255,0.15)');
+      circle.setAttribute('stroke-width', '2');
+    }
+    g.appendChild(circle);
+
+    const numText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    numText.setAttribute('x', cx);
+    numText.setAttribute('y', cy + 3);
+    numText.setAttribute('text-anchor', 'middle');
+    numText.setAttribute('font-family', 'Orbitron, monospace');
+    numText.setAttribute('font-size', '14');
+    numText.setAttribute('font-weight', '900');
+    numText.setAttribute('fill', isActive ? color : isVisited ? 'rgba(51,255,136,0.7)' : 'rgba(255,255,255,0.3)');
+    numText.textContent = step.id;
+    g.appendChild(numText);
+
+    const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    labelText.setAttribute('x', cx);
+    labelText.setAttribute('y', cy + WF_R + 10);
+    labelText.setAttribute('text-anchor', 'middle');
+    labelText.setAttribute('font-family', 'Orbitron, monospace');
+    labelText.setAttribute('font-size', '5.5');
+    labelText.setAttribute('font-weight', '700');
+    labelText.setAttribute('fill', isActive ? color : isVisited ? 'rgba(51,255,136,0.55)' : 'rgba(255,255,255,0.22)');
+    labelText.setAttribute('letter-spacing', '0.5');
+    const WF_SHORT = [
+      "HEALTH","CATALYST","FORM4","SETUP","T1 SCORE","ENRICH",
+      "T2 FUND","T3 FLOW","T4 PATT","T5 COUNT",
+      "EXEC","BUDGET",
+      "SKEPTIC","CONTRA","REGIME","OPT FLOW","FORM4I","KRONOS",
+      "CALIB","META"
+    ];
+    labelText.textContent = WF_SHORT[i];
+    g.appendChild(labelText);
+
+    g.addEventListener('click', () => wfGoToStep(i));
+    nodesG.appendChild(g);
+  });
+
+  wfMoveBall(wfCurrentStep);
+}
+
+/* ================================================================
+   MOVE BALL
+   ================================================================ */
+function wfMoveBall(stepIdx) {
+  const [cx, cy] = WF_NODE_POS[stepIdx];
+  const outer = document.getElementById('wf-ballOuter');
+  const ring  = document.getElementById('wf-ballRing');
+  const core  = document.getElementById('wf-ballCore');
+  [outer, ring, core].forEach(el => {
+    el.setAttribute('cx', cx);
+    el.setAttribute('cy', cy);
+    el.style.transition = 'cx 0.45s cubic-bezier(0.4,0,0.2,1), cy 0.45s cubic-bezier(0.4,0,0.2,1)';
+  });
+  const color = WF_GROUP_COLOR[WF_STEPS[stepIdx].group];
+  outer.setAttribute('fill', wfHexToRgba(color, 0.18));
+  ring.setAttribute('stroke', color);
+  core.setAttribute('fill', 'url(#wf-ballGrad)');
+}
+
+/* ================================================================
+   UPDATE DETAIL PANEL
+   ================================================================ */
+function wfUpdateDetail() {
+  const step  = WF_STEPS[wfCurrentStep];
+  const color = WF_GROUP_COLOR[step.group];
+
+  const panel = document.getElementById('wf-detailPanel');
+  panel.style.setProperty('--step-color', color);
+
+  document.getElementById('wf-detailStepNum').textContent =
+    `STEP ${step.id} OF 20 — ${WF_GROUP_LABEL[step.group]}`;
+
+  const titleEl = document.getElementById('wf-detailTitle');
+  titleEl.textContent = step.title;
+  titleEl.style.color = color;
+  titleEl.style.textShadow = `0 0 20px ${wfHexToRgba(color, 0.5)}`;
+
+  document.getElementById('wf-detailDesc').textContent = step.desc;
+  document.getElementById('wf-detailTable').textContent = step.table;
+
+  const costEl = document.getElementById('wf-detailCost');
+  costEl.textContent = step.cost;
+  costEl.className = 'wf-chip-value';
+  if (step.cost === 'Free') {
+    costEl.classList.add('wf-cost-free');
+  } else if (step.cost.includes('GPU') || step.cost.includes('Ollama')) {
+    costEl.classList.add('wf-cost-gpu');
+  } else {
+    costEl.classList.add('wf-cost-api');
+  }
+
+  document.getElementById('wf-detailGroup').textContent = WF_GROUP_LABEL[step.group];
+
+  panel.classList.remove('animating');
+  void panel.offsetWidth;
+  panel.classList.add('animating');
+}
+
+/* ================================================================
+   UPDATE DB STRIP
+   ================================================================ */
+function wfUpdateDbStrip() {
+  const activeTable = WF_STEPS[wfCurrentStep].table;
+  document.querySelectorAll('.wf-db-badge').forEach(badge => {
+    if (badge.dataset.table === activeTable) {
+      badge.classList.add('active');
+    } else {
+      badge.classList.remove('active');
+    }
+  });
+}
+
+/* ================================================================
+   UPDATE PROGRESS & COUNTERS
+   ================================================================ */
+function wfUpdateProgress() {
+  const pct = ((wfCurrentStep + 1) / WF_STEPS.length) * 100;
+  document.getElementById('wf-progressFill').style.width = pct + '%';
+  document.getElementById('wf-stepCounter').textContent =
+    `STEP ${wfCurrentStep + 1} OF ${WF_STEPS.length}`;
+
+  document.querySelectorAll('.wf-dot').forEach((dot, i) => {
+    dot.classList.remove('active', 'visited');
+    if (i === wfCurrentStep) dot.classList.add('active');
+    else if (wfVisitedSteps.has(i)) dot.classList.add('visited');
+  });
+
+  document.getElementById('wf-btnPrev').disabled = wfCurrentStep === 0;
+  document.getElementById('wf-btnNext').disabled = wfCurrentStep === WF_STEPS.length - 1;
+}
+
+/* ================================================================
+   SYNC PLAY/PAUSE BUTTON
+   ================================================================ */
+function wfSyncPlayPauseBtn() {
+  const btn = document.getElementById('wf-btnPlayPause');
+  if (wfIsPlaying) {
+    btn.textContent = '\u23F8 PAUSE';
+    btn.classList.add('playing');
+  } else {
+    btn.textContent = '\u25B6 PLAY';
+    btn.classList.remove('playing');
+  }
+}
+
+/* ================================================================
+   GO TO STEP
+   ================================================================ */
+function wfGoToStep(idx) {
+  if (idx < 0 || idx >= WF_STEPS.length) return;
+  wfCurrentStep = idx;
+  wfVisitedSteps.add(idx);
+  /* Update exposed state */
+  window._workflowCurrentStep = WF_STEPS[idx];
+  window._workflowStepIndex   = idx;
+  wfRenderDiagram();
+  wfUpdateDetail();
+  wfUpdateDbStrip();
+  wfUpdateProgress();
+}
+
+/* ================================================================
+   NAVIGATE
+   ================================================================ */
+function wfNavigate(delta) {
+  const next = wfCurrentStep + delta;
+  if (next < 0 || next >= WF_STEPS.length) return;
+  wfGoToStep(next);
+}
+
+/* ================================================================
+   PLAY / PAUSE
+   ================================================================ */
+function wfTogglePlayPause() {
+  if (wfIsPlaying) {
+    clearInterval(wfAutoTimer);
+    wfAutoTimer = null;
+    wfIsPlaying = false;
+  } else {
+    wfIsPlaying = true;
+    wfAutoTimer = setInterval(() => {
+      if (wfCurrentStep >= WF_STEPS.length - 1) {
+        wfGoToStep(0);
+      } else {
+        wfNavigate(1);
+      }
+    }, 3000);
+  }
+  wfSyncPlayPauseBtn();
+}
+
+/* ================================================================
+   STOP
+   ================================================================ */
+function wfStopPlay() {
+  if (wfAutoTimer) {
+    clearInterval(wfAutoTimer);
+    wfAutoTimer = null;
+  }
+  wfIsPlaying = false;
+  wfVisitedSteps = new Set([0]);
+  wfGoToStep(0);
+  wfSyncPlayPauseBtn();
+}
+
+/* ================================================================
+   RESTART
+   ================================================================ */
+function wfRestartPlay() {
+  if (wfAutoTimer) {
+    clearInterval(wfAutoTimer);
+    wfAutoTimer = null;
+  }
+  wfVisitedSteps = new Set([0]);
+  wfGoToStep(0);
+  wfIsPlaying = true;
+  wfAutoTimer = setInterval(() => {
+    if (wfCurrentStep >= WF_STEPS.length - 1) {
+      wfGoToStep(0);
+    } else {
+      wfNavigate(1);
+    }
+  }, 3000);
+  wfSyncPlayPauseBtn();
+}
+
+/* ================================================================
+   UTILITY
+   ================================================================ */
+function wfHexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/* ================================================================
+   INIT
+   ================================================================ */
+function wfInit() {
+  const strip = document.getElementById('wf-dbStrip');
+  WF_ALL_TABLES.forEach(tbl => {
+    const badge = document.createElement('span');
+    badge.className = 'wf-db-badge';
+    badge.dataset.table = tbl;
+    badge.textContent = tbl.replace(/_/g, '_\u200B');
+    strip.appendChild(badge);
+  });
+
+  const dotRow = document.getElementById('wf-dotProgress');
+  WF_STEPS.forEach((_, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'wf-dot';
+    dot.title = WF_STEPS[i].title;
+    dot.addEventListener('click', () => wfGoToStep(i));
+    dotRow.appendChild(dot);
+  });
+
+  wfGoToStep(0);
+  wfSyncPlayPauseBtn();
+}
+
+document.fonts.ready.then(wfInit);
+
+})(); /* end IIFE */
+            </script>
 
             <!-- AI Chat — inside the workflow container -->
             <div style="margin-top: 1.5rem; border-top: 1px solid rgba(0,255,238,0.08); padding-top: 1rem;">
@@ -2315,7 +3206,7 @@ function toggleWorkflowWidget() {
   var body = document.getElementById('workflow-widget-body');
   var icon = document.getElementById('workflow-toggle-icon');
   if (body.style.maxHeight === '0px') {
-    body.style.maxHeight = '1200px';
+    body.style.maxHeight = body.scrollHeight + 'px';
     body.style.opacity = '1';
     icon.style.transform = 'rotate(0deg)';
   } else {

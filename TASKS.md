@@ -586,8 +586,48 @@ Supabase project: vpollvsbtushbiapoflr
 
 ---
 
+## Workflow AI Assistant — Inline Widget + Context-Aware Chat
+
+Source: In-session design (2026-04-11)
+Goal: Inline the workflow widget (kill the iframe), build a step-aware AI assistant with full system knowledge
+
+---
+
+### TASK-WF-01 . BACKEND-AGENT . [DONE]
+**Goal:** Inline the interactive workflow widget into dashboard/index.html. Remove the iframe. Extract the widget's CSS (prefix all rules with `.wf-` to avoid conflicts) and JS (wrap in an IIFE exposing `window._workflowCurrentStep`) from the standalone HTML file and inject directly into the HOW IT WORKS section. Remove the X-Frame-Options bypass from SecurityHeadersMiddleware. The workflow state must be accessible from the parent page's JS context.
+**Acceptance:** Widget renders identically without iframe. `window._workflowCurrentStep` returns current step object from console. X-Frame-Options DENY restored. No iframe height/scrolling CSS remains.
+**Output artifact:** Updated index.html + server.py.
+**Depends on:** nothing
+
+### TASK-WF-02 . BACKEND-AGENT . [READY]
+**Goal:** Build deep step knowledge base + rewrite CHAT_SYSTEM_PROMPT. (A) WORKFLOW_CONTEXT dict with 20 entries — each has: description, data_in, data_out, db_table, cost, parameters, limitations, improvements, connections. (B) Full system prompt covering: 6 shadow profiles, T1-T5 chain, DWM formula, budget gate, Kronos, meta daily, manifest, preflight. (C) Persona: expert co-pilot who challenges design decisions and suggests improvements.
+**Acceptance:** CHAT_SYSTEM_PROMPT references all 6 shadows, Kronos, DWM, budget gate. WORKFLOW_CONTEXT has 20 entries with 5+ fields each.
+**Output artifact:** Updated server.py.
+**Depends on:** TASK-WF-01
+
+### TASK-WF-03 . FRONTEND-AGENT . [READY]
+**Goal:** Wire chat to be step-aware. (A) On step change, update `window._workflowCurrentStep`. (B) chatSend() includes current_step in POST body. (C) Chat placeholder updates dynamically per step. (D) Step context indicator above chat input.
+**Acceptance:** Placeholder says "Ask about T5 — COUNTERFACTUAL..." on step 10. POST body has current_step. Indicator shows active step.
+**Output artifact:** Updated index.html.
+**Depends on:** TASK-WF-01
+
+### TASK-WF-04 . BACKEND-AGENT . [BLOCKED: TASK-WF-02, TASK-WF-03]
+**Goal:** Update /api/chat to inject step context dynamically. When current_step is present, prepend WORKFLOW_CONTEXT[step] to the system prompt. Assistant answers step-specific questions with depth, challenges design when prompted, falls back to full system knowledge for general questions.
+**Acceptance:** Asking "why Sonnet here?" on step 10 gets a specific T5 answer. Asking "could we use local model?" gets a tradeoff analysis. General questions work regardless of step.
+**Output artifact:** Updated server.py.
+**Depends on:** TASK-WF-02, TASK-WF-03
+
+### TASK-WF-05 . PICARD . [BLOCKED: TASK-WF-04]
+**Goal:** Integration test + deploy. Verify end-to-end: widget renders, step changes update chat, chat answers step-specific questions, no iframe artifacts. Commit, push, deploy Fly, post to Slack.
+**Acceptance:** All working on Fly.io. Zero iframe references remain.
+**Output artifact:** Final summary in PROGRESS.md.
+**Depends on:** TASK-WF-04
+
+---
+
 ## Completed — Prior Sessions
 
+### Kronos Shadow Agent (2026-04-09/10): TASK-K00 through TASK-K06 . [DONE]
 ### Full Preflight Coverage + Mission Readiness (2026-04-09): TASK-PF-01 through TASK-PF-03 + Group Q . [DONE]
 ### Optimization Audit (2026-04-08): TASK-OPT-01 through TASK-OPT-11 . [DONE]
 ### System Simulator + NASA Preflight (2026-04-07): TASK-SIM-01 through TASK-SIM-05 . [DONE]
