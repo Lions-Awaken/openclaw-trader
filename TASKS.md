@@ -611,7 +611,7 @@ Goal: Inline the workflow widget (kill the iframe), build a step-aware AI assist
 **Output artifact:** Updated index.html.
 **Depends on:** TASK-WF-01
 
-### TASK-WF-04 . BACKEND-AGENT . [BLOCKED: TASK-WF-02, TASK-WF-03]
+### TASK-WF-04 . BACKEND-AGENT . [DONE]
 **Goal:** Update /api/chat to inject step context dynamically. When current_step is present, prepend WORKFLOW_CONTEXT[step] to the system prompt. Assistant answers step-specific questions with depth, challenges design when prompted, falls back to full system knowledge for general questions.
 **Acceptance:** Asking "why Sonnet here?" on step 10 gets a specific T5 answer. Asking "could we use local model?" gets a tradeoff analysis. General questions work regardless of step.
 **Output artifact:** Updated server.py.

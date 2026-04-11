@@ -3626,11 +3626,44 @@ async def chat_endpoint(request: Request, oc_session: str | None = Cookie(None))
 
     body = await request.json()
     messages = body.get("messages", [])
+    current_step = body.get("current_step")  # dict or None
+    current_step_index = body.get("current_step_index", 0)  # int
     if not messages:
         raise HTTPException(status_code=400, detail="No messages provided")
 
     # Limit conversation history to prevent runaway context
     messages = messages[-20:]
+
+    # Build dynamic system prompt with step context when available
+    system_prompt = CHAT_SYSTEM_PROMPT
+
+    if current_step and current_step_index is not None:
+        step_num = current_step_index + 1  # 1-indexed
+        step_title = current_step.get("title", "")
+
+        # Look up deep context from WORKFLOW_CONTEXT
+        deep_context = WORKFLOW_CONTEXT.get(step_num, {})
+
+        if deep_context:
+            step_context = f"""
+
+## CURRENT WORKFLOW STEP — The user is viewing Step {step_num}: {step_title}
+
+You have deep context about this step. When the user asks questions, prioritize this context:
+
+- **Description**: {deep_context.get('description', '')}
+- **Data In**: {deep_context.get('data_in', '')}
+- **Data Out**: {deep_context.get('data_out', '')}
+- **DB Table**: {deep_context.get('db_table', '')}
+- **Cost**: {deep_context.get('cost', '')}
+- **Parameters**: {deep_context.get('parameters', '')}
+- **Known Limitations**: {deep_context.get('limitations', '')}
+- **Potential Improvements**: {deep_context.get('improvements', '')}
+- **Connections**: {deep_context.get('connections', '')}
+
+If the user asks about this step, answer with specificity — reference parameters, limitations, and connections to adjacent steps. If they ask about improvements, be honest about what could be better and suggest concrete changes. If they ask a general question unrelated to this step, use your full system knowledge."""
+
+            system_prompt = CHAT_SYSTEM_PROMPT + step_context
 
     claude = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -3646,7 +3679,7 @@ async def chat_endpoint(request: Request, oc_session: str | None = Cookie(None))
                 async with claude.messages.stream(
                     model="claude-sonnet-4-6",
                     max_tokens=4096,
-                    system=CHAT_SYSTEM_PROMPT,
+                    system=system_prompt,
                     messages=conv,
                     tools=CHAT_TOOLS,
                 ) as stream:

@@ -3642,3 +3642,32 @@ Replaced the 15-line placeholder with a comprehensive prompt covering:
 **WF-04 unblocked:** `WORKFLOW_CONTEXT` is now importable by the `/api/chat` endpoint handler (WF-04) to inject step-specific context via `WORKFLOW_CONTEXT[step_number]`.
 
 **Follow-on (WF-04):** When `current_step` is present in the POST body, the `/api/chat` endpoint should prepend the matching `WORKFLOW_CONTEXT[current_step]` block to the system prompt before sending to Claude.
+
+---
+
+## TASK-WF-04 — Backend Agent [DONE]
+
+**Endpoint:** `POST /api/chat`
+**Auth:** Session cookie (`oc_session`) — existing `_require_auth` guard, unchanged.
+
+### What changed
+
+**File:** `dashboard/server.py` (lines 3627–3668)
+
+Parsed two new optional fields from the POST body immediately after `messages`:
+- `current_step` — full step object dict sent by the frontend (or `None`)
+- `current_step_index` — 0-based integer index (defaults to `0`)
+
+Built a `system_prompt` variable that defaults to `CHAT_SYSTEM_PROMPT`. When `current_step` is present and `WORKFLOW_CONTEXT` has a matching entry for `step_num = current_step_index + 1`, a step-specific context block is appended. The block includes all nine fields from `WORKFLOW_CONTEXT`: description, data_in, data_out, db_table, cost, parameters, limitations, improvements, connections.
+
+Replaced `system=CHAT_SYSTEM_PROMPT` with `system=system_prompt` in the `claude.messages.stream(...)` call. Streaming behavior, tool handling, tool rounds, and error paths are all unchanged.
+
+**Backward compatibility:** If `current_step` is absent or `None`, `system_prompt` equals `CHAT_SYSTEM_PROMPT` exactly — no behavior change for existing callers.
+
+**DB queries:** None added. WORKFLOW_CONTEXT is a pure in-process dict.
+
+**Schema assumptions:** None — no new DB access.
+
+**Ruff:** Passes clean.
+
+**Follow-on:** TASK-WF-05 (Picard) — integration test, commit, push, deploy Fly.io.
