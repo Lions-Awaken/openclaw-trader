@@ -3205,14 +3205,14 @@ function buildTradeTable(trades) {
     const pnl = t.pnl != null ? parseFloat(t.pnl) : null;
     html += `<tr>
       <td>${date}</td>
-      <td class="ticker">${t.ticker}</td>
-      <td class="action-${t.action}">${t.action}</td>
+      <td class="ticker">${esc(t.ticker)}</td>
+      <td class="action-${esc(t.action)}">${esc(t.action)}</td>
       <td>${t.entry_price ? '$' + parseFloat(t.entry_price).toFixed(2) : '--'}</td>
       <td>${t.exit_price ? '$' + parseFloat(t.exit_price).toFixed(2) : '--'}</td>
       <td class="${pnlClass(pnl)}">${pnl != null ? fmt(pnl, '$') : '--'}</td>
       <td>${t.signals_fired != null ? t.signals_fired + '/6' : '--'}</td>
       <td>${t.hold_days || '--'}</td>
-      <td>${t.outcome ? `<span class="outcome-badge outcome-${t.outcome}">${t.outcome.replace('_',' ')}</span>` : '--'}</td>
+      <td>${t.outcome ? `<span class="outcome-badge outcome-${esc(t.outcome)}">${esc(t.outcome).replace('_',' ')}</span>` : '--'}</td>
       <td><button class="expand-btn" onclick="toggleDetail(${i})">details</button></td>
     </tr>
     <tr><td colspan="10">
@@ -3678,8 +3678,8 @@ async function loadPipelineRuns() {
       const time = r.started_at ? new Date(r.started_at).toLocaleString() : '--';
       const dur = r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + 's' : 'running...';
       return '<div class="run-item" onclick="loadPipelineDAG(\'' + r.id + '\')">' +
-        '<div><span class="status-dot ' + r.status + '"></span>' +
-        '<span class="run-name">' + r.pipeline_name + '</span></div>' +
+        '<div><span class="status-dot ' + esc(r.status) + '"></span>' +
+        '<span class="run-name">' + esc(r.pipeline_name) + '</span></div>' +
         '<div style="display:flex;gap:16px;align-items:center">' +
           '<span class="run-duration">' + dur + '</span>' +
           '<span class="run-time">' + time + '</span>' +
@@ -5317,6 +5317,8 @@ const chatMessages = [];
 let chatStreaming = false;
 
 function chatRenderMarkdown(text) {
+  // Escape raw HTML first to prevent XSS, then apply markdown substitutions
+  text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   // Basic markdown: bold, code blocks, inline code, newlines
   return text
     .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin:8px 0;overflow-x:auto;font-size:0.8rem;text-transform:none;font-weight:400"><code>$2</code></pre>')

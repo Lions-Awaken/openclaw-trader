@@ -4749,3 +4749,62 @@ Reflection rows are written (the cron runs) but the synthesis step fails. No act
 - `system_stats.collected_at` is the high-volume telemetry table from ridley. 30-day retention is intentionally aggressive — it generates the most rows.
 - `signal_evaluations` already had a 180-day retention job scheduled (jobid 11) — this is separate from the signal embeddings issue tracked in TASK-FIX-06.
 - No rows were deleted during this operation (purge runs nightly at 3 AM UTC). First purge will fire at next 3 AM window.
+
+---
+
+## TASK-FIX-09 . FRONTEND-AGENT . DONE — 2026-04-06
+
+### XSS vector fixes in dashboard/index.html
+
+**Files modified:** `dashboard/index.html`
+
+**(A) buildTradeTable (~line 3208)**
+- `t.ticker` wrapped: `${esc(t.ticker)}`
+- `t.action` wrapped in both CSS class and text: `class="action-${esc(t.action)}">${esc(t.action)}`
+- `t.outcome` wrapped in both CSS class and text: `class="outcome-badge outcome-${esc(t.outcome)}">${esc(t.outcome).replace('_',' ')}`
+
+**(B) Pipeline run list (~line 3681)**
+- `r.status` wrapped: `esc(r.status)` (used in CSS class)
+- `r.pipeline_name` wrapped: `esc(r.pipeline_name)`
+
+**(C) chatRenderMarkdown (~line 5319)**
+- Added `text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');` as the FIRST line of the function body, before all regex substitutions. This prevents script injection while preserving markdown bold/code/table formatting since those patterns use `**`, backticks, `\n`, not angle brackets.
+
+---
+
+## TASK-FIX-13 . DB-AGENT . DONE — 2026-04-06
+
+### Stuck pipeline_runs cleanup
+
+**Method:** Supabase Management API (`/v1/projects/vpollvsbtushbiapoflr/database/query`)
+
+**Rows updated:** 11 rows transitioned from `running` to `failure`.
+
+**Note:** The TASKS.md spec said `status='failed'` but the actual check constraint only allows `failure` (not `failed`). Used `failure` to match the constraint: `CHECK ((status = ANY (ARRAY['pending','running','success','failure','skipped','timeout'])))`. All 11 rows were stuck pipeline_runs from March 30, 2026.
+
+**Verification:** `SELECT COUNT(*) FROM pipeline_runs WHERE status='running' AND created_at < now() - interval '2 hours'` returns 0 after update.
+
+---
+
+## TASK-FIX-14 . BACKEND-AGENT . DONE — 2026-04-06
+
+### SSH password auth disabled on ridley
+
+**Command run:**
+```
+sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo systemctl reload sshd
+```
+
+**Verification:** `grep '^PasswordAuthentication' /etc/ssh/sshd_config` returns `PasswordAuthentication no`.
+
+Key-based SSH access confirmed working (all commands executed successfully via key auth).
+
+---
+
+## TASK-FIX-16 . BACKEND-AGENT . DONE — 2026-04-06 (N/A)
+
+### stack_heartbeats column name — already correct
+
+Searched `dashboard/server.py` for `service_name` — no matches found. The server already references the correct column name `service`. No code change required.
