@@ -435,6 +435,35 @@ html, body {
     <div class="progress-fill" id="progressFill" style="width: 5%;"></div>
   </div>
 
+  <!-- DETAIL + DB STRIP (combined, above diagram) -->
+  <div class="detail-panel" id="detailPanel">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+      <div style="flex:1;min-width:200px;">
+        <div class="detail-step-num" id="detailStepNum">STEP 1 OF 20 — PRE-MARKET</div>
+        <div class="detail-title" id="detailTitle">HEALTH CHECK</div>
+        <div class="detail-desc" id="detailDesc">Loading...</div>
+        <div class="detail-meta">
+          <div class="meta-chip">
+            <span class="chip-label">Writes To</span>
+            <span class="chip-value table-name" id="detailTable">—</span>
+          </div>
+          <div class="meta-chip">
+            <span class="chip-label">API Cost</span>
+            <span class="chip-value" id="detailCost">—</span>
+          </div>
+          <div class="meta-chip">
+            <span class="chip-label">Group</span>
+            <span class="chip-value" id="detailGroup">—</span>
+          </div>
+        </div>
+      </div>
+      <div style="flex:0 0 auto;min-width:200px;">
+        <div class="db-strip-label" style="margin-bottom:6px;">DB Tables — active step highlighted</div>
+        <div class="db-table-strip" id="dbStrip"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- NODE DIAGRAM -->
   <div class="diagram-card">
     <svg id="diagramSvg" class="diagram-svg" viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg">
@@ -481,32 +510,7 @@ html, body {
     </svg>
   </div>
 
-  <!-- DETAIL PANEL -->
-  <div class="detail-panel" id="detailPanel">
-    <div class="detail-step-num" id="detailStepNum">STEP 1 OF 20 — PRE-MARKET</div>
-    <div class="detail-title" id="detailTitle">HEALTH CHECK</div>
-    <div class="detail-desc" id="detailDesc">Loading...</div>
-    <div class="detail-meta">
-      <div class="meta-chip">
-        <span class="chip-label">Writes To</span>
-        <span class="chip-value table-name" id="detailTable">—</span>
-      </div>
-      <div class="meta-chip">
-        <span class="chip-label">API Cost</span>
-        <span class="chip-value" id="detailCost">—</span>
-      </div>
-      <div class="meta-chip">
-        <span class="chip-label">Group</span>
-        <span class="chip-value" id="detailGroup">—</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- DB TABLE STRIP -->
-  <div class="db-strip-card">
-    <div class="db-strip-label">DB Tables — active step highlighted</div>
-    <div class="db-table-strip" id="dbStrip"></div>
-  </div>
+  <!-- Detail panel and DB strip moved above the diagram -->
 
   <!-- NAV: PREV | RESTART | [dots] | PLAY/PAUSE | STOP | NEXT -->
   <div class="nav-row">
