@@ -469,7 +469,7 @@ Respond ONLY with valid JSON, no markdown formatting."""
     cost = 0.0
     try:
         data = call_claude(
-            model="claude-sonnet-4-6-20250514",
+            model="claude-sonnet-4-6",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1024,
         )
@@ -718,7 +718,7 @@ Respond ONLY with valid JSON."""
 
     try:
         data = call_claude(
-            model="claude-sonnet-4-6-20250514",
+            model="claude-sonnet-4-6",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=512,
         )
@@ -861,7 +861,7 @@ Respond ONLY with valid JSON, no markdown formatting."""
     cost = 0.0
     try:
         data = call_claude(
-            model="claude-sonnet-4-6-20250514",
+            model="claude-sonnet-4-6",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2048,
         )

@@ -131,7 +131,7 @@ def call_claude_postmortem(prompt: str) -> tuple[str | None, float]:
     Returns (content_str, cost_float).
     """
     data = call_claude(
-        model="claude-sonnet-4-6-20250514",
+        model="claude-sonnet-4-6",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=1024,
     )
