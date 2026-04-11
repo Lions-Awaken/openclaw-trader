@@ -2501,6 +2501,13 @@ function wfInit() {
 
 document.fonts.ready.then(wfInit);
 
+/* Expose navigation functions to global scope for onclick handlers */
+window.wfNavigate = wfNavigate;
+window.wfTogglePlayPause = wfTogglePlayPause;
+window.wfStopPlay = wfStopPlay;
+window.wfRestartPlay = wfRestartPlay;
+window.wfGoToStep = wfGoToStep;
+
 })(); /* end IIFE */
             </script>
 
