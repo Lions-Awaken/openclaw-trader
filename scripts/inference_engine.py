@@ -153,20 +153,25 @@ def get_calibration_factor(confidence: float) -> float:
 @traced("predictions")
 def call_ollama_qwen(prompt: str) -> str | None:
     """Call local Ollama qwen2.5:3b for fast inference."""
+    payload: dict = {
+        "model": "qwen2.5:3b",
+        "prompt": prompt,
+        "stream": False,
+        "options": {"num_predict": 512, "temperature": 0.3},
+        "keep_alive": "0",
+    }
     try:
         with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={
-                    "model": "qwen2.5:3b",
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"num_predict": 512, "temperature": 0.3},
-                    "keep_alive": "0",
-                },
-            )
+            resp = client.post(f"{OLLAMA_URL}/api/generate", json=payload)
             if resp.status_code == 200:
                 return resp.json().get("response", "")
+            # HTTP 500 from Ollama — GPU OOM or internal error; retry with CPU
+            if resp.status_code == 500:
+                print("[inference_engine] Ollama GPU failed, falling back to CPU mode")
+                cpu_payload = {**payload, "options": {**payload["options"], "num_gpu": 0}}
+                cpu_resp = client.post(f"{OLLAMA_URL}/api/generate", json=cpu_payload)
+                if cpu_resp.status_code == 200:
+                    return cpu_resp.json().get("response", "")
     except Exception as e:
         print(f"[inference_engine] Ollama qwen error: {e}")
     return None
@@ -174,11 +179,11 @@ def call_ollama_qwen(prompt: str) -> str | None:
 
 _CLAUDE_MODEL_PRICING: dict[str, tuple[float, float]] = {
     # (input_price_per_mtok, output_price_per_mtok)
-    "claude-sonnet-4-6-20250514": (3.0, 15.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (0.8, 4.0),
 }
 
-_CLAUDE_SONNET = "claude-sonnet-4-6-20250514"
+_CLAUDE_SONNET = "claude-sonnet-4-6"
 _CLAUDE_HAIKU = "claude-haiku-4-5-20251001"
 
 

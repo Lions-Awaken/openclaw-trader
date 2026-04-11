@@ -625,8 +625,155 @@ Goal: Inline the workflow widget (kill the iframe), build a step-aware AI assist
 
 ---
 
+## Pre-Launch Audit — 6-Month Run Readiness
+
+Source: Slack canvas F0AS86G87GW + Longevity audit findings
+Goal: Research only — verify every system, produce GO/NO-GO + prioritized fix list
+
+---
+
+### TASK-AUDIT-01 . BACKEND-AGENT . [DONE]
+**Goal:** Geordi — Infrastructure & pipeline integrity. Verify all crons firing, Ollama health, Kronos memory, disk space, scanner Kronos integration, stale pipeline_runs, slack_notify.sh, slack_watcher.py, OLLAMA_KEEP_ALIVE=0, 5 known health check failures.
+**Acceptance:** Pass/fail list with error messages for each of ~10 items.
+**Depends on:** nothing
+
+### TASK-AUDIT-02 . DB-AGENT . [DONE]
+**Goal:** Data — Database integrity & RAG health. Row counts for 7 key tables, inference_chains.profile_name populated, 6 shadow profiles in shadow_divergences, 6 strategy_profiles rows, embedding null rates, pgvector EXPLAIN, shadow_was_right populated, cost_ledger tracking, budget_config, orphaned records, magic_link_tokens expiry.
+**Acceptance:** Table counts, embedding null rates, integrity violations.
+**Depends on:** nothing
+
+### TASK-AUDIT-03 . BACKEND-AGENT . [DONE]
+**Goal:** Riker — API integrations & circuit breakers. Alpaca connectivity + buying power, Claude API key + 6-month cost projection, Finnhub data flow, yfinance health, circuit breaker values, execution gate 3-condition check, stop loss on every order, max_concurrent_positions, null stop_price check.
+**Acceptance:** API health, 6-month cost projection, execution safety gaps.
+**Depends on:** nothing
+
+### TASK-AUDIT-04 . BACKEND-AGENT . [DONE]
+**Goal:** Worf — Security & access control. RLS on all tables, dashboard auth, DASHBOARD_KEY stability, hardcoded API key grep, .env not in git, Alpaca PAPER mode confirmed, shadow API routes, ridley SSH key-only, Fly.io public endpoints.
+**Acceptance:** Hardcoded secrets, unauthed endpoints, paper vs live confirmation.
+**Depends on:** nothing
+
+### TASK-AUDIT-05 . BACKEND-AGENT . [DONE]
+**Goal:** Crusher — RAG & LLM pipeline validation. Dry-run NVDA T1→T5 chain, T2 RAG retrieval, T3 Ollama coherence, T4 Haiku structured JSON, T5 asymmetric calibration, Kronos smoke test, 6 shadow prompts, _record_divergence writes, get_shadow_divergence_summary, grade_shadow_profiles price data.
+**Acceptance:** Pass/fail per LLM/RAG function, Kronos smoke test result.
+**Depends on:** nothing
+
+### TASK-AUDIT-06 . FRONTEND-AGENT . [DONE]
+**Goal:** Troi — Dashboard & observability. All tabs render, shadow API endpoints return data, Shadow tab 6 agents, Health/Economics/Trade Log/Pipeline tabs real data, How It Works 8 sections + widget, Fly.io session stability, Slack notifications reaching channel.
+**Acceptance:** Working vs broken endpoints, tabs with missing/stale data.
+**Depends on:** nothing
+
+### TASK-AUDIT-07 . PICARD . [BLOCKED: TASK-AUDIT-01, TASK-AUDIT-02, TASK-AUDIT-03, TASK-AUDIT-04, TASK-AUDIT-05, TASK-AUDIT-06]
+**Goal:** Synthesis — merge all 6 agent reports + longevity audit findings (retention policies, systemd, logrotate, watchdog, budget alerts, Ollama recovery). Single GO/NO-GO with summary table + prioritized fix list. Post to Slack thread 1775527228.672159.
+**Acceptance:** GO/NO-GO posted to Slack with fix list covering silent failures, data loss, financial risk.
+**Depends on:** All 6 audit tasks
+
+---
+
+## Pre-Launch Remediation — Fix All 18 Audit Items
+
+Source: AUDIT-07 synthesis + longevity audit
+Goal: Resolve all critical/high/medium items for 6-month unattended operation
+
+---
+
+## Wave 1 — Critical Blockers (parallel, different files)
+
+### TASK-FIX-01 . BACKEND-AGENT . [DONE]
+**Goal:** Fix Ollama CUDA OOM + add GPU→CPU fallback. (A) SSH to ridley, kill memory hogs (gnome-software if respawned), restart Ollama, verify qwen2.5:3b loads. (B) In `scripts/inference_engine.py`, find the T3 Ollama call (`tumbler_3_flow_crossasset`). Add a fallback: if the Ollama generate call returns HTTP 500 or CUDA error, retry with `"num_gpu": 0` (CPU mode). Log a warning but don't fail the chain. (C) Permanently disable gnome-software if it respawned: `sudo systemctl mask gnome-software-service`.
+**Acceptance:** `curl localhost:11434/api/generate` returns 200 with valid response on ridley. inference_engine.py has CPU fallback code. Ruff clean.
+**Depends on:** nothing
+
+### TASK-FIX-02 . BACKEND-AGENT . [READY]
+**Goal:** Debug why SKEPTIC/OPTIONS_FLOW/FORM4_INSIDER never write divergences. Read `scripts/scanner.py` `_record_divergence()` function. The 3 missing profiles may always agree with live (both say "skip" = no divergence). Query shadow_divergences to check: do these profiles ever disagree? If they always agree, this is correct behavior (not a bug). If they DO disagree but _record_divergence filters them out, fix the filter. Report findings — this may be a NO-FIX.
+**Acceptance:** Either (A) documented as correct behavior with evidence, or (B) _record_divergence fixed and divergences now recorded. Report in PROGRESS.md.
+**Depends on:** nothing
+
+### TASK-FIX-03 . BACKEND-AGENT . [DONE]
+**Goal:** Fix session signing salt. (A) Generate a random 32-char salt. (B) Set it as `SESSION_SIGNING_SALT` Fly.io secret: `fly secrets set SESSION_SIGNING_SALT=<random>`. (C) In `dashboard/server.py`, add a startup warning if SESSION_SIGNING_SALT equals the default "oc-session-stable-v1" — print a loud WARNING but don't block startup (breaking existing sessions is worse than the risk). (D) Set the same salt in ridley's .env for the local dashboard.
+**Acceptance:** `fly secrets list` shows SESSION_SIGNING_SALT set. server.py prints warning on default salt. Ruff clean.
+**Depends on:** nothing
+
+### TASK-FIX-04 . BACKEND-AGENT . [READY]
+**Goal:** Fix meta reflection + Claude cost tracking. (A) Read `scripts/meta_analysis.py` `generate_daily_reflection()` — find where call_claude() is called. Check if it's using the correct model name and if the response is being parsed correctly. (B) Read `scripts/common.py` `call_claude()` — verify it calls `log_cost()` after each successful Claude call. If not, add the log_cost call with category='claude_api'. (C) Read `scripts/inference_engine.py` T4/T5 — verify log_cost is called after each Claude call with category='claude_api'. (D) Test: run meta_analysis.py daily on ridley manually and verify it produces a real reflection (not "Unable to assess").
+**Acceptance:** cost_ledger gets claude_api rows on next inference run. meta_analysis.py daily produces real signal_assessment (not "Unable to assess"). Ruff clean.
+**Depends on:** nothing
+
+## Wave 2 — High Priority (parallel after Wave 1)
+
+### TASK-FIX-05 . BACKEND-AGENT . [BLOCKED: TASK-FIX-01]
+**Goal:** Investigate 8 trades without stop_price. Query trade_decisions WHERE stop_price IS NULL. Check if these are exit records (not entries), cancelled orders, or genuine missing stops. If genuine: find the code path in scanner.py execute_trade() that skips stop placement and fix it. Report findings.
+**Acceptance:** Root cause documented. If a bug: fixed + ruff clean. If by design: documented why.
+**Depends on:** TASK-FIX-01
+
+### TASK-FIX-06 . BACKEND-AGENT . [READY]
+**Goal:** Fix signal_evaluations 0% embeddings. Read `scripts/scanner.py` where signal_evaluations are written. Find where (or if) `generate_embedding()` is called on the signal data before writing. If missing, add the embedding call matching the pattern used in inference_chains. 
+**Acceptance:** Next scanner run produces signal_evaluations rows with non-NULL embedding column. Ruff clean.
+**Depends on:** nothing
+
+### TASK-FIX-07 . DB-AGENT . [READY]
+**Goal:** Add retention policies for 6 tables missing cleanup. Apply pg_cron jobs to Supabase vpollvsbtushbiapoflr: (A) system_stats: 30-day retention (highest volume). (B) system_health: 90-day. (C) signal_evaluations: 180-day. (D) shadow_divergences: 365-day. (E) meta_reflections: 365-day. (F) trade_decisions: 365-day. Use existing pg_cron pattern from the migration files.
+**Acceptance:** `SELECT * FROM cron.job` shows 6 new cleanup jobs. Verified rows older than retention window are deleted on next cron run.
+**Depends on:** nothing
+
+### TASK-FIX-08 . BACKEND-AGENT . [READY]
+**Goal:** Fix get_shadow_divergence_summary returning count=0. Read `scripts/meta_analysis.py` `get_shadow_divergence_summary()`. The function returns 0 despite 69 raw rows existing. Debug the query — likely a date filter mismatch (querying today's date but divergences are from previous days), or a column name issue (divergence_date vs created_at).
+**Acceptance:** `get_shadow_divergence_summary()` returns count > 0 when shadow_divergences has recent rows. Ruff clean.
+**Depends on:** nothing
+
+### TASK-FIX-09 . FRONTEND-AGENT . [READY]
+**Goal:** Fix 3 XSS vectors in dashboard. (A) In `buildTradeTable` (index.html ~line 3208): escape `t.ticker`, `t.action`, `t.outcome` with `esc()`. (B) In pipeline run list (~line 3681): escape `r.pipeline_name` and `r.status`. (C) In `chatRenderMarkdown` (~line 5319): pre-escape the raw text with `esc()` before applying regex substitutions, OR use DOMPurify. Keep the existing esc() calls on other fields.
+**Acceptance:** All dynamic data in innerHTML assignments passes through esc(). No unescaped user/DB data in HTML. 
+**Depends on:** nothing
+
+### TASK-FIX-10 . BACKEND-AGENT . [READY]
+**Goal:** Deploy latest commits to Fly.io + pull on ridley. (A) `git pull` on ridley. (B) `fly deploy` from dashboard/. (C) Restart ridley dashboard (uvicorn on 9090). (D) Verify workflow nav buttons work. (E) Verify chat multi-tool works.
+**Acceptance:** Fly.io running latest commit. Workflow PLAY/NEXT/PREV work. Chat doesn't error on tool use.
+**Depends on:** nothing
+
+## Wave 3 — Medium / Longevity (parallel)
+
+### TASK-FIX-11 . BACKEND-AGENT . [BLOCKED: TASK-FIX-10]
+**Goal:** Add logrotate config on ridley. Create `/etc/logrotate.d/openclaw`: daily rotation, 7-day retention, compress, for all `/tmp/oc-*.log` and `/tmp/openclaw*.log`. Test with `logrotate -d`.
+**Acceptance:** `logrotate -d /etc/logrotate.d/openclaw` shows correct rotation plan. Config file exists.
+**Depends on:** TASK-FIX-10
+
+### TASK-FIX-12 . BACKEND-AGENT . [BLOCKED: TASK-FIX-10]
+**Goal:** Create systemd unit for simulator_watcher on ridley. Write `/etc/systemd/system/openclaw-simulator.service` with Restart=always, matching the pattern of openclaw-stats.service. Enable and start. Remove the @reboot crontab entry (systemd replaces it).
+**Acceptance:** `systemctl status openclaw-simulator` shows active. Watcher auto-restarts after `kill -9`. @reboot cron removed.
+**Depends on:** TASK-FIX-10
+
+### TASK-FIX-13 . DB-AGENT . [READY]
+**Goal:** Clean up 11 stuck pipeline_runs from March. Run: `UPDATE pipeline_runs SET status='failed', completed_at=now() WHERE status='running' AND created_at < now() - interval '2 hours'`. Verify count.
+**Acceptance:** Zero pipeline_runs with status='running' older than 2 hours.
+**Depends on:** nothing
+
+### TASK-FIX-14 . BACKEND-AGENT . [READY]
+**Goal:** Disable SSH password auth on ridley. Set `PasswordAuthentication no` in `/etc/ssh/sshd_config`. Reload sshd. Verify key-only access still works.
+**Acceptance:** `grep PasswordAuthentication /etc/ssh/sshd_config` shows `no`. SSH still works via key.
+**Depends on:** nothing
+
+### TASK-FIX-15 . BACKEND-AGENT . [READY]
+**Goal:** Fix slots_available=999 unlimited mode path in scanner.py. Find the fallback at ~line 645. Add a hard cap: `slots_available = min(slots_available, max_concurrent_positions or 5)`. This prevents any misconfigured profile from bypassing position limits.
+**Acceptance:** No code path can set slots_available > max_concurrent_positions. Ruff clean.
+**Depends on:** nothing
+
+### TASK-FIX-16 . BACKEND-AGENT . [READY]
+**Goal:** Fix stack_heartbeats column name mismatch. Read `dashboard/server.py` — find references to `service_name` on the stack_heartbeats table. The actual column is `service`. Fix the column reference.
+**Acceptance:** Server.py references correct column name. Ruff clean.
+**Depends on:** nothing
+
+## Wave 4 — Verification
+
+### TASK-FIX-17 . PICARD . [BLOCKED: TASK-FIX-01 through TASK-FIX-16]
+**Goal:** Final verification. Run preflight simulator on ridley — all 72 tests should pass. Run health check — all 59 checks should pass. Verify Ollama responds, meta reflection generates, cost_ledger has claude_api entries, shadow divergences include all 6 profiles (or documented why 3 always agree). Deploy to Fly. Post GO declaration to Slack thread 1775527228.672159.
+**Acceptance:** Preflight all GO. Health check all PASS. GO posted to Slack.
+**Depends on:** All FIX tasks
+
+---
+
 ## Completed — Prior Sessions
 
+### Workflow AI Assistant (2026-04-11): TASK-WF-01 through TASK-WF-05 . [DONE]
 ### Kronos Shadow Agent (2026-04-09/10): TASK-K00 through TASK-K06 . [DONE]
 ### Full Preflight Coverage + Mission Readiness (2026-04-09): TASK-PF-01 through TASK-PF-03 + Group Q . [DONE]
 ### Optimization Audit (2026-04-08): TASK-OPT-01 through TASK-OPT-11 . [DONE]
