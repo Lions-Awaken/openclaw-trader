@@ -3715,7 +3715,13 @@ If the user asks about this step, answer with specificity — reference paramete
                         })
 
                     # Add assistant response + tool results to conversation
-                    conv.append({"role": "assistant", "content": [b.model_dump() for b in final_message.content]})
+                    # Strip extra fields (like parsed_output) that newer SDK versions add
+                    # but the API rejects on re-submission
+                    def _clean_block(b):
+                        d = b.model_dump()
+                        d.pop("parsed_output", None)
+                        return d
+                    conv.append({"role": "assistant", "content": [_clean_block(b) for b in final_message.content]})
                     conv.append({"role": "user", "content": tool_results})
                     continue  # Next round — Claude will respond to tool results
                 else:
