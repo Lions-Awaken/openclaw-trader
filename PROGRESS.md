@@ -3600,3 +3600,45 @@ No new auth requirements. Uses existing Alpaca credentials from `common.ALPACA_K
 **WF-02 and WF-03 unblocked:** Both marked [READY] in TASKS.md.
 - WF-02 (BACKEND): Build step knowledge base + rewrite CHAT_SYSTEM_PROMPT — can now access `window._workflowCurrentStep` from dashboard JS context
 - WF-03 (FRONTEND): Wire chat to be step-aware — `wfGoToStep()` updates `window._workflowCurrentStep` on every navigation
+
+---
+
+## TASK-WF-02 — BACKEND-AGENT — [DONE]
+
+**Files modified:**
+- `/home/mother_brain/projects/openclaw-trader/dashboard/server.py` — added `WORKFLOW_CONTEXT` dict (lines ~3303–3564), rewrote `CHAT_SYSTEM_PROMPT` (lines ~3567–3617)
+
+**What was added:**
+
+### WORKFLOW_CONTEXT
+A `dict[int, dict[str, str]]` with 20 entries (steps 1–20) inserted immediately before `CHAT_SYSTEM_PROMPT`. Each entry has 9 fields:
+- `title`, `group`, `description`, `data_in`, `data_out`, `db_table`, `cost`, `parameters`, `limitations`, `improvements`, `connections`
+
+Step groups: pre-market (1–3), scanner (4–6), tumbler (7–10), execution (11), shadow (12–18), calibration (19), meta (20).
+
+### CHAT_SYSTEM_PROMPT
+Replaced the 15-line placeholder with a comprehensive prompt covering:
+- All 5 tumblers (T1–T5) with cost per call
+- All 6 shadow agents with grading metrics
+- DWM weight formula (1.0 x (1 + 0.5 x (fitness - median)), clamped [0.05, 3.0])
+- Budget gate tiers (>=40%, 20-40%, <20%)
+- Execution gate conditions (confidence >= 0.60, depth >= 3)
+- Kronos (24.7M params, 50 Monte Carlo paths, 10-day horizon)
+- Full infrastructure (ridley, motherbrain, Supabase, Alpaca, Fly.io)
+- Persona: engineering peer, not tutorial voice
+
+**Auth requirements:** N/A — this is a static constant, not an endpoint.
+
+**DB queries:** None added.
+
+**Schema assumptions:** None — WORKFLOW_CONTEXT references existing tables by name only (used as documentation, not queried).
+
+**CHAT_TOOLS:** Untouched — all existing tool definitions preserved as-is.
+
+**`/api/chat` endpoint:** Untouched — WF-04 handles step context injection.
+
+**Ruff:** Passes clean.
+
+**WF-04 unblocked:** `WORKFLOW_CONTEXT` is now importable by the `/api/chat` endpoint handler (WF-04) to inject step-specific context via `WORKFLOW_CONTEXT[step_number]`.
+
+**Follow-on (WF-04):** When `current_step` is present in the POST body, the `/api/chat` endpoint should prepend the matching `WORKFLOW_CONTEXT[current_step]` block to the system prompt before sending to Claude.

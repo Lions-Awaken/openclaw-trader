@@ -599,7 +599,7 @@ Goal: Inline the workflow widget (kill the iframe), build a step-aware AI assist
 **Output artifact:** Updated index.html + server.py.
 **Depends on:** nothing
 
-### TASK-WF-02 . BACKEND-AGENT . [READY]
+### TASK-WF-02 . BACKEND-AGENT . [DONE]
 **Goal:** Build deep step knowledge base + rewrite CHAT_SYSTEM_PROMPT. (A) WORKFLOW_CONTEXT dict with 20 entries — each has: description, data_in, data_out, db_table, cost, parameters, limitations, improvements, connections. (B) Full system prompt covering: 6 shadow profiles, T1-T5 chain, DWM formula, budget gate, Kronos, meta daily, manifest, preflight. (C) Persona: expert co-pilot who challenges design decisions and suggests improvements.
 **Acceptance:** CHAT_SYSTEM_PROMPT references all 6 shadows, Kronos, DWM, budget gate. WORKFLOW_CONTEXT has 20 entries with 5+ fields each.
 **Output artifact:** Updated server.py.

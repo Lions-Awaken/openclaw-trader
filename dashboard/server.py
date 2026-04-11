@@ -3300,26 +3300,321 @@ async def _chat_tool_dispatch(name: str, input_data: dict) -> str:
         return json.dumps({"error": str(e)})
 
 
-CHAT_SYSTEM_PROMPT = """You are the OpenClaw Trader AI assistant — the brain behind an autonomous swing trading system running on a Jetson Orin Nano.
+WORKFLOW_CONTEXT: dict[int, dict[str, str]] = {
+    1: {
+        "title": "HEALTH CHECK",
+        "group": "pre-market",
+        "description": "59 automated checks across 13 groups validating every integration point in the system. Runs at 5:00 AM PDT before anything else fires.",
+        "data_in": "Supabase tables, Ollama API, Alpaca API, crontab, file system",
+        "data_out": "system_health table rows (one per check, grouped by run_id)",
+        "db_table": "system_health",
+        "cost": "Free (one cheap Claude Haiku call for API canary)",
+        "parameters": "Check groups: infrastructure, database, crons, signals, tumblers, ensemble, logging, dashboard, claude_api, crontab_drift, output_quality, data_freshness, historical_regression",
+        "limitations": "Runs on ridley so it can test local services, but can't test the Fly.io dashboard deployment. Dashboard API checks (I-group) require the local dashboard to be running.",
+        "improvements": "Could add a Fly.io health check that tests the production deployment. Could add network latency checks to external APIs.",
+        "connections": "Runs before all other pipelines. If health check fails, Slack alert fires. Results visible in the dashboard Health tab and preflight simulator.",
+    },
+    2: {
+        "title": "CATALYST INGEST",
+        "group": "pre-market",
+        "description": "5-source market catalyst detection. Fetches news, filings, congressional trades, price signals, and macro indicators. Embeds each event via Ollama for RAG retrieval in later tumblers.",
+        "data_in": "Finnhub API (news + insiders), SEC EDGAR (filings), QuiverQuant (congressional trades), yfinance (price signals), FRED (macro indicators)",
+        "data_out": "catalyst_events rows with embeddings, congress_clusters",
+        "db_table": "catalyst_events",
+        "cost": "Free (all sources are free-tier APIs, Ollama embedding is local)",
+        "parameters": "Lookback hours: 8 (configurable). Watchlist: active profile tickers + recent signal_evaluations tickers. Duplicate detection: cosine similarity threshold 0.95.",
+        "limitations": "QuiverQuant has been returning 0 events consistently — may be rate-limited or the API changed. SEC EDGAR returns matched=0 for most runs. Perplexity was removed to save cost.",
+        "improvements": "Could add alternative congressional data sources. Could add earnings calendar integration. Could weight catalyst freshness more aggressively.",
+        "connections": "Feeds T2 tumbler (catalyst boost). Must complete before scanner runs. 3x daily schedule (5:30, 9:00, 12:50 PDT).",
+    },
+    3: {
+        "title": "FORM 4 INGEST",
+        "group": "pre-market",
+        "description": "SEC EDGAR Form 4 insider purchase filings. Scores by total value, ownership change, cluster count (multiple insiders buying same week), and filer title (CEO/CFO = strongest).",
+        "data_in": "SEC EDGAR EFTS API, target tickers from active profile + AI infrastructure watchlist",
+        "data_out": "form4_signals rows with score in raw_data",
+        "db_table": "form4_signals",
+        "cost": "Free (SEC EDGAR is public)",
+        "parameters": "Scoring: total_value ($1M+=3, $500K+=2, $100K+=1), ownership_pct_change (>10%=3, >5%=2, >1%=1), cluster_count (per additional buyer: +2, max +4), filer_title (CEO/CFO/Chairman=+2, VP/Director=+1)",
+        "limitations": "SEC EDGAR has rate limits (10 requests/sec with User-Agent). Filing delay: 2 business days from trade date. Sales are filtered out (only purchases).",
+        "improvements": "Could track filing patterns over time (insiders who file fast = higher conviction). Could correlate with earnings dates.",
+        "connections": "Feeds scanner enrichment (_enrich_with_form4). Scanner adds form4_insider_score and form4_purchase_count to each candidate's signals dict.",
+    },
+    4: {
+        "title": "SCANNER SETUP",
+        "group": "scanner",
+        "description": "Loads the active trading profile (CONGRESS_MIRROR), checks circuit breakers (VIX, drawdown, consecutive losses), verifies Alpaca account equity and buying power, builds the 39-ticker watchlist.",
+        "data_in": "strategy_profiles table, Alpaca account API, market clock",
+        "data_out": "Profile config, equity/buying_power values, circuit breaker status",
+        "db_table": "pipeline_runs",
+        "cost": "Free",
+        "parameters": "Circuit breakers: VIX > 28 (stand down), drawdown > 15%, 3 consecutive losses. Max concurrent positions: 3. Max risk per trade: 5%.",
+        "limitations": "Watchlist is semi-static (39 tickers). Doesn't dynamically discover new tickers based on momentum or catalysts.",
+        "improvements": "Dynamic watchlist expansion based on catalyst volume. Sector rotation detection to shift focus.",
+        "connections": "Gates the entire scanner pipeline. If circuit breaker trips, scanner exits without scanning.",
+    },
+    5: {
+        "title": "T1 — SIGNAL SCORING",
+        "group": "scanner",
+        "description": "39 watchlist tickers scored against 6 binary signals: Trend (SMA20 > SMA50), Momentum (RSI 30-70 + MACD), Volume (relative volume > 1.2), Catalyst (recent catalyst_events), Sentiment (positive catalyst sentiment), Flow (institutional flow indicators). Score 0-6, only tickers >= 3 advance.",
+        "data_in": "Alpaca price bars (60 days), SPY bars for benchmark, catalyst_events for sentiment",
+        "data_out": "signal_evaluations rows, candidate list with scores and signal details",
+        "db_table": "signal_evaluations",
+        "cost": "Free (pure computation, no API calls)",
+        "parameters": "Min signal score: 3 (from active profile). SMA periods: 20, 50. RSI period: 14. Volume lookback: 20 days.",
+        "limitations": "Binary signals (pass/fail) lose nuance. A ticker at RSI 31 scores the same as RSI 60. No weighting between signals.",
+        "improvements": "Continuous signal scoring instead of binary. Signal weighting based on historical predictive power. Sector-relative scoring.",
+        "connections": "First tumbler in the chain. Output feeds enrichment and T2. Writes to signal_evaluations for dashboard display.",
+    },
+    6: {
+        "title": "SIGNAL ENRICHMENT",
+        "group": "scanner",
+        "description": "Candidates enriched with options flow data (3-day lookback, bullish/bearish/net from options_flow_signals) and Form 4 insider purchases (14-day lookback, score + count from form4_signals).",
+        "data_in": "options_flow_signals table, form4_signals table, candidate list from T1",
+        "data_out": "Candidates with additional signal keys: options_flow_bullish, options_flow_bearish, options_flow_net, form4_insider_score, form4_purchase_count",
+        "db_table": "signal_evaluations",
+        "cost": "Free (Supabase queries only)",
+        "parameters": "Options flow lookback: 3 days. Form 4 lookback: 14 days. Options flow: count bullish/bearish sentiment. Form 4: tiered scoring by value + cluster.",
+        "limitations": "Options flow data is currently empty (Unusual Whales API not connected). Form 4 data depends on ingest_signals.py running correctly.",
+        "improvements": "Connect Unusual Whales API for live options flow. Add dark pool print detection. Correlate form4 timing with earnings.",
+        "connections": "Runs after T1, before T2. Adds data that T2/T3 can reference in their analysis.",
+    },
+    7: {
+        "title": "T2 — FUNDAMENTAL ANALYSIS",
+        "group": "tumbler",
+        "description": "RAG-powered fundamental analysis. Retrieves similar past inference chains and trade learnings via pgvector similarity search. Congressional trade disclosures get confidence boost if filed within 40 days. Hard veto if sentiment score < -0.5.",
+        "data_in": "Candidate signals, pgvector embeddings from inference_chains and trade_learnings, catalyst_events, congress_clusters",
+        "data_out": "Updated confidence (+-sentiment_adj), veto flag, catalyst_bonus, congress_boost",
+        "db_table": "inference_chains",
+        "cost": "Free (RAG retrieval only, no LLM call)",
+        "parameters": "Sentiment adjustment: avg_sentiment * 0.15. Catalyst bonus: +-0.05. Congress boost: +-0.07 (if high-impact legislative event < 14 days). Veto threshold: sentiment < -0.5.",
+        "limitations": "RAG quality depends on historical data volume. New tickers with no history get no RAG context. Congress data depends on QuiverQuant (currently returning 0).",
+        "improvements": "Add earnings surprise correlation. Weight RAG results by recency. Add sector-level sentiment aggregation.",
+        "connections": "Second tumbler. Receives confidence from T1. Can veto (kills the chain). Output feeds T3. Shadow context injected here for shadow profiles.",
+    },
+    8: {
+        "title": "T3 — FLOW & CROSS-ASSET",
+        "group": "tumbler",
+        "description": "First LLM call — Ollama qwen2.5:3b running locally on ridley's Jetson GPU. Analyzes how this setup compares to past chains and outcomes. Shadow profile system prompts are injected here for adversarial analysis.",
+        "data_in": "Candidate data, T1+T2 results, RAG context (past chains + trade learnings), shadow system prompt (if shadow profile)",
+        "data_out": "Confidence adjustment +-0.10, qwen analysis text",
+        "db_table": "inference_chains",
+        "cost": "Free (local Ollama, no API cost)",
+        "parameters": "Model: qwen2.5:3b. Temperature: 0.3. Max tokens (num_predict): 512. Adjustment range: +-0.10.",
+        "limitations": "qwen2.5:3b is a 3B parameter model — limited reasoning depth compared to Claude. Can't do complex multi-step analysis. Response quality varies.",
+        "improvements": "Could upgrade to qwen2.5:7b if RAM allows (would need to unload during Kronos runs). Could add structured output parsing for more reliable adjustments.",
+        "connections": "Third tumbler. REGIME_WATCHER stops here (max_tumbler_depth=3). This is where shadow profiles diverge from live — the adversarial system prompts change qwen's analysis.",
+    },
+    9: {
+        "title": "T4 — PATTERN MATCH",
+        "group": "tumbler",
+        "description": "Claude Haiku matches the current setup against known pattern templates with documented outcomes. Evaluates quality and coherence of the full trade thesis built by T1-T3.",
+        "data_in": "Full tumbler chain context (T1-T3 results), pattern_templates from Supabase (with similarity matching)",
+        "data_out": "Confidence adjustment +-0.10, matched pattern IDs, thesis quality assessment",
+        "db_table": "inference_chains",
+        "cost": "~$0.001 per call (Claude Haiku)",
+        "parameters": "Model: claude-haiku-4-5-20251001. Max tokens: 256. Temperature: 0.3. Pattern match threshold: similarity >= 0.5.",
+        "limitations": "Pattern template library is small — only patterns discovered by the weekly calibrator. Haiku has limited context window for complex pattern matching.",
+        "improvements": "Could pre-compute pattern embeddings for faster matching. Could use a larger pattern library from historical backtesting. Could let the meta-learner create patterns from unanimous dissent events.",
+        "connections": "Fourth tumbler. Only fires when Claude budget allows (budget gate). Shadow profiles get their adversarial prompts injected here too.",
+    },
+    10: {
+        "title": "T5 — COUNTERFACTUAL",
+        "group": "tumbler",
+        "description": "Claude Sonnet as devil's advocate — constructs the strongest argument AGAINST the trade. Asymmetric adjustment: can drop confidence by 0.15 but raise it only 0.05. Applies calibration factor from weekly calibrator.",
+        "data_in": "Full chain context (T1-T4), meta_reflections (RAG), trade_learnings (losses/misses)",
+        "data_out": "Final calibrated confidence, risk factors, counterfactual analysis",
+        "db_table": "inference_chains",
+        "cost": "~$0.005 per call (Claude Sonnet)",
+        "parameters": "Model: claude-sonnet-4-6-20250514. Max tokens: 512. Temperature: 0.3. Adjustment range: -0.15 to +0.05 (asymmetric bearish bias). Calibration factor applied after raw adjustment.",
+        "limitations": "Most expensive tumbler. Budget gate may skip this at low budget. The asymmetric adjustment means T5 is structurally bearish — by design, but limits bullish conviction.",
+        "improvements": "Could A/B test symmetric vs asymmetric adjustment. Could use Haiku for a cheaper counterfactual with less depth. Could add market regime awareness to the counterfactual prompt.",
+        "connections": "Fifth and final tumbler. If all 5 complete: stopping_reason = 'all_tumblers_clear'. Calibration factor from calibrator.py applied to raw confidence. Final decision: strong_enter (>=0.75), enter (>=0.60), watch (>=0.45), skip (>=0.20), veto (<0.20).",
+    },
+    11: {
+        "title": "EXECUTION GATE",
+        "group": "execution",
+        "description": "Trade executes ONLY if: decision = enter/strong_enter, confidence >= 0.60, and >= 3 tumblers completed. ATR-based position sizing with 5% max risk per trade. Market buy + stop-loss order.",
+        "data_in": "Final inference result (decision, confidence, stopping_reason), Alpaca account (equity, buying_power, positions)",
+        "data_out": "trade_decisions row, order_events rows (market buy + stop-loss)",
+        "db_table": "trade_decisions",
+        "cost": "Free (Alpaca paper trading)",
+        "parameters": "Min confidence: 0.60. Min tumbler depth: 3. Max risk: 5% of equity. Position sizing: ATR-based (14-period ATR x 2 for stop distance). Max concurrent positions: 3.",
+        "limitations": "Paper trading only — no real money at risk. Alpaca paper trading doesn't perfectly simulate real market conditions (fills are instant, no slippage).",
+        "improvements": "Could implement limit orders instead of market orders. Could add time-of-day execution preferences. Could implement partial position sizing based on confidence level.",
+        "connections": "End of the live inference chain. Only fires for the live profile (CONGRESS_MIRROR), never for shadow profiles. Writes to trade_decisions and order_events.",
+    },
+    12: {
+        "title": "BUDGET GATE",
+        "group": "shadow",
+        "description": "Controls which shadow agents run based on remaining Claude API budget. Three tiers: >= 40% = all 6 shadows, 20-40% = cheap shadows only (Regime Watcher + Form 4 + Kronos), < 20% = Kronos only (zero API cost).",
+        "data_in": "cost_ledger (today's Claude spend), budget_config (daily_claude_budget)",
+        "data_out": "Filtered list of shadow profiles to run",
+        "db_table": "cost_ledger",
+        "cost": "Free",
+        "parameters": "Tier 1 threshold: 40%. Tier 2 threshold: 20%. Cheap profiles: REGIME_WATCHER (Ollama only, stops at T3), FORM4_INSIDER, KRONOS_TECHNICALS (local GPU, zero API cost).",
+        "limitations": "Binary tier system — doesn't partially reduce shadow depth. Could run all shadows but cap at T3 for budget savings.",
+        "improvements": "Continuous budget allocation instead of tiers. Priority queue — run highest-DWM-weight shadows first. Adaptive tier thresholds based on time of day.",
+        "connections": "Gates the shadow inference loop. Determines which of the 6 shadow profiles actually execute.",
+    },
+    13: {
+        "title": "SKEPTIC",
+        "group": "shadow",
+        "description": "Maximally conservative adversarial reviewer. Requires overwhelming evidence to approve entry. Heavily penalizes momentum-chasing. If a stock moved > 3% in 3 days, demands additional justification.",
+        "data_in": "Same candidates as live profile, full tumbler chain with SKEPTIC system prompt injected",
+        "data_out": "shadow_divergences row if decision differs from live",
+        "db_table": "shadow_divergences",
+        "cost": "Claude API (runs full T1-T5 chain)",
+        "parameters": "Grading metric: Conditional Brier Score. System prompt: immutable, never modified by meta-learner. Full tumbler depth (5).",
+        "limitations": "Structurally bearish — almost always says skip. High dissent rate may dilute signal quality.",
+        "improvements": "Could add a confidence-weighted dissent (strong skip vs weak skip). Could track which specific tumblers cause SKEPTIC to diverge.",
+        "connections": "Runs after live inference. Divergences recorded for weekly calibrator grading. DWM weight determines how much the meta-learner listens to SKEPTIC's dissent.",
+    },
+    14: {
+        "title": "CONTRARIAN",
+        "group": "shadow",
+        "description": "Assumes the trade is wrong. Overweights sector rotation signals, institutional distribution (volume without price progress), and divergence between price and fundamentals.",
+        "data_in": "Same candidates, CONTRARIAN system prompt injected into tumblers",
+        "data_out": "shadow_divergences row on disagreement",
+        "db_table": "shadow_divergences",
+        "cost": "Claude API (full T1-T5)",
+        "parameters": "Grading metric: Regime-Conditional IC. System prompt: immutable. Full tumbler depth (5).",
+        "limitations": "Expected to be wrong during strong trends (momentum carries). Most useful during regime transitions.",
+        "improvements": "Could dynamically adjust contrarian weight based on market regime (higher weight in choppy markets, lower in trends).",
+        "connections": "Same as SKEPTIC. Calibrator grades on regime-conditional information coefficient.",
+    },
+    15: {
+        "title": "REGIME WATCHER",
+        "group": "shadow",
+        "description": "Ignores the ticker entirely. Only question: 'Is this a good time to enter ANY long position?' Evaluates SPY trend, VIX, yield curve, credit spreads, sector rotation breadth.",
+        "data_in": "Macro data only — ignores individual ticker signals",
+        "data_out": "shadow_divergences row on disagreement",
+        "db_table": "shadow_divergences",
+        "cost": "Free (stops at T3, Ollama only — no Claude API calls)",
+        "parameters": "Max tumbler depth: 3 (T1 + T2 + T3 only). Grading metric: Detection Latency. System prompt: immutable.",
+        "limitations": "No Claude analysis — limited to Ollama qwen's macro reasoning. Can't do deep counterfactual analysis of macro risks.",
+        "improvements": "Could add FRED macro indicators as direct T2 input. Could track regime change detection accuracy over time.",
+        "connections": "Cheapest LLM shadow — survives budget tier 2. High enter rate (bullish bias) — consistently wants to enter when others don't.",
+    },
+    16: {
+        "title": "OPTIONS FLOW",
+        "group": "shadow",
+        "description": "Momentum-focused. Primary signal: unusual options activity — sweeps, blocks, dark pool prints. Alpha decay fast (1-5 day window). Graded on 5-day forward return.",
+        "data_in": "Same candidates + options_flow_signals enrichment data",
+        "data_out": "shadow_divergences row on disagreement",
+        "db_table": "shadow_divergences",
+        "cost": "Claude API (full T1-T5)",
+        "parameters": "Alpha decay: 1-5 days. Grading metric: 5-day forward return. System prompt: immutable. Full tumbler depth (5).",
+        "limitations": "Options flow data is currently empty (Unusual Whales API not connected). This shadow is making decisions without its primary signal source.",
+        "improvements": "CRITICAL: Connect Unusual Whales API to actually feed options flow data. Without it, this shadow is essentially running blind on the options dimension.",
+        "connections": "Depends on ingest_options_flow for data. Currently running without its key data source.",
+    },
+    17: {
+        "title": "FORM 4 INSIDER",
+        "group": "shadow",
+        "description": "Fundamentals-anchored. Primary signal: Form 4 purchase filings by CEOs, CFOs, board members within 14 days. Cluster buys weighted heavily. CFOs = strongest signal.",
+        "data_in": "Same candidates + form4_signals enrichment data",
+        "data_out": "shadow_divergences row on disagreement",
+        "db_table": "shadow_divergences",
+        "cost": "Claude API (full T1-T5)",
+        "parameters": "Holding period: up to 15 days. Grading metric: 15-day forward return. System prompt: immutable. Full tumbler depth (5).",
+        "limitations": "Form 4 filing delay is 2 business days — signal is always slightly stale. Cluster detection is simple (same-week buys).",
+        "improvements": "Could weight by insider's historical accuracy (some CFOs are consistently right). Could track filing speed anomalies (chronic late filers suddenly filing fast).",
+        "connections": "Depends on ingest_form4 for data. Best when cluster buys are detected.",
+    },
+    18: {
+        "title": "KRONOS TECHNICALS",
+        "group": "shadow",
+        "description": "Pure price pattern agent using Kronos financial time series foundation model. 252 daily OHLCV candles -> 50 Monte Carlo paths -> bullish probability at 10-day horizon. No news, no fundamentals — only price.",
+        "data_in": "yfinance daily OHLCV bars (252 days), Kronos-small model weights",
+        "data_out": "shadow_divergences row with bullish_prob in shadow_confidence",
+        "db_table": "shadow_divergences",
+        "cost": "Free (local Jetson GPU inference, ~25 seconds per ticker)",
+        "parameters": "Model: NeoQuasar/Kronos-small (24.7M params). Prediction length: 15 bars. Monte Carlo paths: 50. Horizon bar: 10. Bullish threshold: 0.60. Bearish threshold: 0.40. Max candidates: top 5 by score.",
+        "limitations": "25 seconds per ticker limits to top 5 candidates. Ollama must unload before Kronos loads (shared GPU memory). Model is price-only — blind to fundamental catalysts.",
+        "improvements": "Could run overnight batch on all watchlist tickers. Could ensemble Kronos predictions with a trend-following model. Could fine-tune on the specific AI infrastructure sector.",
+        "connections": "Survives all budget tiers (zero API cost). First live run: April 10, 2026. Graded on directional accuracy at 10-day horizon.",
+    },
+    19: {
+        "title": "CALIBRATOR",
+        "group": "calibration",
+        "description": "Sunday weekly. Grades all ungraded shadow divergences from past 30 days. Each shadow type has its own grading metric. Updates fitness_score and DWM weight in strategy_profiles.",
+        "data_in": "shadow_divergences (ungraded), inference_chains (actual outcomes), price history (for Kronos directional accuracy)",
+        "data_out": "Updated fitness_score, dwm_weight, conditional_brier, times_correct, times_dissented in strategy_profiles. Updated shadow_was_right, actual_outcome, actual_pnl in shadow_divergences.",
+        "db_table": "strategy_profiles",
+        "cost": "Free (computation only)",
+        "parameters": "DWM formula: new_weight = 1.0 x (1 + 0.5 x (fitness - median_fitness)), clamped [0.05, 3.0]. Alpha: 0.5. Lookback: 30 days. Grading metrics: SKEPTIC=Brier, CONTRARIAN=IC, REGIME_WATCHER=latency, KRONOS=directional_accuracy_10d.",
+        "limitations": "Weekly cadence means DWM weights update slowly. 30-day window means old regime data can dilute current accuracy.",
+        "improvements": "Could run daily for faster adaptation. Could use exponential decay instead of hard 30-day cutoff. Could weight recent divergences more heavily.",
+        "connections": "Reads shadow_divergences, writes strategy_profiles. DWM weights influence meta daily reflection priority. Runs after meta_weekly.",
+    },
+    20: {
+        "title": "META DAILY",
+        "group": "meta",
+        "description": "1:30 PM weekdays. Claude Sonnet reviews the day's shadow divergences. Identifies unanimous dissent (all 6 shadows disagreed with live on a ticker). Output becomes RAG context for future T2 tumbler calls.",
+        "data_in": "shadow_divergences (today), pipeline_health, signal_accuracy, trades, catalysts, chain analysis",
+        "data_out": "meta_reflections row with signal_assessment, operational_issues, adjustments, embedding",
+        "db_table": "meta_reflections",
+        "cost": "~$0.02 per call (Claude Sonnet + Ollama embedding)",
+        "parameters": "Model: Claude Sonnet. Unanimous dissent: all active shadows disagreed on same ticker. RAG: retrieves similar past days for context.",
+        "limitations": "Depends on Claude API budget being available. If budget exhausted, reflection fails with 'Unable to assess'. No automated adjustment execution — proposed adjustments require human approval.",
+        "improvements": "Auto-execute adjustments within +-5% bounds. Add Kronos directional predictions as additional meta context. Track which adjustments were approved vs rejected.",
+        "connections": "Final pipeline step each day. Writes to meta_reflections with embedding. Future T2 calls retrieve these reflections via RAG. The feedback loop: shadows -> divergences -> calibrator -> DWM weights -> meta daily -> RAG context -> future T2 analysis.",
+    },
+}
 
-You have access to every piece of data in the system through your tools. Use them to answer questions with specific numbers and evidence. Don't guess — look it up.
 
-Architecture overview:
-- Scanner runs 2x daily (9:35 AM, 12:30 PM ET) scanning a watchlist for signal candidates
-- 5-tumbler "Lock & Tumbler" inference engine evaluates candidates: Technical → Fundamental/Sentiment → Flow/Cross-Asset (Ollama) → Pattern Matching (Claude) → Counterfactual Synthesis (Claude)
-- Position manager runs every 30m during market hours: trailing stops, time stops, EOD flatten
-- Catalyst ingest runs 3x daily collecting market-moving events from 4 sources
-- Meta-analysis (daily + weekly) reviews performance and proposes strategy adjustments
-- Post-trade analysis runs on every trade close for RAG learning
+CHAT_SYSTEM_PROMPT = """You are the OpenClaw Trader AI co-pilot — deeply embedded in an autonomous swing trading system built on adversarial AI ensemble architecture.
 
-Key concepts:
-- Tumbler depth: how many of the 5 analysis layers a ticker passed through (higher = more conviction)
-- Signal score: 0-6 across trend, momentum, volume, fundamental, sentiment, flow
-- Stopping reasons: veto_signal, confidence_floor, forced_connection (delta < 0.03), time_limit
-- Decisions: strong_enter (>=0.75), enter (>=0.60), watch (>=0.45), skip (>=0.20), veto (<0.20)
-- Strategy profiles: CONSERVATIVE (safe), UNLEASHED (aggressive day-trade style)
+## System Architecture
 
-Keep responses concise and data-driven. Use tables for comparisons. The user is the system's creator — speak like a co-pilot, not a tutorial."""
+OpenClaw runs on ridley (NVIDIA Jetson Orin Nano 8GB) with these components:
+- **Scanner**: Runs 2x daily (6:35 AM, 9:30 AM PDT). 39-ticker AI infrastructure watchlist. 5-tumbler inference chain (T1-T5).
+- **Adversarial Ensemble**: 6 shadow agents run in parallel with the live profile, recording disagreements as training data.
+- **DWM Calibrator**: Weekly grading of shadow divergences. Fitness = correct/dissented. Weight formula: 1.0 x (1 + 0.5 x (fitness - median)), clamped [0.05, 3.0].
+- **Kronos**: Pure price pattern forecasting via Kronos-small (24.7M params) on Jetson GPU. 50 Monte Carlo paths, 15-bar horizon.
+- **Meta Daily**: Claude Sonnet reflects on shadow divergences. Unanimous dissent = HIGH PRIORITY.
+
+## The 5-Tumbler Chain
+- T1: Signal scoring (6 binary signals, pure math, free)
+- T2: Fundamental analysis (RAG + catalyst boost + Congress, free)
+- T3: Flow & cross-asset (Ollama qwen2.5:3b, local GPU, free)
+- T4: Pattern matching (Claude Haiku, ~$0.001)
+- T5: Counterfactual synthesis (Claude Sonnet, ~$0.005, asymmetric bearish bias)
+
+## The 6 Shadow Agents
+1. SKEPTIC — maximally conservative, Conditional Brier Score
+2. CONTRARIAN — assumes trade is wrong, Regime-Conditional IC
+3. REGIME_WATCHER — macro only (stops at T3), Detection Latency
+4. OPTIONS_FLOW — unusual options activity, 5-day forward return
+5. FORM4_INSIDER — SEC insider purchases, 15-day forward return
+6. KRONOS_TECHNICALS — pure OHLCV price patterns (local GPU, 10-day directional accuracy)
+
+## Budget Gate
+- >= 40% remaining: all 6 shadows
+- 20-40%: Regime Watcher + Form 4 + Kronos
+- < 20%: Kronos only (zero API cost)
+
+## Execution Gate
+Trade executes only if: decision = enter/strong_enter, confidence >= 0.60, >= 3 tumblers completed. ATR-based sizing, 5% max risk.
+
+## Infrastructure
+- ridley: Jetson Orin Nano 8GB (scanner, Ollama, Kronos GPU inference)
+- motherbrain: Orchestrator (Picard)
+- Supabase: PostgreSQL + pgvector (project: vpollvsbtushbiapoflr)
+- Alpaca: Paper trading API
+- Fly.io: Dashboard (openclaw-trader-dash.fly.dev)
+
+## Your Persona
+You are a knowledgeable co-pilot who:
+- Answers with specific data — use your tools to look things up, don't guess
+- Knows every detail of the architecture and can explain any component in depth
+- Is willing to challenge design decisions and suggest improvements
+- Thinks about edge cases, failure modes, and optimization opportunities
+- Speaks like an engineering partner, not a tutorial
+- When the user is viewing a specific workflow step, you have deep context about that step and can discuss its internals, limitations, and potential improvements
+
+Keep responses concise and data-driven. Use tables for comparisons. The user built this system — speak as a peer."""
 
 
 @app.post("/api/chat")
