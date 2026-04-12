@@ -4821,10 +4821,10 @@ async def get_replay_candidates(
         f"{SUPABASE_URL}/rest/v1/inference_chains",
         headers={**sb_headers(), "Prefer": "count=exact"},
         params={
-            "select": "id,ticker,total_score,final_decision,final_confidence,max_depth_reached,stopping_reason,profile_name,scan_type,created_at",
+            "select": "id,ticker,final_decision,final_confidence,max_depth_reached,stopping_reason,profile_name,scan_type,created_at",
             "profile_name": "eq.CONGRESS_MIRROR",
             "created_at": f"gte.{date}T00:00:00Z",
-            "order": "total_score.desc",
+            "order": "final_confidence.desc",
             "limit": "200",
         },
     )
@@ -4832,11 +4832,12 @@ async def get_replay_candidates(
         return []
     chains = [c for c in resp.json() if c["created_at"][:10] == date]
 
-    # Filter by session: morning = before 17:00 UTC (10 AM PT), midday = 17:00+
+    # Filter by session: morning = before 15:00 UTC (8 AM PT), midday = 15:00+
+    # Scanner morning runs ~13:35 UTC (6:35 AM PDT), midday ~16:30 UTC (9:30 AM PDT)
     if session == "morning":
-        chains = [c for c in chains if c["created_at"][11:13] < "17"]
+        chains = [c for c in chains if c["created_at"][11:13] < "15"]
     elif session == "midday":
-        chains = [c for c in chains if c["created_at"][11:13] >= "17"]
+        chains = [c for c in chains if c["created_at"][11:13] >= "15"]
 
     # Fetch shadow dissent counts for these chains
     chain_ids = [c["id"] for c in chains]
@@ -4864,7 +4865,7 @@ async def get_replay_candidates(
             {
                 "chain_id": c["id"],
                 "ticker": c["ticker"],
-                "total_score": c.get("total_score"),
+                "total_score": c.get("total_score", 0),
                 "final_decision": c["final_decision"],
                 "final_confidence": c["final_confidence"],
                 "max_depth_reached": c.get("max_depth_reached"),
