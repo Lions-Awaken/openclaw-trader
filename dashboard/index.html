@@ -2983,32 +2983,45 @@ window.wfGoToStep = wfGoToStep;
 
   <!-- TRADE REPLAY VIEWER -->
   <div id="section-replay" class="section">
-    <div style="display:grid;grid-template-columns:380px 1fr;gap:12px;min-height:600px;">
-      <!-- LEFT: Controls + Candidate Grid -->
-      <div>
-        <div class="card" style="margin-bottom:12px;padding:16px;">
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <input type="date" id="replay-date" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:8px 12px;border-radius:6px;font-family:'Orbitron',sans-serif;font-size:0.75rem;" onchange="loadReplayCandidates()">
-            <button id="replay-morning-btn" class="nav-pill active" onclick="setReplaySession('morning')" style="font-size:0.65rem;padding:6px 14px;">Morning</button>
-            <button id="replay-midday-btn" class="nav-pill" onclick="setReplaySession('midday')" style="font-size:0.65rem;padding:6px 14px;">Midday</button>
-          </div>
-        </div>
-        <div class="card" style="padding:12px;">
-          <div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">CANDIDATES</div>
-          <div id="replay-grid"><div class="empty-state">Select a date to load candidates</div></div>
+    <div>
+      <!-- Controls: date picker + session toggle -->
+      <div class="card" style="margin-bottom:12px;padding:16px;">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <input type="date" id="replay-date" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:8px 12px;border-radius:6px;font-family:'Orbitron',sans-serif;font-size:0.75rem;" onchange="loadReplayCandidates()">
+          <button id="replay-morning-btn" class="nav-pill active" onclick="setReplaySession('morning')" style="font-size:0.65rem;padding:6px 14px;">Morning</button>
+          <button id="replay-midday-btn" class="nav-pill" onclick="setReplaySession('midday')" style="font-size:0.65rem;padding:6px 14px;">Midday</button>
         </div>
       </div>
-      <!-- RIGHT: Chart + Waterfall + Shadows -->
-      <div>
+      <!-- Candidates: full width -->
+      <div class="card" style="padding:12px;overflow-x:auto;">
+        <div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">CANDIDATES</div>
+        <div id="replay-grid"><div class="empty-state">Select a date to load candidates</div></div>
+      </div>
+    </div>
+
+    <!-- Replay Detail Modal -->
+    <div id="replay-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;overflow-y:auto;">
+      <div style="max-width:1100px;margin:40px auto;padding:24px;background:var(--bg-card,#0a0a12);border:2px solid var(--cyan);border-radius:12px;position:relative;box-shadow:0 0 40px rgba(34,211,238,0.15);">
+        <!-- Close button -->
+        <button onclick="closeReplayModal()" style="position:absolute;top:12px;right:16px;background:transparent;border:1px solid var(--border);color:var(--dim);padding:6px 14px;border-radius:6px;font-size:0.7rem;cursor:pointer;letter-spacing:1px;font-family:'Orbitron',sans-serif;">CLOSE</button>
+
+        <!-- Ticker header -->
+        <div id="replay-modal-ticker" style="color:var(--cyan);font-size:1.2rem;font-weight:700;margin-bottom:16px;"></div>
+
+        <!-- Price Chart -->
         <div class="card" style="padding:12px;margin-bottom:12px;">
           <div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">PRICE CHART</div>
           <div id="replay-chart-container" style="height:280px;"></div>
         </div>
+
+        <!-- Tumbler Waterfall -->
         <div class="card" style="padding:12px;margin-bottom:12px;">
-          <div id="replay-waterfall"><div class="empty-state">Click a candidate to view tumbler chain</div></div>
+          <div id="replay-waterfall"><div class="empty-state">Loading tumbler chain...</div></div>
         </div>
+
+        <!-- Shadow Comparison -->
         <div class="card" style="padding:12px;">
-          <div id="replay-shadows"><div class="empty-state">Click a candidate to view shadow comparison</div></div>
+          <div id="replay-shadows"><div class="empty-state">Loading shadow comparison...</div></div>
         </div>
       </div>
     </div>
@@ -6224,33 +6237,59 @@ function renderCandidateGrid(candidates, date) {
         'strong_enter': 'var(--green)', 'enter': 'var(--green)',
         'watch': 'var(--cyan)', 'skip': 'var(--dim)', 'veto': 'var(--red)'
     };
-    let html = '<table class="trade-table"><thead><tr>';
-    html += '<th>Ticker</th><th>Score</th><th>Decision</th><th>Conf</th><th>Shadows</th>';
+    let html = '<div style="overflow-x:auto"><table class="trade-table" style="width:100%"><thead><tr>';
+    html += '<th style="white-space:nowrap">Ticker</th><th style="white-space:nowrap">Score</th><th style="white-space:nowrap">Decision</th><th style="white-space:nowrap">Conf</th><th style="white-space:nowrap">Shadows</th>';
     html += '</tr></thead><tbody>';
     candidates.forEach(function(row) {
         const color = DECISION_COLORS[row.final_decision] || 'var(--dim)';
         const dissent = row.shadow_dissent_count > 0
-            ? '<span style="color:var(--amber)">' + row.shadow_dissent_count + ' &#x26A1;</span>'
+            ? '<span style="color:var(--amber);white-space:nowrap">' + esc(String(row.shadow_dissent_count)) + ' &#x26A1;</span>'
             : '<span style="color:var(--dim)">&#8212;</span>';
         html += '<tr style="cursor:pointer" onclick="loadChainDetail(\'' + esc(row.chain_id) + '\',\'' + esc(row.ticker) + '\',\'' + esc(date) + '\')">';
-        html += '<td style="font-weight:700;color:var(--cyan)">' + esc(row.ticker) + '</td>';
-        html += '<td>' + (row.total_score || 0) + '/6</td>';
-        html += '<td style="color:' + color + '">' + esc(row.final_decision) + '</td>';
-        html += '<td>' + ((row.final_confidence || 0) * 100).toFixed(1) + '%</td>';
-        html += '<td>' + dissent + '</td>';
+        html += '<td style="font-weight:700;color:var(--cyan);white-space:nowrap">' + esc(row.ticker) + '</td>';
+        html += '<td style="white-space:nowrap">' + esc(String(row.total_score || 0)) + '/6</td>';
+        html += '<td style="color:' + color + ';white-space:nowrap">' + esc(row.final_decision) + '</td>';
+        html += '<td style="white-space:nowrap">' + ((row.final_confidence || 0) * 100).toFixed(1) + '%</td>';
+        html += '<td style="white-space:nowrap">' + dissent + '</td>';
         html += '</tr>';
     });
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     document.getElementById('replay-grid').innerHTML = html;
 }
 
 async function loadChainDetail(chainId, ticker, date) {
+    // Show the modal
+    document.getElementById('replay-modal').style.display = 'block';
+    document.getElementById('replay-modal-ticker').textContent = ticker + ' \u2014 ' + date;
+    document.body.style.overflow = 'hidden'; // Prevent background scroll
+
+    // Load all three panels in parallel
     Promise.all([
         loadReplayChart(ticker, date),
         loadReplayWaterfall(chainId),
         loadReplayShadows(ticker, date),
     ]);
 }
+
+function closeReplayModal() {
+    document.getElementById('replay-modal').style.display = 'none';
+    document.body.style.overflow = ''; // Restore scroll
+    // Clean up chart
+    if (_replayChart) {
+        _replayChart.remove();
+        _replayChart = null;
+    }
+}
+
+// ESC key closes modal
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeReplayModal();
+});
+
+// Clicking backdrop (outside modal content) closes modal
+document.getElementById('replay-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeReplayModal();
+});
 
 async function loadReplayChart(ticker, date) {
     const container = document.getElementById('replay-chart-container');
