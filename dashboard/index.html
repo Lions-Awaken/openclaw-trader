@@ -665,6 +665,7 @@
   .health-fail-card .hfc-error { font-size: 14px; color: var(--dim); margin-top: 6px; font-family: monospace; }
 
 </style>
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 <div class="app-layout">
@@ -807,6 +808,7 @@
         <button class="nav-pill" onclick="showSection('shadow')">Shadow</button>
         <button class="nav-pill" onclick="showSection('health')">Health</button>
         <button class="nav-pill" onclick="showSection('signalfeed')">Signals</button>
+        <button class="nav-pill" onclick="showSection('replay')">Replay</button>
       </div>
     </div>
   </div>
@@ -2979,6 +2981,39 @@ window.wfGoToStep = wfGoToStep;
     </div>
   </div>
 
+  <!-- TRADE REPLAY VIEWER -->
+  <div id="section-replay" class="section">
+    <div style="display:grid;grid-template-columns:380px 1fr;gap:12px;min-height:600px;">
+      <!-- LEFT: Controls + Candidate Grid -->
+      <div>
+        <div class="card" style="margin-bottom:12px;padding:16px;">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input type="date" id="replay-date" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:8px 12px;border-radius:6px;font-family:'Orbitron',sans-serif;font-size:0.75rem;" onchange="loadReplayCandidates()">
+            <button id="replay-morning-btn" class="nav-pill active" onclick="setReplaySession('morning')" style="font-size:0.65rem;padding:6px 14px;">Morning</button>
+            <button id="replay-midday-btn" class="nav-pill" onclick="setReplaySession('midday')" style="font-size:0.65rem;padding:6px 14px;">Midday</button>
+          </div>
+        </div>
+        <div class="card" style="padding:12px;">
+          <div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">CANDIDATES</div>
+          <div id="replay-grid"><div class="empty-state">Select a date to load candidates</div></div>
+        </div>
+      </div>
+      <!-- RIGHT: Chart + Waterfall + Shadows -->
+      <div>
+        <div class="card" style="padding:12px;margin-bottom:12px;">
+          <div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">PRICE CHART</div>
+          <div id="replay-chart-container" style="height:280px;"></div>
+        </div>
+        <div class="card" style="padding:12px;margin-bottom:12px;">
+          <div id="replay-waterfall"><div class="empty-state">Click a candidate to view tumbler chain</div></div>
+        </div>
+        <div class="card" style="padding:12px;">
+          <div id="replay-shadows"><div class="empty-state">Click a candidate to view shadow comparison</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
 </div>
 
@@ -2995,6 +3030,7 @@ function showSection(name) {
   if (name === 'congress') loadCongressTab();
   if (name === 'logging') loadLoggingTab();
   if (name === 'health') loadHealth();
+  if (name === 'replay') loadReplayDates();
 }
 
 // XSS prevention — escape all API data before innerHTML insertion
@@ -6133,5 +6169,255 @@ function buildSignalFeedUI(flow, form4, profiles) {
     </div>
   </div>
 </div>
+
+<script>
+// ============================================================================
+// Trade Replay Viewer
+// ============================================================================
+
+let _replaySession = 'morning';
+let _replayChart = null;
+let _replayCandleSeries = null;
+
+async function loadReplayDates() {
+    try {
+        const dates = await fetch('/api/replay/dates', {credentials:'include'}).then(r => r.json());
+        if (dates && dates.length > 0) {
+            const input = document.getElementById('replay-date');
+            if (input && !input.value) {
+                input.value = dates[0].date;
+                loadReplayCandidates();
+            }
+        }
+    } catch(e) {
+        console.warn('Failed to load replay dates:', e);
+    }
+}
+
+function setReplaySession(session) {
+    _replaySession = session;
+    document.getElementById('replay-morning-btn').classList.toggle('active', session === 'morning');
+    document.getElementById('replay-midday-btn').classList.toggle('active', session === 'midday');
+    loadReplayCandidates();
+}
+
+async function loadReplayCandidates() {
+    const date = document.getElementById('replay-date').value;
+    if (!date) return;
+    const grid = document.getElementById('replay-grid');
+    grid.innerHTML = '<div class="empty-state">Loading...</div>';
+
+    try {
+        const candidates = await fetch('/api/replay/candidates?date=' + date + '&session=' + _replaySession, {credentials:'include'}).then(r => r.json());
+        if (!candidates || candidates.length === 0) {
+            grid.innerHTML = '<div class="empty-state">No candidates for this date/session</div>';
+            return;
+        }
+        renderCandidateGrid(candidates, date);
+    } catch(e) {
+        grid.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+    }
+}
+
+function renderCandidateGrid(candidates, date) {
+    const DECISION_COLORS = {
+        'strong_enter': 'var(--green)', 'enter': 'var(--green)',
+        'watch': 'var(--cyan)', 'skip': 'var(--dim)', 'veto': 'var(--red)'
+    };
+    let html = '<table class="trade-table"><thead><tr>';
+    html += '<th>Ticker</th><th>Score</th><th>Decision</th><th>Conf</th><th>Shadows</th>';
+    html += '</tr></thead><tbody>';
+    candidates.forEach(function(row) {
+        const color = DECISION_COLORS[row.final_decision] || 'var(--dim)';
+        const dissent = row.shadow_dissent_count > 0
+            ? '<span style="color:var(--amber)">' + row.shadow_dissent_count + ' &#x26A1;</span>'
+            : '<span style="color:var(--dim)">&#8212;</span>';
+        html += '<tr style="cursor:pointer" onclick="loadChainDetail(\'' + esc(row.chain_id) + '\',\'' + esc(row.ticker) + '\',\'' + esc(date) + '\')">';
+        html += '<td style="font-weight:700;color:var(--cyan)">' + esc(row.ticker) + '</td>';
+        html += '<td>' + (row.total_score || 0) + '/6</td>';
+        html += '<td style="color:' + color + '">' + esc(row.final_decision) + '</td>';
+        html += '<td>' + ((row.final_confidence || 0) * 100).toFixed(1) + '%</td>';
+        html += '<td>' + dissent + '</td>';
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('replay-grid').innerHTML = html;
+}
+
+async function loadChainDetail(chainId, ticker, date) {
+    Promise.all([
+        loadReplayChart(ticker, date),
+        loadReplayWaterfall(chainId),
+        loadReplayShadows(ticker, date),
+    ]);
+}
+
+async function loadReplayChart(ticker, date) {
+    const container = document.getElementById('replay-chart-container');
+    container.innerHTML = '';
+
+    try {
+        const data = await fetch('/api/replay/ohlcv?ticker=' + ticker + '&date=' + date, {credentials:'include'}).then(r => r.json());
+        if (!data || data.length === 0) {
+            container.innerHTML = '<div class="empty-state">No price data</div>';
+            return;
+        }
+
+        if (_replayChart) {
+            _replayChart.remove();
+        }
+        _replayChart = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: 260,
+            layout: {
+                background: {type: 'solid', color: '#050508'},
+                textColor: '#e8e8f0',
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 10,
+            },
+            grid: {
+                vertLines: {color: 'rgba(255,255,255,0.04)'},
+                horzLines: {color: 'rgba(255,255,255,0.04)'},
+            },
+            crosshair: {mode: 0},
+            timeScale: {borderColor: 'rgba(255,255,255,0.08)'},
+            rightPriceScale: {borderColor: 'rgba(255,255,255,0.08)'},
+        });
+
+        _replayCandleSeries = _replayChart.addCandlestickSeries({
+            upColor: '#33ff88',
+            downColor: '#ff3344',
+            borderUpColor: '#33ff88',
+            borderDownColor: '#ff3344',
+            wickUpColor: '#33ff88',
+            wickDownColor: '#ff3344',
+        });
+
+        _replayCandleSeries.setData(data);
+
+        _replayCandleSeries.setMarkers([{
+            time: date,
+            position: 'aboveBar',
+            color: '#22d3ee',
+            shape: 'arrowDown',
+            text: 'SCAN',
+        }]);
+
+        _replayChart.timeScale().fitContent();
+
+        new ResizeObserver(function() {
+            _replayChart.applyOptions({width: container.clientWidth});
+        }).observe(container);
+
+    } catch(e) {
+        container.innerHTML = '<div class="empty-state">Chart error: ' + esc(String(e)) + '</div>';
+    }
+}
+
+async function loadReplayWaterfall(chainId) {
+    const el = document.getElementById('replay-waterfall');
+    el.innerHTML = '<div class="empty-state">Loading chain...</div>';
+
+    try {
+        const chain = await fetch('/api/replay/chain?chain_id=' + chainId, {credentials:'include'}).then(r => r.json());
+        if (!chain || !chain.tumblers) {
+            el.innerHTML = '<div class="empty-state">No chain data</div>';
+            return;
+        }
+        renderWaterfall(chain);
+    } catch(e) {
+        el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+    }
+}
+
+function renderWaterfall(chain) {
+    const TUMBLER_COLORS = {
+        'technical_foundation': 'var(--blue)',
+        'fundamental_sentiment': 'var(--green)',
+        'flow_crossasset': 'var(--cyan)',
+        'pattern_matching': 'var(--amber)',
+        'counterfactual': 'var(--purple)',
+    };
+    let html = '<div>';
+    html += '<div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">TUMBLER CHAIN</div>';
+
+    if (!chain.tumblers || chain.tumblers.length === 0) {
+        html += '<div class="empty-state">No tumblers fired</div>';
+    } else {
+        chain.tumblers.forEach(function(t) {
+            var color = TUMBLER_COLORS[t.tumbler_name] || 'var(--dim)';
+            var delta = t.confidence_delta || 0;
+            var deltaStr = (delta >= 0 ? '+' : '') + delta.toFixed(3);
+            var deltaColor = delta > 0 ? 'var(--green)' : delta < 0 ? 'var(--red)' : 'var(--dim)';
+            var finding = t.key_finding || '&#8212;';
+            html += '<div style="display:grid;grid-template-columns:32px 140px 1fr 60px 50px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">';
+            html += '<div style="color:' + color + ';font-size:0.75rem;font-weight:700;">T' + (t.depth || '?') + '</div>';
+            html += '<div style="font-size:0.65rem;color:var(--dim)">' + esc(t.tumbler_name || '') + '</div>';
+            html += '<div style="font-size:0.65rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(t.key_finding || '') + '">' + esc((t.key_finding || '').substring(0, 80)) + '</div>';
+            html += '<div style="color:' + deltaColor + ';font-size:0.75rem;font-weight:700;">' + deltaStr + '</div>';
+            html += '<div style="font-size:0.6rem;color:var(--dim)">' + (t.duration_ms || 0) + 'ms</div>';
+            html += '</div>';
+        });
+    }
+
+    if (chain.stopping_reason) {
+        html += '<div style="color:var(--amber);font-size:0.7rem;padding:8px 0;">&#x2B21; STOPPED: ' + esc(chain.stopping_reason) + '</div>';
+    }
+
+    html += '<div style="margin-top:8px;padding:8px 0;border-top:1px solid var(--border);display:flex;gap:16px;">';
+    var decColor = (chain.final_decision === 'enter' || chain.final_decision === 'strong_enter') ? 'var(--green)' : chain.final_decision === 'veto' ? 'var(--red)' : 'var(--cyan)';
+    html += '<span style="color:' + decColor + ';font-weight:700;">' + esc(chain.final_decision || '?') + '</span>';
+    html += '<span style="color:var(--text);">' + ((chain.final_confidence || 0) * 100).toFixed(1) + '% confidence</span>';
+    html += '<span style="color:var(--dim);">depth ' + (chain.max_depth_reached || 0) + '</span>';
+    html += '</div>';
+
+    html += '</div>';
+    document.getElementById('replay-waterfall').innerHTML = html;
+}
+
+async function loadReplayShadows(ticker, date) {
+    const el = document.getElementById('replay-shadows');
+    el.innerHTML = '<div class="empty-state">Loading shadows...</div>';
+
+    try {
+        const shadows = await fetch('/api/replay/shadows?ticker=' + ticker + '&date=' + date, {credentials:'include'}).then(r => r.json());
+        if (!shadows || shadows.length === 0) {
+            el.innerHTML = '<div class="empty-state">No shadow data for this ticker</div>';
+            return;
+        }
+        renderShadowComparison(shadows);
+    } catch(e) {
+        el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+    }
+}
+
+function renderShadowComparison(shadows) {
+    const DECISION_COLORS = {
+        'strong_enter': 'var(--green)', 'enter': 'var(--green)',
+        'watch': 'var(--cyan)', 'skip': 'var(--dim)', 'veto': 'var(--red)'
+    };
+    let html = '<div>';
+    html += '<div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">SHADOW COMPARISON</div>';
+    html += '<table class="trade-table"><thead><tr>';
+    shadows.forEach(function(s) {
+        html += '<th style="font-size:0.6rem">' + esc((s.profile_name || '').replace(/_/g, ' ')) + '</th>';
+    });
+    html += '</tr></thead><tbody><tr>';
+    shadows.forEach(function(s) {
+        var color = DECISION_COLORS[s.final_decision] || 'var(--dim)';
+        var isLive = s.profile_name === 'CONGRESS_MIRROR';
+        var border = (!isLive && shadows[0] && s.final_decision !== shadows[0].final_decision)
+            ? 'border:1px solid var(--amber);' : '';
+        var right = s.shadow_was_right === true ? ' &#x2713;' : s.shadow_was_right === false ? ' &#x2717;' : '';
+        var rightColor = s.shadow_was_right === true ? 'var(--green)' : s.shadow_was_right === false ? 'var(--red)' : '';
+        html += '<td style="color:' + color + ';' + border + 'font-size:0.7rem;text-align:center;">';
+        html += esc(s.final_decision || '&#8212;') + '<br>' + ((s.final_confidence || 0) * 100).toFixed(1) + '%';
+        if (right) html += '<span style="color:' + rightColor + '">' + right + '</span>';
+        html += '</td>';
+    });
+    html += '</tr></tbody></table></div>';
+    document.getElementById('replay-shadows').innerHTML = html;
+}
+</script>
 </body>
 </html>
