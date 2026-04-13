@@ -771,8 +771,71 @@ Goal: Resolve all critical/high/medium items for 6-month unattended operation
 
 ---
 
+## Streamline Consolidation — Reduce Surface Area
+
+Source: Optimization audit (2026-04-13)
+Goal: 19→16 scripts, 30→26 tables, 15→9 tabs, 2 daemons eliminated, ~2,350 lines removed
+
+---
+
+## Wave 1 — Infrastructure Consolidation (parallel)
+
+### TASK-SLIM-01 . DB-AGENT . [DONE]
+**Goal:** Drop 4 unused Supabase tables + their retention jobs. Tables: tuning_profiles, tuning_telemetry, regime_log, stack_heartbeats. Remove their pg_cron retention jobs if any exist. These tables have zero active reads from any script.
+**Acceptance:** Tables dropped. `SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename IN ('tuning_profiles','tuning_telemetry','regime_log','stack_heartbeats')` returns 0 rows.
+**Depends on:** nothing
+
+### TASK-SLIM-02 . BACKEND-AGENT . [DONE]
+**Goal:** Merge heartbeat.py + stats_streamer.py into one daemon: `scripts/system_monitor.py`. Combines service liveness checks (Ollama, tumbler — every 5 min) with hardware metrics (CPU/GPU/RAM/temp — every 5 sec) into a single process writing to `system_stats`. Delete heartbeat.py and stats_streamer.py. Update crontab + systemd on ridley. Update manifest.py. Remove stack_heartbeats references from server.py and health_check.py.
+**Acceptance:** Single `system_monitor.py` daemon running on ridley. `system_stats` has both hardware metrics AND service health data. heartbeat.py and stats_streamer.py deleted. Ruff clean.
+**Depends on:** nothing
+
+### TASK-SLIM-03 . BACKEND-AGENT . [DONE]
+**Goal:** Kill simulator_watcher.py. Replace the Supabase trigger row pattern with a direct HTTP endpoint on ridley's dashboard: `POST /api/preflight/trigger` spawns test_system.py directly (same subprocess pattern as POST /api/health/run). Update Fly.io's POST /api/simulator/run to proxy the call to ridley:9090 instead of writing trigger rows. Delete simulator_watcher.py. Remove systemd unit on ridley.
+**Acceptance:** Preflight trigger from Fly.io dashboard works without simulator_watcher running. simulator_watcher.py deleted. systemd unit removed.
+**Depends on:** nothing
+
+## Wave 2 — Dashboard Consolidation
+
+### TASK-SLIM-04 . FRONTEND-AGENT . [DONE]
+**Goal:** Consolidate dashboard tabs from 15 to 9. (A) Keep: Dashboard, Pipeline, Trade Log, Positions, Health, Replay, Economics, How It Works. (B) Merge: Shadow + Signals → "Ensemble" tab. (C) Remove nav pills + section divs for: Predictions (covered by Replay), Meta-Learning (data in Replay shadows), Catalysts (data in Replay waterfall), Congress (niche), Build Log (dev artifact), Logging (on systems console). (D) Remove all associated JS loader functions for removed tabs. (E) Update showSection() to remove references. Clean up any dead CSS.
+**Acceptance:** 9 nav pills visible. No JS errors. All remaining tabs render correctly. Removed section HTML + JS + CSS gone.
+**Depends on:** TASK-SLIM-01, TASK-SLIM-02
+
+### TASK-SLIM-05 . BACKEND-AGENT . [DONE]
+**Goal:** Simplify daily_report.py to read health_check results from system_health table instead of re-querying 9 Supabase tables. Keep Telegram + Slack delivery. Keep the report format. Just change the data source from direct Supabase queries to reading the latest health_check run's system_health rows + a few targeted queries for trade/shadow/cost data.
+**Acceptance:** Daily report produces same format output. Fewer Supabase queries (~3 instead of ~15). Ruff clean.
+**Depends on:** TASK-SLIM-02
+
+## Wave 3 — Code Consolidation
+
+### TASK-SLIM-06 . BACKEND-AGENT . [DONE]
+**Goal:** Merge health_check.py + test_system.py into one script: `scripts/system_check.py`. Two modes: `--mode health` (daily 5AM, lightweight, writes to system_health) and `--mode preflight` (on-demand, full simulator with synthetic data + Mission Readiness). Shared check functions, separate group definitions per mode. Delete health_check.py and test_system.py. Update manifest, crontab, dashboard references.
+**Acceptance:** `python scripts/system_check.py --mode health --dry-run` produces health check output. `python scripts/system_check.py --mode preflight --dry-run` produces preflight output. Both old scripts deleted. Ruff clean.
+**Depends on:** TASK-SLIM-03
+
+### TASK-SLIM-07 . BACKEND-AGENT . [DONE]
+**Goal:** Auto-generate manifest from crontab + pipeline_runs history instead of manual maintenance. Replace the static MANIFEST list in manifest.py with a function that SSHs to ridley (or reads a cached crontab dump), parses entries, and cross-references with pipeline_runs to determine freshness and health. Keep output_validators and freshness_hours as configurable overlays.
+**Acceptance:** `manifest.py` no longer requires manual updates when cron entries change. Validators still work.
+**Depends on:** TASK-SLIM-06
+
+### TASK-SLIM-08 . BACKEND-AGENT . [DONE]
+**Goal:** Split server.py into route modules using FastAPI APIRouter. Create: `dashboard/routes/replay.py`, `dashboard/routes/shadow.py`, `dashboard/routes/health.py`, `dashboard/routes/system.py`. Main server.py keeps app init, auth, middleware, static mount. Each route module gets its own file with relevant routes. Total line count stays same but organized.
+**Acceptance:** All routes still work. server.py < 1500 lines. Each route module < 1000 lines. Ruff clean. Deploy succeeds.
+**Depends on:** TASK-SLIM-04
+
+## Wave 4 — Verification
+
+### TASK-SLIM-09 . PICARD . [DONE]
+**Goal:** Full systems verification. Run preflight (system_check.py --mode preflight) — all tests pass. Run health check (system_check.py --mode health) — all checks pass. Verify all 9 dashboard tabs render. Verify Fly.io deployment. Verify crons fire correctly on ridley. Commit, push, deploy. Post GO to Slack.
+**Acceptance:** All tests pass. Dashboard functional. Crons verified. GO posted to Slack.
+**Depends on:** All SLIM tasks
+
+---
+
 ## Completed — Prior Sessions
 
+### Pre-Launch Remediation (2026-04-11/12): TASK-FIX-01 through TASK-FIX-17 . [DONE]
 ### Workflow AI Assistant (2026-04-11): TASK-WF-01 through TASK-WF-05 . [DONE]
 ### Kronos Shadow Agent (2026-04-09/10): TASK-K00 through TASK-K06 . [DONE]
 ### Full Preflight Coverage + Mission Readiness (2026-04-09): TASK-PF-01 through TASK-PF-03 + Group Q . [DONE]
@@ -842,3 +905,13 @@ Post answers as structured replies. No code changes.
 **Goal:** Build `scripts/stats_streamer.py` — persistent daemon that pushes hardware metrics from ridley to system_stats every 5 seconds, feeding the Fly.io SSE stream.
 **Acceptance:** Daemon running on ridley, writing fresh rows to system_stats every 5s. Dashboard gauges show live data.
 **Depends on:** nothing
+
+### TASK-REPLAY-01 . BACKEND-AGENT . [DONE]
+**Goal:** Add 6 Trade Replay Viewer API routes to `dashboard/server.py`: GET /api/replay/dates, GET /api/replay/candidates, GET /api/replay/chain, GET /api/replay/shadows, GET /api/replay/outcome, GET /api/replay/ohlcv. Add yfinance to Dockerfile. Add _validate_date() helper.
+**Acceptance:** All 6 routes return 401 when unauthenticated. Routes are live on Fly.io. Ruff clean.
+**Depends on:** nothing
+
+### TASK-REPLAY-02 . FRONTEND-AGENT . [DONE]
+**Goal:** Add Trade Replay Viewer tab to `dashboard/index.html`. lightweight-charts CDN, "Replay" nav pill, 2-column layout (candidate grid left, chart + waterfall + shadows right), full JS wiring to /api/replay/* endpoints.
+**Acceptance:** Replay nav pill visible. Date picker loads candidates. Clicking a candidate renders candlestick chart, tumbler waterfall, and shadow comparison. All dynamic strings escaped with esc(). Deployed to Fly.io.
+**Depends on:** TASK-REPLAY-01

@@ -6,6 +6,14 @@ Gathers pipeline health, trade activity, system status, error logs,
 and cost data into a single comprehensive report. Designed to be
 readable by both humans and AI agents for immediate diagnosis.
 
+Data strategy:
+  - system_health table  → primary source for health check pass/fail/warn summary
+  - pipeline_runs table  → single broad query, split into scanner/catalyst/errors
+  - trade_decisions      → today's trades (not in health_check)
+  - cost_ledger          → today's costs (not in health_check)
+  - shadow_divergences   → today's shadow ensemble divergences (not in health_check)
+  - meta_reflections     → today's LLM meta reflection (not in health_check)
+
 Run: python scripts/daily_report.py
 Cron: 2:00 PM PDT weekdays (after meta_daily completes)
 """
@@ -36,26 +44,54 @@ _tg_client = httpx.Client(timeout=15.0)
 # ==========================================================================
 
 
-def gather_pipeline_status() -> dict:
-    """Check every manifest entry — did it run today? Did it succeed?"""
+def gather_pipeline_runs_today() -> list[dict]:
+    """Single query: all pipeline_runs root steps from today (last 200 rows).
+
+    Callers split this result by pipeline_name rather than issuing separate
+    queries per pipeline. Reduces Supabase round trips significantly.
+    """
+    rows = sb_get(
+        "pipeline_runs",
+        {
+            "select": (
+                "pipeline_name,step_name,status,"
+                "error_message,output_snapshot,created_at"
+            ),
+            "step_name": "eq.root",
+            "order": "created_at.desc",
+            "limit": "200",
+        },
+    )
+    # Return rows from today and recent rows for pipeline status (last 3 days
+    # so we can detect pipelines that simply haven't run today yet)
+    return rows
+
+
+def gather_pipeline_status(all_runs: list[dict]) -> dict:
+    """Check every manifest entry — did it run today? Did it succeed?
+
+    Uses pre-fetched pipeline_runs rows (no additional DB queries).
+    The health_check entry is checked against system_health separately.
+    """
+    # Separate health_check verification — uses system_health not pipeline_runs
+    hc_rows = sb_get(
+        "system_health",
+        {
+            "select": "run_id,status,created_at",
+            "run_type": "eq.scheduled",
+            "order": "created_at.desc",
+            "limit": "1",
+        },
+    )
+
     results: dict = {}
     for entry in MANIFEST:
         if not entry.writes_to_pipeline_runs:
-            # health_check writes to system_health, not pipeline_runs
             if entry.pipeline_name == "health_check":
-                rows = sb_get(
-                    "system_health",
-                    {
-                        "select": "run_id,status,created_at",
-                        "run_type": "eq.scheduled",
-                        "order": "created_at.desc",
-                        "limit": "1",
-                    },
-                )
-                if rows:
+                if hc_rows:
                     results[entry.name] = {
                         "status": "success",
-                        "last_run": rows[0].get("created_at"),
+                        "last_run": hc_rows[0].get("created_at"),
                         "errors": [],
                     }
                 else:
@@ -66,19 +102,8 @@ def gather_pipeline_status() -> dict:
                     }
             continue
 
-        rows = sb_get(
-            "pipeline_runs",
-            {
-                "select": (
-                    "pipeline_name,step_name,status,"
-                    "error_message,output_snapshot,created_at"
-                ),
-                "pipeline_name": f"eq.{entry.pipeline_name}",
-                "step_name": "eq.root",
-                "order": "created_at.desc",
-                "limit": "3",
-            },
-        )
+        # Filter pre-fetched rows for this pipeline
+        rows = [r for r in all_runs if r.get("pipeline_name") == entry.pipeline_name]
 
         if not rows:
             results[entry.name] = {
@@ -112,14 +137,14 @@ def gather_pipeline_status() -> dict:
             "last_run": latest.get("created_at"),
             "output": output,
             "errors": errors,
-            "runs_today": len(rows),
+            "runs_today": len([r for r in rows if r.get("created_at", "").startswith(TODAY)]),
         }
 
     return results
 
 
 def gather_trade_activity() -> dict:
-    """Today's trading activity."""
+    """Today's trading activity — not covered by health_check."""
     trades = sb_get(
         "trade_decisions",
         {
@@ -150,19 +175,13 @@ def gather_trade_activity() -> dict:
     }
 
 
-def gather_scanner_results() -> dict:
-    """Today's scanner inference results."""
-    rows = sb_get(
-        "pipeline_runs",
-        {
-            "select": "output_snapshot,created_at",
-            "pipeline_name": "eq.scanner",
-            "step_name": "eq.root",
-            "order": "created_at.desc",
-            "limit": "5",
-        },
-    )
-    today_runs = [r for r in rows if r.get("created_at", "").startswith(TODAY)]
+def gather_scanner_results(all_runs: list[dict]) -> dict:
+    """Today's scanner inference results — extracted from pre-fetched pipeline_runs."""
+    today_runs = [
+        r for r in all_runs
+        if r.get("pipeline_name") == "scanner"
+        and r.get("created_at", "").startswith(TODAY)
+    ]
 
     total_candidates = 0
     total_actionable = 0
@@ -183,7 +202,7 @@ def gather_scanner_results() -> dict:
 
 
 def gather_shadow_activity() -> dict:
-    """Shadow ensemble divergences today."""
+    """Shadow ensemble divergences today — not covered by health_check."""
     divs = sb_get(
         "shadow_divergences",
         {
@@ -206,7 +225,7 @@ def gather_shadow_activity() -> dict:
 
 
 def gather_cost_data() -> dict:
-    """Today's API costs."""
+    """Today's API costs — not covered by health_check."""
     rows = sb_get(
         "cost_ledger",
         {
@@ -235,19 +254,13 @@ def gather_cost_data() -> dict:
     }
 
 
-def gather_catalyst_data() -> dict:
-    """Catalyst ingest summary."""
-    rows = sb_get(
-        "pipeline_runs",
-        {
-            "select": "output_snapshot,created_at",
-            "pipeline_name": "eq.catalyst_ingest",
-            "step_name": "eq.root",
-            "order": "created_at.desc",
-            "limit": "5",
-        },
-    )
-    today_runs = [r for r in rows if r.get("created_at", "").startswith(TODAY)]
+def gather_catalyst_data(all_runs: list[dict]) -> dict:
+    """Catalyst ingest summary — extracted from pre-fetched pipeline_runs."""
+    today_runs = [
+        r for r in all_runs
+        if r.get("pipeline_name") == "catalyst_ingest"
+        and r.get("created_at", "").startswith(TODAY)
+    ]
 
     total_inserted = 0
     total_dupes = 0
@@ -264,11 +277,15 @@ def gather_catalyst_data() -> dict:
 
 
 def gather_health_check() -> dict:
-    """Most recent health check results."""
+    """Most recent health check results — primary data source from system_health.
+
+    Groups check results by check_group and counts pass/fail/warn per group.
+    Uses the latest run_id to ensure we only summarise one complete run.
+    """
     rows = sb_get(
         "system_health",
         {
-            "select": "check_name,status,value,error_message",
+            "select": "run_id,check_name,check_group,status,value,error_message",
             "run_type": "eq.scheduled",
             "order": "created_at.desc",
             "limit": "100",
@@ -281,21 +298,37 @@ def gather_health_check() -> dict:
             "fail": 0,
             "warn": 0,
             "failures": [],
+            "by_group": {},
         }
 
-    total = len(rows)
-    passes = sum(1 for r in rows if r.get("status") == "pass")
-    fails = sum(1 for r in rows if r.get("status") == "fail")
-    warns = sum(1 for r in rows if r.get("status") == "warn")
+    # Restrict to the single most-recent run_id so we don't mix runs
+    latest_run_id = rows[0].get("run_id")
+    run_rows = [r for r in rows if r.get("run_id") == latest_run_id]
+
+    total = len(run_rows)
+    passes = sum(1 for r in run_rows if r.get("status") == "pass")
+    fails = sum(1 for r in run_rows if r.get("status") == "fail")
+    warns = sum(1 for r in run_rows if r.get("status") == "warn")
+
     failures = [
         {
             "check": r.get("check_name"),
             "value": r.get("value"),
             "error": r.get("error_message"),
         }
-        for r in rows
+        for r in run_rows
         if r.get("status") in ("fail", "warn")
     ]
+
+    # Group summary: {group_name: {pass: N, fail: N, warn: N}}
+    by_group: dict = {}
+    for r in run_rows:
+        grp = r.get("check_group", "unknown")
+        if grp not in by_group:
+            by_group[grp] = {"pass": 0, "fail": 0, "warn": 0}
+        s = r.get("status", "")
+        if s in by_group[grp]:
+            by_group[grp][s] += 1
 
     return {
         "total": total,
@@ -303,21 +336,17 @@ def gather_health_check() -> dict:
         "fail": fails,
         "warn": warns,
         "failures": failures[:10],
+        "by_group": by_group,
     }
 
 
-def gather_errors() -> list[dict]:
-    """Pipeline errors from today."""
-    rows = sb_get(
-        "pipeline_runs",
-        {
-            "select": "pipeline_name,step_name,error_message,created_at",
-            "status": "eq.failure",
-            "order": "created_at.desc",
-            "limit": "20",
-        },
-    )
-    return [r for r in rows if r.get("created_at", "").startswith(TODAY)]
+def gather_errors(all_runs: list[dict]) -> list[dict]:
+    """Pipeline errors from today — extracted from pre-fetched pipeline_runs."""
+    return [
+        r for r in all_runs
+        if r.get("status") == "failure"
+        and r.get("created_at", "").startswith(TODAY)
+    ]
 
 
 def gather_meta_reflection() -> dict:
@@ -589,15 +618,18 @@ def run() -> dict:
     """Generate and send daily ops report."""
     print(f"[report] Generating daily ops report for {TODAY}...")
 
+    # Single broad pipeline_runs query — all helpers read from this list
+    all_runs = gather_pipeline_runs_today()
+
     data = {
-        "pipelines": gather_pipeline_status(),
+        "pipelines": gather_pipeline_status(all_runs),
         "trades": gather_trade_activity(),
-        "scanner": gather_scanner_results(),
+        "scanner": gather_scanner_results(all_runs),
         "shadow": gather_shadow_activity(),
         "costs": gather_cost_data(),
-        "catalysts": gather_catalyst_data(),
+        "catalysts": gather_catalyst_data(all_runs),
         "health_check": gather_health_check(),
-        "errors": gather_errors(),
+        "errors": gather_errors(all_runs),
         "meta": gather_meta_reflection(),
     }
 
