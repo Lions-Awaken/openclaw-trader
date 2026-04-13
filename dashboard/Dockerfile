@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir \
     yfinance==0.2.54
 
 COPY server.py index.html login.html theme.css systems-console.html ./
+COPY shared.py ./
+COPY routes/ ./routes/
 COPY static/ ./static/
 
 # Non-root user

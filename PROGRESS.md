@@ -5,6 +5,166 @@
 
 ---
 
+## TASK-SLIM-04 . FRONTEND-AGENT . DONE — 2026-04-13
+
+### Dashboard tab consolidation: 18 → 9 tabs
+
+**Files modified:**
+- `dashboard/index.html` — reduced from 6462 to 4497 lines
+- `dashboard/server.py` — removed unused API routes (ruff clean)
+
+**HTML changes (index.html):**
+
+Nav pills reduced from 18 to 9:
+`Dashboard | Pipeline | Trade Log | Positions | Health | Replay | Ensemble | Economics | How It Works`
+
+Sections removed entirely: `section-predictions`, `section-meta`, `section-catalysts`, `section-congress`, `section-logging`, `section-build`, `section-sitrep`, `section-system`
+
+Sections merged: Shadow Intelligence + Signal Sources → `section-ensemble` (existing content preserved, divider retained between the two halves)
+
+JS functions removed:
+- Meta-Learning: `loadMetaTab`, `heatmapColor`, `loadSignalHeatmap`, `loadMetaReflections`, `loadMetaAdjustments`, `loadDepthDistribution`, `loadCalibrationChart`, `loadPatternGallery`
+- Catalysts: `loadCatalystsTab`, `loadCatalystFeed`, `loadCatalystTypeStats`, `loadCatalystImpact`
+- System Monitor: `loadRAGStatus`, `loadTuningActive`, `loadTuningCompare`, `loadTuningTelemetry`
+- Patch block: `_origLoadSystemStats` monkey-patch removed (was augmenting deleted System tab)
+- Live Expand: `toggleLiveExpand`, `renderPredictionContext`, `decisionColor`, `_expandedPredictions` cache
+- Logging: `loadLoggingTab`, `timeAgo`, `openLoggingModal`, `toggleFnDetail`, `closeLoggingModal`, modal overlay click listener, `loadTradeReasoningList`, `analyzeTradeReasoning`
+- Build Log: `BUILD_LOG` data array, `TRAIL_COLORS` constant, `loadBuildLog`
+- Sit-Rep: `loadSitRep`
+
+Logging modal HTML (`<div id="logging-modal">`) removed from end of body.
+
+**server.py route removals:**
+- `GET /api/regime-history`
+- `GET /api/predictions`
+- `GET /api/prediction-accuracy`
+- `GET /api/meta/reflections`
+- `GET /api/meta/adjustments`
+- `GET /api/predictions/live`
+- `GET /api/predictions/context/{prediction_id}`
+- `GET /api/inference/depth-distribution`
+- `GET /api/calibration/latest`
+- `GET /api/catalysts/recent`
+- `GET /api/catalysts/stats`
+- `GET /api/patterns/active`
+- `GET /api/congress/politicians`
+- `GET /api/congress/signals`
+- `GET /api/congress/clusters`
+- `GET /api/congress/calendar`
+
+Routes KEPT (used by surviving tabs):
+- All shadow routes (`/api/shadow/*`) — used by Ensemble tab
+- All signal routes (`/api/signals/*`) — used by Ensemble tab
+- All logging routes (`/api/logs/*`) — kept for future systems console use
+- `GET /api/inference/chain/{chain_id}` — used by Replay tab
+- All economics, health, pipeline, positions, trades, replay routes
+
+**Assumptions:**
+- `loadShadowTab()` is the function that powers the Shadow Intelligence half of the Ensemble tab — kept and unchanged
+- `loadSignalFeed()` powers the Signal Sources half of Ensemble — kept and unchanged
+- Logging routes in server.py kept in place even though the Logging tab was removed, as the systems console may use them in the future
+- `timeAgo()` was inside the Logging functions block and was removed; if it's used elsewhere it would need to be re-added (grep confirmed it was not used outside that block)
+
+**Follow-on work noticed:**
+- TASK-SLIM-08 (server.py route modularization) is now unblocked
+- CSS for removed tabs (`.heatmap-grid`, `.reflection-card`, `.catalyst-pill`, `.domain-card`, `.fn-row`, etc.) may still exist in the `<style>` block — dead CSS only, no functional impact
+- The purple logging hammer icon in the header still redirects to `/systems` in a new tab (not removed, retained for systems console access)
+
+---
+
+## TASK-REPLAY-02 . FRONTEND-AGENT (Troi) . DONE — 2026-04-06
+
+### Trade Replay Viewer tab added to dashboard
+
+**Files modified:**
+- `dashboard/index.html` — 286 lines added
+
+**Changes:**
+1. `<head>`: lightweight-charts v4.1.1 CDN script tag added
+2. Nav row: "Replay" nav pill added after existing Signals pill
+3. HTML section: `#section-replay` added before closing `</div>` — 2-column grid layout (380px candidate list + flexible chart/detail pane)
+4. `showSection()`: added `if (name === 'replay') loadReplayDates()` hook
+5. New `<script>` block before `</body>`: 11 functions totaling ~230 lines
+
+**Functions added:**
+- `loadReplayDates()` — fetches `/api/replay/dates`, auto-populates date picker to most recent date
+- `setReplaySession(session)` — toggles Morning/Midday buttons and reloads candidates
+- `loadReplayCandidates()` — fetches `/api/replay/candidates?date=&session=`, renders grid
+- `renderCandidateGrid(candidates, date)` — table with ticker, score, decision (color-coded), confidence, shadow dissent count
+- `loadChainDetail(chainId, ticker, date)` — fires chart + waterfall + shadows in parallel via `Promise.all`
+- `loadReplayChart(ticker, date)` — fetches `/api/replay/ohlcv`, builds LightweightCharts candlestick with scan-day arrowDown marker, ResizeObserver for container width
+- `loadReplayWaterfall(chainId)` — fetches `/api/replay/chain`, renders 5-column tumbler grid (depth, name, finding, delta, ms)
+- `renderWaterfall(chain)` — full chain display with stopping reason and final decision summary
+- `loadReplayShadows(ticker, date)` — fetches `/api/replay/shadows`, renders comparison table
+- `renderShadowComparison(shadows)` — column-per-profile with dissent border highlight and checkmark/X for shadow_was_right
+
+**API contract consumed (from TASK-REPLAY-01 PROGRESS.md):**
+- `GET /api/replay/dates` → `[{date, candidate_count, session_count}]`
+- `GET /api/replay/candidates?date=&session=` → `[{chain_id, ticker, total_score, final_decision, final_confidence, shadow_dissent_count, ...}]`
+- `GET /api/replay/ohlcv?ticker=&date=` → `[{time, open, high, low, close, volume}]` (lightweight-charts format)
+- `GET /api/replay/chain?chain_id=` → `{tumblers, stopping_reason, final_decision, final_confidence, max_depth_reached}`
+- `GET /api/replay/shadows?ticker=&date=` → `[{profile_name, final_decision, final_confidence, shadow_was_right}]`
+
+**Deployment:** Build `01KP1QZD081ZCTHBTA0N0G9G8G`, live at `https://openclaw-trader-dash.fly.dev/`. Commit `a02e3d1`.
+
+**Assumptions:**
+- `esc()` is already defined globally in the existing dashboard JS (confirmed)
+- `trade-table` CSS class is already defined (confirmed — used throughout dashboard)
+- `empty-state` CSS class is already defined (confirmed)
+- `--amber`, `--blue`, `--purple`, `--cyan`, `--green`, `--red`, `--dim`, `--text`, `--border`, `--bg`, `--bg-card` CSS variables all defined in theme.css (confirmed)
+- lightweight-charts `time` field in OHLCV response is a Unix timestamp or `YYYY-MM-DD` string (both supported by the library)
+- `tumblers` JSONB on inference_chains has keys: `depth`, `tumbler_name`, `key_finding`, `confidence_delta`, `duration_ms`
+
+**Follow-on work noticed:**
+- No `/api/replay/outcome` endpoint wired to UI yet (endpoint exists from TASK-REPLAY-01 — could add a "Trade Outcome" panel showing P&L from trade_learnings)
+- Replay section is not in the systems-console.html if that file mirrors the dashboard nav
+- Slack notification could not be sent — `slack_notify.sh` requires a channel ID (not channel name), none configured in environment for the trading-dev channel
+
+---
+
+## TASK-REPLAY-01 . BACKEND-AGENT (Geordi) . DONE — 2026-04-06
+
+### 6 Trade Replay Viewer API routes added
+
+**Endpoints:**
+
+| Method | Path | Auth | Response shape |
+|--------|------|------|---------------|
+| GET | `/api/replay/dates` | session | `[{date, candidate_count, session_count}]` max 90 items |
+| GET | `/api/replay/candidates?date=YYYY-MM-DD&session=morning\|midday\|all` | session | `[{chain_id, ticker, total_score, final_decision, final_confidence, max_depth_reached, stopping_reason, profile_name, shadow_dissent_count, date}]` |
+| GET | `/api/replay/chain?chain_id=UUID` | session | full `inference_chains` row including `tumblers` JSONB, or `{}` |
+| GET | `/api/replay/shadows?ticker=AAPL&date=YYYY-MM-DD` | session | `[{profile_name, final_decision, final_confidence, max_depth_reached, stopping_reason, tumblers, first_diverged_at_tumbler, shadow_was_right}]` |
+| GET | `/api/replay/outcome?ticker=AAPL&date=YYYY-MM-DD` | session | full `trade_learnings` row or `null` |
+| GET | `/api/replay/ohlcv?ticker=AAPL&date=YYYY-MM-DD` | session | `[{time, open, high, low, close, volume}]` 90 days of daily bars |
+
+**Auth:** all routes require valid `oc_session` cookie — return 401 if missing/expired.
+
+**Files created/modified:**
+- `dashboard/server.py` — added `import yfinance as yf`, `_DATE_RE` regex, `_validate_date()` helper, `_ohlcv_cache` dict, and 6 route handlers (lines 4763–5043)
+- `dashboard/Dockerfile` — added `yfinance==0.2.54` to pip install
+
+**DB queries:**
+- `inference_chains` — SELECT with `profile_name=eq.CONGRESS_MIRROR`, date range, order by total_score
+- `shadow_divergences` — SELECT with `live_chain_id in(...)` or `shadow_chain_id in(...)` for dissent counts
+- `trade_learnings` — SELECT 1 row with `ticker=eq.X`, date range
+- All use service-role key via `sb_headers()` — no RLS bypass needed as service key bypasses RLS
+
+**External calls:**
+- `yfinance.download()` in `/api/replay/ohlcv` — fetches from Yahoo Finance, cached in-memory per `{ticker}_{date}` key, max 100 entries
+
+**Assumptions about schema:**
+- `inference_chains` has columns: `id`, `ticker`, `scan_type`, `total_score`, `final_decision`, `final_confidence`, `max_depth_reached`, `stopping_reason`, `profile_name`, `tumblers`, `created_at`
+- `shadow_divergences` has columns: `live_chain_id`, `shadow_chain_id`, `first_diverged_at_tumbler`, `shadow_was_right`
+- `trade_learnings` has `ticker` and `created_at` columns at minimum
+
+**Ruff:** All checks passed.
+
+**Deployment:** Live at `https://openclaw-trader-dash.fly.dev/api/replay/dates` (returns 401 — auth guard confirmed working). Build: `01KP1QKJKQ0CMH2NZ9QXPCKT3M`.
+
+**Follow-on work:** Frontend (TASK-REPLAY-02) needs to build the Trade Replay Viewer UI consuming these 6 endpoints.
+
+---
+
 ## TASK-FIX-05 . BACKEND-AGENT (Geordi) . DONE — 2026-04-11
 
 ### Investigation: 8 trades with NULL stop_price — NO BUG, CORRECT BEHAVIOR
@@ -4950,3 +5110,252 @@ Searched `dashboard/server.py` for `service_name` — no matches found. The serv
 **Artifact:** `/home/ridley/.openclaw/workspace/.env.systemd` (chmod 600, owned by ridley) — systemd-compatible env file, should be kept in sync with `.env` when credentials rotate.
 
 **Follow-on:** If credentials rotate in `.env`, the `.env.systemd` copy must also be updated. Consider a post-hook or note in runbook.
+
+---
+
+## TASK-SLIM-03 . BACKEND-AGENT . DONE — 2026-04-13
+
+### Kill simulator_watcher — replace with direct HTTP proxy
+
+**Summary:** Removed the Supabase trigger-row polling pattern entirely. The Fly.io dashboard now proxies preflight trigger requests directly to ridley's local dashboard over HTTP.
+
+**Endpoints changed:**
+
+`POST /api/simulator/run` (Fly.io dashboard — auth required)
+- Before: wrote a trigger sentinel row to system_health; simulator_watcher polled and claimed it
+- After: proxies to `{RIDLEY_URL}/api/preflight/trigger` with JSON `{run_id, concurrency}`
+- On ridley offline: returns HTTP 503
+- On ridley non-200 response: returns HTTP 502
+- Response shape unchanged: `{"status": "triggered", "run_id": "<uuid>", "concurrency": N}`
+
+`POST /api/preflight/trigger` (ridley-local — no auth, private network only)
+- New endpoint: receives `{run_id, concurrency}` from the Fly.io proxy
+- Spawns `scripts/test_system.py` via subprocess.Popen with `SIMULATOR_RUN_ID` and `SIMULATOR_CONCURRENCY` env vars
+- Logs to `/tmp/openclaw_simulator.log`
+- Returns `{"status": "triggered", "run_id": "<uuid>", "concurrency": N}`
+
+`GET /api/simulator/status` — unchanged (reads from system_health, test_system.py still writes there)
+
+**New env var:** `RIDLEY_URL` — defaults to `http://ridley:9090`. Set in Fly.io secrets if ridley hostname differs.
+
+**Files modified:**
+- `/home/mother_brain/projects/openclaw-trader/dashboard/server.py` — updated POST /api/simulator/run, added POST /api/preflight/trigger, added RIDLEY_URL constant
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py` — removed simulator_watcher ManifestEntry from EVENT_TRIGGERED
+
+**Files deleted:**
+- `/home/mother_brain/projects/openclaw-trader/scripts/simulator_watcher.py`
+
+**DB queries:** None added. GET /api/simulator/status still queries system_health (unchanged).
+
+**Assumptions:**
+- ridley is reachable from Fly.io at `http://ridley:9090` via Fly.io private network or equivalent. If not, set RIDLEY_URL env var in Fly.io secrets.
+- The `openclaw-simulator.service` systemd unit on ridley should be stopped/disabled — it has no script to run anymore. That's an ops task on ridley (outside backend code domain).
+
+**Follow-on:**
+- Ops: `sudo systemctl stop openclaw-simulator && sudo systemctl disable openclaw-simulator` on ridley to remove the now-dead systemd unit
+- TASK-SLIM-06 merges health_check.py + test_system.py — POST /api/preflight/trigger will need its script path updated to `system_check.py --mode preflight` at that point
+
+**Ruff:** `ruff check scripts/manifest.py dashboard/server.py` — All checks passed.
+
+---
+
+## TASK-SLIM-01 — DB-AGENT — [DONE]
+
+**Goal:** Drop 4 unused Supabase tables and remove their pg_cron retention jobs.
+
+### What was dropped
+
+| Object | Type | Notes |
+|--------|------|-------|
+| `tuning_profiles` | Table | Created in 20260321_tuning_system.sql, never operationalized |
+| `tuning_telemetry` | Table | FK referenced tuning_profiles; dropped with CASCADE |
+| `regime_log` | Table | No tracked migration; existed directly on DB |
+| `stack_heartbeats` | Table | heartbeat.py wrote to it but nothing read from it |
+| `tuning_profile_performance` | View | Depended on both tuning_* tables |
+| `pipeline_runs.tuning_profile_id` | FK Column | Added by tuning system migration; now removed |
+| `purge-tuning-telemetry` | pg_cron job | jobid=7, was running daily DELETE on tuning_telemetry |
+
+### Migration file
+
+`/home/mother_brain/projects/openclaw-trader/supabase/migrations/20260413_slim01_drop_unused_tables.sql`
+
+### Operations performed (in order)
+
+1. `SELECT cron.unschedule('purge-tuning-telemetry')` — removed jobid=7
+2. DO block to catch any remaining cron jobs referencing these tables (none found beyond the above)
+3. `DROP VIEW IF EXISTS public.tuning_profile_performance`
+4. `ALTER TABLE public.pipeline_runs DROP COLUMN IF EXISTS tuning_profile_id`
+5. `DROP TABLE IF EXISTS public.tuning_telemetry CASCADE`
+6. `DROP TABLE IF EXISTS public.tuning_profiles CASCADE`
+7. `DROP TABLE IF EXISTS public.regime_log CASCADE`
+8. `DROP TABLE IF EXISTS public.stack_heartbeats CASCADE`
+
+### Verification (run on live DB — all returned 0 rows)
+
+```sql
+-- Tables gone
+SELECT tablename FROM pg_tables
+  WHERE schemaname='public'
+    AND tablename IN ('tuning_profiles','tuning_telemetry','regime_log','stack_heartbeats');
+-- 0 rows
+
+-- View gone
+SELECT table_name FROM information_schema.views
+  WHERE table_schema='public' AND table_name='tuning_profile_performance';
+-- 0 rows
+
+-- FK column gone from pipeline_runs
+SELECT column_name FROM information_schema.columns
+  WHERE table_schema='public' AND table_name='pipeline_runs' AND column_name='tuning_profile_id';
+-- 0 rows
+
+-- Cron job gone
+SELECT jobid, jobname FROM cron.job
+  WHERE command ILIKE '%tuning%' OR command ILIKE '%regime_log%' OR command ILIKE '%stack_heartbeats%';
+-- 0 rows
+```
+
+### Gotchas for downstream agents
+
+- **heartbeat.py** (line 88) still writes to `stack_heartbeats` — this will now produce HTTP 404 errors on every heartbeat write. TASK-SLIM-02 should address this or heartbeat.py needs to be updated/removed.
+- **health_check.py** (line 259-261) and **test_system.py** (line 530-533) both enumerate these table names in a "known tables" list for existence checks. Those lists should be pruned to remove the 4 dropped table names.
+- **tracer.py** (line 229) references `tuning_profiles` and line 392 references `tuning_telemetry` for telemetry writes — these will silently fail or error. Backend agent should clean these up.
+- No RLS policies, indexes, or triggers remain from the dropped tables (all removed with CASCADE).
+
+---
+
+## TASK-SLIM-02 — Backend Agent — [DONE]
+
+### Summary
+Merged `heartbeat.py` + `stats_streamer.py` into a single persistent daemon `scripts/system_monitor.py`. Deleted both source files. Updated all references across the codebase.
+
+### Files Created
+- `scripts/system_monitor.py` — unified daemon: hardware metrics every 5s, service health checks every 60s, all written to `system_stats`
+
+### Files Deleted
+- `scripts/heartbeat.py`
+- `scripts/stats_streamer.py`
+
+### Files Modified
+- `scripts/manifest.py` — removed `heartbeat` and `stats_streamer` entries; removed `_valid_heartbeat` validator; added `system_monitor` entry in EVENT_TRIGGERED with `@reboot` schedule
+- `scripts/tracer.py` — `_get_active_tuning_profile_id()` now returns `None` immediately (no-op); `TelemetryCollector.finalize()` is now a no-op returning `None` (no longer posts to `tuning_telemetry`)
+- `scripts/health_check.py` — removed `stack_heartbeats`, `tuning_telemetry`, `tuning_profiles` from `EXPECTED_TABLES`
+- `scripts/test_system.py` — removed `stack_heartbeats`, `tuning_telemetry`, `tuning_profiles` from expected tables list
+- `dashboard/server.py` — removed `_get_heartbeats()` function; removed heartbeat processing loop; `_build_metrics` now reads ollama status directly from `system_stats` row; removed `"heartbeat"` entry from `cron_pipelines` dict; `_check_ollama()` and `_check_tumbler()` now query `system_stats ORDER BY collected_at DESC LIMIT 1` for `ollama_running` field; removed entire Tuning System API section (4 routes: `/api/tuning/profiles`, `/api/tuning/active`, `/api/tuning/telemetry`, `/api/tuning/compare`)
+
+### Design Decisions
+- Service checks run every 12th iteration (every 60s) with cached values injected into every 5s row
+- Service status (ollama_running, ollama_models, ollama_vram_mb) was already being written to `system_stats` by stats_streamer.py as a fallback — system_monitor.py makes this the primary path
+- Slack alert fires only on DOWN transitions (not every check) to avoid spam
+- `ollama_heartbeat` parameter still passed through `_build_metrics` signature as `None`; the else branch already correctly reads from `system_stats` row
+- Tumbler health in the health check endpoint is derived from Ollama + Supabase both up (same logic as before, but without the now-dropped `stack_heartbeats` table)
+
+### DB Queries Running
+- `INSERT INTO system_stats (...)` every 5 seconds from system_monitor.py
+- `SELECT ollama_running, collected_at FROM system_stats ORDER BY collected_at DESC LIMIT 1` — server.py `_check_ollama()` and `_check_tumbler()`
+
+### Ruff
+All files clean: `ruff check scripts/system_monitor.py scripts/manifest.py scripts/tracer.py scripts/health_check.py scripts/test_system.py dashboard/server.py` — 0 errors
+
+### Deployment Note
+After merge: SSH to ridley, `git pull`, then update crontab to replace the two old @reboot entries (heartbeat.py was cron-based every 5min, stats_streamer.py was @reboot) with a single `@reboot python3 /path/to/scripts/system_monitor.py` entry.
+
+---
+
+## TASK-SLIM-05 — [DONE] Simplify daily_report.py data sources
+
+### Summary
+Refactored `scripts/daily_report.py` to reduce Supabase round trips from ~8 separate table queries (including 4 separate `pipeline_runs` queries) to a consolidated pattern:
+
+- **1 broad `pipeline_runs` query** shared across all pipeline status, scanner, catalyst, and error helpers — callers filter the returned list instead of issuing per-pipeline queries
+- **2 `system_health` queries** (one for pipeline_status health_check entry, one for the full grouped health summary with `check_group` breakdown)
+- **5 targeted queries** for trade-specific data not covered by health_check: `trade_decisions`, `order_events`, `shadow_divergences`, `cost_ledger`, `meta_reflections`
+
+### Files Modified
+- `scripts/daily_report.py` — refactored data gathering layer
+
+### Key Changes
+- Added `gather_pipeline_runs_today()` — single `pipeline_runs` query, returns all root-step rows (up to 200), shared across all callers
+- `gather_pipeline_status(all_runs)`, `gather_scanner_results(all_runs)`, `gather_catalyst_data(all_runs)`, `gather_errors(all_runs)` — all accept pre-fetched list, no DB calls
+- `gather_health_check()` — now scopes to `latest_run_id` to prevent mixing results from different runs; adds `by_group` dict to the return shape (available to formatter but not currently displayed — forward-compatible)
+- Removed dropped table references (none were present, confirmed by grep)
+- No new imports, no new env vars, no new HTTP clients
+
+### DB Queries Running
+| Query | Table | Reason |
+|-------|-------|--------|
+| `SELECT ... ORDER BY created_at DESC LIMIT 200` (root steps) | `pipeline_runs` | Shared source for pipeline status + scanner + catalyst + errors |
+| `SELECT run_id,status,created_at ... LIMIT 1` | `system_health` | Verify health_check ran today |
+| `SELECT ... LIMIT 20` | `trade_decisions` | Today's trades |
+| `SELECT ... LIMIT 20` | `order_events` | Today's orders |
+| `SELECT ... LIMIT 50` | `shadow_divergences` | Today's shadow divergences |
+| `SELECT ... WHERE ledger_date=eq.TODAY` | `cost_ledger` | Today's costs |
+| `SELECT run_id,check_name,check_group,status,value,error_message ... LIMIT 100` | `system_health` | Full health check summary grouped by check_group |
+| `SELECT ... WHERE reflection_date=eq.TODAY LIMIT 1` | `meta_reflections` | Today's LLM reflection |
+
+### Report Format
+Unchanged — same sections, same emoji-free text, same Telegram + Slack delivery.
+
+### Ruff
+`ruff check scripts/daily_report.py` — All checks passed (0 errors)
+
+### Assumptions
+- `system_health.run_type = 'scheduled'` is the correct filter for the 5AM health_check run (confirmed from health_check.py source)
+- `pipeline_runs` `LIMIT 200` is sufficient to cover all root steps from today across all pipelines (max ~15 manifest entries × 3 runs = 45 rows well within limit)
+
+---
+
+## TASK-SLIM-08 . BACKEND-AGENT . DONE — 2026-04-13
+
+### server.py split into FastAPI APIRouter modules
+
+**Files created:**
+- `dashboard/shared.py` (171 lines) — shared env vars, HTTP client singleton, auth helpers, validation functions
+- `dashboard/routes/__init__.py` (empty)
+- `dashboard/routes/replay.py` (303 lines) — GET /api/replay/{dates,candidates,chain,shadows,outcome,ohlcv}
+- `dashboard/routes/ensemble.py` (200 lines) — GET /api/shadow/{profiles,divergences,unanimous,kronos/latest}, GET /api/signals/{options-flow,form4}
+- `dashboard/routes/health.py` (655 lines) — GET/POST /api/health/*, /api/simulator/*, /api/preflight/*, /api/stack, /api/latency
+- `dashboard/routes/system.py` (683 lines) — GET /api/system/*, /api/llm/stats (includes SSE /api/system/stream)
+- `dashboard/routes/trading.py` (891 lines) — GET/POST /api/account, /api/positions, /api/trades, /api/performance, /api/regime, /api/pipeline/*, /api/inference/*, /api/economics/*, /api/budget/*, /api/rag/*, /api/sitrep, /api/strategy/*, /api/trade-learnings/*, /api/logs/*
+- `dashboard/routes/chat.py` (673 lines) — POST /api/chat (streaming SSE), POST /api/trades/{id}/reasoning
+
+**Files modified:**
+- `dashboard/server.py` (535 lines, down from ~4385) — app init, auth routes, magic link routes, static mount, middleware only
+- `dashboard/Dockerfile` — added `COPY shared.py ./` and `COPY routes/ ./routes/`
+
+**Auth requirements:**
+- All `/api/*` routes: require valid `oc_session` cookie (HMAC-signed session token, verified via `_require_auth()` from shared.py)
+- `/api/preflight/trigger`: unauthenticated (systems console fires it without a session)
+- `/api/simulator/status`: unauthenticated (polling endpoint)
+- `/healthz`: public
+
+**DB queries being run (for index review):**
+- `pipeline_runs` — ORDER BY started_at DESC, filter by step_name, pipeline_name, parent_run_id
+- `system_health` — ORDER BY created_at DESC, filter by run_id
+- `shadow_divergences` — ORDER BY divergence_date DESC, filter by live_chain_id, shadow_chain_id
+- `strategy_profiles` — filter by is_shadow=true, ORDER BY fitness_score DESC
+- `inference_chains` — filter by profile_name, ticker, created_at, ORDER BY created_at DESC
+- `trade_learnings` — filter by trade_date, ticker, outcome, ORDER BY trade_date DESC
+- `cost_ledger` — filter by ledger_date, category, ORDER BY ledger_date ASC/DESC
+- `signal_evaluations` — filter by scan_date, ticker, ORDER BY created_at DESC
+- `catalyst_events` — filter by event_time, ticker, ORDER BY event_time DESC
+
+**Key design decisions:**
+- Import resolution: uvicorn runs from `dashboard/` directory, so `from shared import ...` and `from routes.X import ...` work without package qualification
+- HTTP client: single `httpx.AsyncClient` instance in `shared.py`, managed via `set_http_client()`/`get_http()`/`close_http_client()`, lifecycle hooks in `server.py`
+- Auth signing key `_SIGNING_KEY` in `shared.py` computed from `SESSION_SIGNING_SALT` env var — identical to the one in `server.py` (both use `hashlib.sha256(...).digest()`)
+- Path resolution in `routes/health.py`: uses `Path(__file__).parent.parent.parent / "scripts"` (routes/ -> dashboard/ -> project root)
+- OHLCV cache: module-level `dict` in `routes/replay.py`, capped at 100 entries, survives request lifecycle
+- `ALLOWED_BUDGET_KEYS` defined in both `server.py` (unused, legacy) and `routes/trading.py` (active)
+
+**Assumptions about schema:**
+- All table/column names match what was in original server.py — no schema changes required
+- `magic_link_tokens` table exists (used by magic link routes in server.py)
+- `signal_accuracy_report` view exists (used by /api/signals/accuracy)
+- `account_performance` view/table exists (used by /api/performance)
+
+**Follow-on work noticed:**
+- `_UUID_RE`, `_DATE_RE`, `ALLOWED_BUDGET_KEYS` are dead code in server.py (leftover from before modularization) — harmless but could be removed
+- `yfinance` package is still in Dockerfile but now only used by `routes/replay.py` — correct, keep it
+- After Fly.io deploy, verify SSE stream at `/api/system/stream` still works (EventSource reconnect behavior may differ)
+- `daily_report.py` was noticed but not touched — out of scope for this task

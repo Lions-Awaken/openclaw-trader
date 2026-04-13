@@ -15,22 +15,33 @@ openclaw-trader/
 │   └── migrations/           # SQL migrations
 ├── scripts/
 │   ├── scan-secrets.sh       # Secret scanner for pre-commit
-│   ├── manifest.py           # Function manifest — canonical registry of all scheduled/triggered functions
+│   ├── manifest.py           # Function manifest + crontab drift detection
 │   ├── tracer.py             # PipelineTracer — execution observability library
 │   ├── common.py             # Shared imports: Supabase, Alpaca, Slack, embeddings
-│   ├── shadow_profiles.py    # Immutable adversarial system prompts (5 profiles)
+│   ├── shadow_profiles.py    # Immutable adversarial system prompts (6 profiles)
 │   ├── catalyst_ingest.py    # 6-source catalyst detection + embedding (3x daily)
 │   ├── inference_engine.py   # 5-tumbler Lock & Tumbler analysis engine
 │   ├── scanner.py            # Autonomous trading orchestrator — scan → enrich → infer → shadow → execute (2x daily)
 │   ├── position_manager.py   # Position lifecycle — trailing stops, time stops, EOD flatten (every 30m)
-│   ├── health_check.py       # 44-check pre-market system health (8 groups, writes system_health table)
+│   ├── system_check.py       # Unified entry point: --mode health (daily) or --mode preflight (on-demand)
+│   ├── checks/health.py      # 49-check health groups (13 groups, writes system_health)
+│   ├── checks/preflight.py   # NASA go/no-go preflight simulator (17 groups, synthetic data + Mission Readiness)
+│   ├── system_monitor.py     # Persistent daemon: hardware metrics (5s) + service health (60s) → system_stats
 │   ├── ingest_signals.py     # Consolidated Form 4 + options flow ingest (form4 @ 6AM, options @ 7AM weekdays)
 │   ├── calibrator.py         # Weekly calibration + outcome grading + shadow profile DWM weighting
 │   ├── post_trade_analysis.py # Post-trade RAG ingestion — triggered on every trade close
 │   └── meta_analysis.py      # Daily + weekly meta-analysis with RAG + chain + shadow divergence context
 ├── dashboard/
-│   ├── server.py             # FastAPI backend with trading + pipeline + meta + tumbler APIs
-│   ├── index.html            # Dashboard UI (10 tabs)
+│   ├── server.py             # FastAPI app init, auth, middleware (535 lines)
+│   ├── shared.py             # Shared helpers: sb_headers, get_http, auth, validation
+│   ├── routes/               # APIRouter modules
+│   │   ├── trading.py        # Account, positions, trades, pipeline, economics
+│   │   ├── health.py         # Health check, simulator, preflight routes
+│   │   ├── system.py         # System metrics, SSE stream, status
+│   │   ├── ensemble.py       # Shadow profiles, signals, divergences
+│   │   ├── replay.py         # Trade replay viewer routes
+│   │   └── chat.py           # AI chat with tool dispatch
+│   ├── index.html            # Dashboard UI (9 tabs)
 │   ├── login.html            # Auth page
 │   ├── backtest.py           # Backtesting engine
 │   ├── fly.toml              # Fly.io deployment config
@@ -62,14 +73,10 @@ openclaw-trader/
 | `cost_ledger` | All costs (API, hosting) and trading P&L (2-year retention) |
 | `budget_config` | Configurable daily budget caps (editable from dashboard) |
 | `confidence_calibration` | Weekly stated vs actual confidence tracking (1-year retention) |
-| `tuning_profiles` | Versioned hardware performance tuning configurations |
-| `tuning_telemetry` | Per-pipeline-run hardware telemetry snapshots (1-year retention) |
 | `trade_learnings` | Post-trade RAG post-mortems with embeddings (180-day retention) |
 | `trade_decisions` | Entry/exit records linking orders to inference chains |
 | `strategy_profiles` | Trading profiles (CONSERVATIVE, UNLEASHED) with all parameters |
-| `stack_heartbeats` | Service liveness (ollama, tumbler) for dashboard health display |
-| `regime_log` | Market regime snapshots (bull/bear/sideways) |
-| `system_stats` | System telemetry (CPU, RAM, GPU temps) from ridley |
+| `system_stats` | System telemetry (CPU, RAM, GPU temps, service health) from ridley |
 
 ## Tumbler Engine Architecture
 
@@ -120,7 +127,7 @@ Ridley is in **PDT (America/Los_Angeles)**. Crontab uses `SHELL=/bin/bash` (dash
 
 | Script | PDT on ridley | pipeline_name | LLM | RAM Peak |
 |--------|--------------|---------------|-----|----------|
-| health_check.py | 5:00 M-F | health_check (writes system_health) | None | ~2GB |
+| system_check.py --mode health | 5:00 M-F | health_check (writes system_health) | None | ~2GB |
 | catalyst_ingest.py | 5:30, 9:00, 12:50 M-F | catalyst_ingest | Ollama embed | ~3.2GB |
 | ingest_signals.py form4 | 6:00 M-F | ingest | None | ~1.5GB |
 | scanner.py | 6:35, 9:30 M-F | scanner | qwen + Claude | ~3.5GB |
@@ -130,11 +137,11 @@ Ridley is in **PDT (America/Los_Angeles)**. Crontab uses `SHELL=/bin/bash` (dash
 | daily_report.py | 14:00 M-F | daily_report | None | ~0.5GB |
 | meta_analysis.py weekly | 16:00 Sun | meta_weekly | Claude + embed | ~3.5GB |
 | calibrator.py | 16:30 Sun | calibrator | None | ~2.6GB |
-| heartbeat.py | every 5m | heartbeat | None | ~0.5GB |
+| system_monitor.py | @reboot daemon | system_monitor | None | ~0.5GB |
 
 ## Dashboard Tabs
 
-Dashboard | Pipeline | Trade Log | Positions | Predictions | Meta-Learning | Catalysts | System | Economics | Health | Signals | How It Works
+Dashboard | Pipeline | Trade Log | Positions | Health | Replay | Ensemble | Economics | How It Works
 
 ## Observability
 

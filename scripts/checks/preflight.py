@@ -1,29 +1,10 @@
-#!/usr/bin/env python3
 """
-OpenClaw Preflight Simulator — NASA go/no-go system validation.
+checks.preflight — NASA go/no-go system validation for OpenClaw Trader.
 
-Groups:
-  A - Module Integrity
-  B - Ground Systems (Schema)
-  C - Adversarial Array (Shadow Contexts)
-  D - Signal Acquisition
-  E - Tumbler Chain
-  F - Ensemble Systems
-  G - Economics
-  H - End-to-End Flow
-  I - Dashboard Comms
-  P - Hardware Stress (concurrency > 1 only)
-  Q - Mission Readiness (real NVDA end-to-end pipeline, incl. Claude T4-T5)
-
-Usage:
-  python scripts/test_system.py             # Full run
-  python scripts/test_system.py --dry-run   # Skip DB writes and external calls
-  python scripts/test_system.py --concurrency 4  # Stress test with 4 parallel streams
-  SIMULATOR_RUN_ID=<uuid> python scripts/test_system.py  # Dashboard-linked run
-  SIMULATOR_CONCURRENCY=4 python scripts/test_system.py  # Dashboard-triggered stress run
+Full preflight simulator with synthetic data, Ollama inference, and Mission Readiness.
+Called via system_check.py --mode preflight.
 """
 
-import argparse
 import logging
 import os
 import random
@@ -527,10 +508,10 @@ def _test_b1() -> tuple[str, str, str | None]:
         "strategy_profiles", "inference_chains", "pipeline_runs", "cost_ledger",
         "signal_evaluations", "shadow_divergences", "system_health", "system_stats",
         "meta_reflections", "catalyst_events", "trade_decisions", "order_events",
-        "budget_config", "regime_log", "trade_learnings", "stack_heartbeats",
+        "budget_config", "trade_learnings",
         "pattern_templates", "confidence_calibration", "predictions",
-        "congress_clusters", "research_memories", "tuning_telemetry",
-        "tuning_profiles", "data_quality_checks", "politician_intel",
+        "congress_clusters", "research_memories",
+        "data_quality_checks", "politician_intel",
         "legislative_calendar", "llm_inferences", "magic_link_tokens",
         "options_flow_signals", "form4_signals",
     ]
@@ -2444,24 +2425,12 @@ def run_group_q(run_id: str | None, dry_run: bool) -> list[TestResult]:
 # Main
 # ===========================================================================
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="OpenClaw Preflight Simulator")
-    parser.add_argument("--dry-run", action="store_true", help="Skip DB writes and external calls")
-    parser.add_argument(
-        "--concurrency",
-        type=int,
-        default=1,
-        choices=range(1, 11),
-        metavar="{1-10}",
-        help="Number of parallel streams for stress testing (1-10)",
-    )
-    args = parser.parse_args()
-
-    # SIMULATOR_CONCURRENCY env var overrides --concurrency (used by dashboard-triggered runs)
-    concurrency = int(os.environ.get("SIMULATOR_CONCURRENCY", "0")) or args.concurrency
+def run_preflight(dry_run: bool = False, concurrency: int = 1) -> int:
+    """Entry point called by system_check.py --mode preflight."""
+    # SIMULATOR_CONCURRENCY env var overrides arg (used by dashboard-triggered runs)
+    concurrency = int(os.environ.get("SIMULATOR_CONCURRENCY", "0")) or concurrency
 
     run_id = os.environ.get("SIMULATOR_RUN_ID") or str(uuid.uuid4())
-    dry_run: bool = args.dry_run
 
     log_path = f"/tmp/openclaw_simulator_{run_id[:8]}.log"
     logging.basicConfig(
@@ -2539,8 +2508,4 @@ def main() -> None:
     print("=" * 45)
 
     logger.info(f"Preflight complete: {go} GO, {nogo} NO-GO, {scrub} SCRUB — log at {log_path}")
-    sys.exit(0 if nogo == 0 else 1)
-
-
-if __name__ == "__main__":
-    main()
+    return 1 if nogo > 0 else 0

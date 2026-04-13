@@ -210,33 +210,7 @@ def flush_buffer():
 
 
 def _get_active_tuning_profile_id() -> str | None:
-    """Read the active tuning profile ID from local file or query Supabase."""
-    # Try local cache first (set by tuning profile activation script)
-    if TUNING_PROFILE_PATH.exists():
-        try:
-            data = json.loads(TUNING_PROFILE_PATH.read_text())
-            return data.get("id")
-        except (json.JSONDecodeError, KeyError):
-            pass
-
-    # Fallback: query Supabase for the active profile
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        return None
-
-    try:
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.get(
-                f"{SUPABASE_URL}/rest/v1/tuning_profiles",
-                headers=_sb_headers(),
-                params={"status": "eq.active", "limit": "1", "select": "id"},
-            )
-            if resp.status_code == 200:
-                rows = resp.json()
-                if rows:
-                    return rows[0]["id"]
-    except Exception:
-        pass
-
+    """Tuning system removed (SLIM-01). Always returns None."""
     return None
 
 
@@ -323,73 +297,8 @@ class TelemetryCollector:
             self.claude_latency_samples.append(latency_ms)
 
     def finalize(self, pipeline_run_id: str) -> dict | None:
-        """Build and store the telemetry record."""
-        if not self.tuning_profile_id:
-            return None
-
-        end_snapshot = _collect_system_snapshot()
-        wall_clock = int((time.time() - self.start_time) * 1000)
-
-        # Final peak sample
-        self.sample()
-
-        telemetry = {
-            "pipeline_run_id": pipeline_run_id,
-            "tuning_profile_id": self.tuning_profile_id,
-            "pipeline_name": self.pipeline_name,
-            "step_count": self.step_count,
-            "wall_clock_ms": wall_clock,
-            "ram_start_mb": self.start_snapshot.get("rss_mb"),
-            "ram_peak_mb": self._rss_peak,
-            "ram_end_mb": end_snapshot.get("rss_mb"),
-            "cpu_temp_start_c": self.start_snapshot.get("cpu_temp_c"),
-            "cpu_temp_max_c": max(
-                self.start_snapshot.get("cpu_temp_c", 0),
-                end_snapshot.get("cpu_temp_c", 0),
-            ) or None,
-            "gpu_temp_start_c": self.start_snapshot.get("gpu_temp_c"),
-            "gpu_temp_max_c": max(
-                self.start_snapshot.get("gpu_temp_c", 0),
-                end_snapshot.get("gpu_temp_c", 0),
-            ) or None,
-            "ollama_inference_count": self.ollama_calls,
-            "ollama_tokens_generated": self.ollama_tokens,
-            "ollama_avg_tokens_per_sec": (
-                round(sum(self.ollama_tps_samples) / len(self.ollama_tps_samples), 1)
-                if self.ollama_tps_samples else None
-            ),
-            "ollama_min_tokens_per_sec": (
-                round(min(self.ollama_tps_samples), 1)
-                if self.ollama_tps_samples else None
-            ),
-            "ollama_max_tokens_per_sec": (
-                round(max(self.ollama_tps_samples), 1)
-                if self.ollama_tps_samples else None
-            ),
-            "embedding_count": self.embedding_count,
-            "embedding_avg_ms": (
-                round(sum(self.embedding_ms_samples) / len(self.embedding_ms_samples))
-                if self.embedding_ms_samples else None
-            ),
-            "embedding_max_ms": (
-                max(self.embedding_ms_samples) if self.embedding_ms_samples else None
-            ),
-            "claude_call_count": self.claude_calls,
-            "claude_total_tokens": self.claude_tokens,
-            "claude_avg_latency_ms": (
-                round(sum(self.claude_latency_samples) / len(self.claude_latency_samples))
-                if self.claude_latency_samples else None
-            ),
-            "metadata": {
-                "load_avg_start": self.start_snapshot.get("load_avg_1m"),
-                "load_avg_end": end_snapshot.get("load_avg_1m"),
-            },
-        }
-
-        # Remove None values to keep the insert clean
-        telemetry = {k: v for k, v in telemetry.items() if v is not None}
-
-        return _post_to_supabase("tuning_telemetry", telemetry)
+        """No-op — tuning_telemetry table removed (SLIM-01)."""
+        return None
 
 
 class PipelineTracer:

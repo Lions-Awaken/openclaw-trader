@@ -1,20 +1,9 @@
-#!/usr/bin/env python3
 """
-health_check.py — Comprehensive system health check for OpenClaw Trader.
+checks.health — Comprehensive system health check groups for OpenClaw Trader.
 
-Runs 49 checks across 13 groups. Writes results to system_health table.
-Posts Slack summary on failures (or always with --notify-always).
-
-Usage:
-    python scripts/health_check.py                  # full check, Slack on failures
-    python scripts/health_check.py --notify-always  # full check, always post Slack
-    python scripts/health_check.py --group signals  # single group only
-    python scripts/health_check.py --dry-run        # print only, no DB write, no Slack
-
-Set HEALTH_RUN_ID env var to use a specific run_id (for dashboard-triggered runs).
+49 checks across 13 groups. Called via system_check.py --mode health.
 """
 
-import argparse
 import os
 import shutil
 import subprocess
@@ -256,9 +245,9 @@ EXPECTED_TABLES = [
     "strategy_profiles", "inference_chains", "pipeline_runs", "cost_ledger",
     "signal_evaluations", "shadow_divergences", "system_health", "system_stats",
     "meta_reflections", "catalyst_events", "trade_decisions", "order_events",
-    "budget_config", "regime_log", "trade_learnings", "stack_heartbeats",
+    "budget_config", "trade_learnings",
     "pattern_templates", "confidence_calibration", "predictions",
-    "congress_clusters", "research_memories", "tuning_telemetry", "tuning_profiles",
+    "congress_clusters", "research_memories",
     "data_quality_checks", "politician_intel", "legislative_calendar",
     "llm_inferences", "magic_link_tokens", "options_flow_signals", "form4_signals",
 ]
@@ -1320,44 +1309,20 @@ def run_checks(
     return all_results
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="OpenClaw system health check — 49 checks across 13 groups.",
-    )
-    parser.add_argument(
-        "--notify-always",
-        action="store_true",
-        help="Always post Slack summary, not just on failures.",
-    )
-    parser.add_argument(
-        "--group",
-        choices=list(ALL_GROUPS.keys()),
-        default=None,
-        help="Run only one check group.",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print results only — no DB writes, no Slack.",
-    )
-    args = parser.parse_args()
-
+def run_health(dry_run: bool = False, group: str | None = None, notify_always: bool = False) -> int:
+    """Entry point called by system_check.py --mode health."""
     run_id = os.environ.get("HEALTH_RUN_ID") or str(uuid.uuid4())
     run_type = "manual" if os.environ.get("HEALTH_RUN_ID") else "scheduled"
 
-    groups = [args.group] if args.group else list(ALL_GROUPS.keys())
+    groups = [group] if group else list(ALL_GROUPS.keys())
 
     results = run_checks(
         groups=groups,
         run_id=run_id,
         run_type=run_type,
-        dry_run=args.dry_run,
-        notify_always=args.notify_always,
+        dry_run=dry_run,
+        notify_always=notify_always,
     )
 
     failures = [r for r in results if r.status == "fail"]
     return 1 if failures else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

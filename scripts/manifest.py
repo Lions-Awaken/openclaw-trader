@@ -10,6 +10,8 @@ an entry here. See CLAUDE.md § Function Manifest for the convention.
 
 from __future__ import annotations
 
+import re
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -56,11 +58,6 @@ def _valid_meta(snap: dict) -> bool:
     return "Unable to assess" not in text and len(text) > 20
 
 
-def _valid_heartbeat(snap: dict) -> bool:
-    """Heartbeat should complete."""
-    return True  # presence of a run is sufficient
-
-
 def _valid_calibrator(snap: dict) -> bool:
     """Calibrator should report grading results."""
     return True  # presence of a run is sufficient
@@ -76,7 +73,7 @@ def _valid_ingest(snap: dict) -> bool:
 MANIFEST: list[ManifestEntry] = [
     ManifestEntry(
         name="health_check",
-        script="scripts/health_check.py",
+        script="scripts/system_check.py",
         pipeline_name="health_check",
         schedule="0 5 * * 1-5",
         schedule_desc="5:00 AM PDT weekdays",
@@ -265,18 +262,6 @@ MANIFEST: list[ManifestEntry] = [
         estimated_claude_cost=0.0,
     ),
     ManifestEntry(
-        name="heartbeat",
-        script="scripts/heartbeat.py",
-        pipeline_name="heartbeat",
-        schedule="*/5 * * * *",
-        schedule_desc="Every 5 minutes",
-        expected_steps=["sitrep:check_ollama", "sitrep:check_tumbler", "sitrep:update_heartbeat"],
-        criticality="low",
-        output_validator=_valid_heartbeat,
-        freshness_hours=1,
-        estimated_claude_cost=0.0,
-    ),
-    ManifestEntry(
         name="daily_report",
         script="scripts/daily_report.py",
         pipeline_name="daily_report",
@@ -313,7 +298,7 @@ EVENT_TRIGGERED: list[ManifestEntry] = [
     ),
     ManifestEntry(
         name="test_system",
-        script="scripts/test_system.py",
+        script="scripts/system_check.py",
         pipeline_name="simulator",
         schedule="manual",
         schedule_desc="On-demand preflight simulator",
@@ -322,25 +307,15 @@ EVENT_TRIGGERED: list[ManifestEntry] = [
         writes_to_pipeline_runs=False,  # writes to system_health
     ),
     ManifestEntry(
-        name="simulator_watcher",
-        script="scripts/simulator_watcher.py",
-        pipeline_name="simulator_watcher",
-        schedule="persistent",
-        schedule_desc="Persistent daemon on ridley — polls for simulator triggers every 15s",
-        expected_steps=[],
-        criticality="low",
-        writes_to_pipeline_runs=False,  # does not write pipeline_runs, manages system_health
-    ),
-    ManifestEntry(
-        name="stats_streamer",
-        script="scripts/stats_streamer.py",
-        pipeline_name="stats_streamer",
+        name="system_monitor",
+        script="scripts/system_monitor.py",
+        pipeline_name="system_monitor",
         schedule="@reboot",
-        schedule_desc="Persistent daemon on ridley — writes system_stats every 5s for SSE stream",
+        schedule_desc="Persistent daemon on ridley — hardware metrics (5s) + service health (60s)",
         expected_steps=[],
-        criticality="low",
-        writes_to_pipeline_runs=False,  # writes to system_stats table only
-        freshness_hours=None,           # no staleness check — it's a continuous stream
+        criticality="medium",
+        writes_to_pipeline_runs=False,
+        freshness_hours=None,
     ),
 ]
 
@@ -381,3 +356,91 @@ def estimate_daily_claude_budget() -> float:
     for entry in get_weekday_entries():
         total += entry.estimated_claude_cost
     return total
+
+
+# ==========================================================================
+# Crontab auto-discovery — detects drift between manifest and actual crons
+# ==========================================================================
+
+def _parse_crontab_line(line: str) -> tuple[str, str] | None:
+    """Parse a crontab line into (schedule, script_path) or None if not a script."""
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    # Match: 5 fields + command that contains 'python' and a .py file
+    m = re.match(
+        r"^([*0-9/,\-]+\s+[*0-9/,\-]+\s+[*0-9/,\-]+\s+[*0-9/,\-]+\s+[*0-9/,\-]+)\s+(.+)$",
+        line,
+    )
+    if not m:
+        return None
+    schedule, command = m.group(1), m.group(2)
+    # Extract the .py script from the command
+    py_match = re.search(r"(scripts/\S+\.py)", command)
+    if not py_match:
+        return None
+    return schedule, py_match.group(1)
+
+
+def discover_from_crontab(crontab_text: str | None = None) -> dict:
+    """Compare manifest entries against actual crontab.
+
+    If crontab_text is None, reads from local `crontab -l`.
+
+    Returns:
+        {
+            "in_manifest_not_cron": [entry_name, ...],  # manifest says exists, cron doesn't have it
+            "in_cron_not_manifest": [(schedule, script), ...],  # cron has it, manifest doesn't
+            "schedule_mismatches": [(entry_name, manifest_sched, cron_sched), ...],
+            "matched": [entry_name, ...],  # good — both agree
+        }
+    """
+    if crontab_text is None:
+        try:
+            result = subprocess.run(
+                ["crontab", "-l"], capture_output=True, text=True, timeout=5,
+            )
+            crontab_text = result.stdout if result.returncode == 0 else ""
+        except Exception:
+            crontab_text = ""
+
+    # Parse crontab lines into {script_path: schedule}
+    cron_entries: dict[str, str] = {}
+    for line in crontab_text.splitlines():
+        parsed = _parse_crontab_line(line)
+        if parsed:
+            schedule, script = parsed
+            cron_entries[script] = schedule
+
+    # Build manifest lookup {script: [(name, schedule), ...]}
+    manifest_scripts: dict[str, list[tuple[str, str]]] = {}
+    for entry in MANIFEST:
+        manifest_scripts.setdefault(entry.script, []).append((entry.name, entry.schedule))
+
+    matched: list[str] = []
+    schedule_mismatches: list[tuple[str, str, str]] = []
+    in_manifest_not_cron: list[str] = []
+
+    for script, entries in manifest_scripts.items():
+        cron_sched = cron_entries.pop(script, None)
+        if cron_sched is None:
+            for name, _sched in entries:
+                in_manifest_not_cron.append(name)
+        else:
+            for name, manifest_sched in entries:
+                # Normalize whitespace for comparison
+                if " ".join(manifest_sched.split()) == " ".join(cron_sched.split()):
+                    matched.append(name)
+                else:
+                    # Multiple manifest entries can share a script (e.g., catalyst_ingest 3x)
+                    # Only flag mismatch if NONE of the schedules match
+                    schedule_mismatches.append((name, manifest_sched, cron_sched))
+
+    in_cron_not_manifest = [(sched, script) for script, sched in cron_entries.items()]
+
+    return {
+        "in_manifest_not_cron": in_manifest_not_cron,
+        "in_cron_not_manifest": in_cron_not_manifest,
+        "schedule_mismatches": schedule_mismatches,
+        "matched": matched,
+    }
