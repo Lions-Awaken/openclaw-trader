@@ -57,7 +57,7 @@ ALPACA_DATA = "https://data.alpaca.markets"
 # HTTP Clients — reusable, closed at exit
 # ==========================================================================
 _client = httpx.Client(timeout=15.0)
-_claude_client = httpx.Client(timeout=45.0)
+_claude_client = httpx.Client(timeout=120.0)  # 2 min — weekly reflections need more time
 atexit.register(_client.close)
 atexit.register(_claude_client.close)
 
