@@ -5,6 +5,141 @@
 
 ---
 
+## TASK-SP-04 . BACKEND-AGENT . DONE — 2026-04-13
+
+### Shadow Performance Rollup script created
+
+**Files created/modified:**
+- `scripts/shadow_performance_rollup.py` — new weekly rollup script
+- `scripts/manifest.py` — added `shadow_performance_rollup` ManifestEntry
+
+**Script behavior:**
+- Runs Sunday 9:00 AM PDT (`0 9 * * 0`), `pipeline_name`: `shadow_performance_rollup`
+- Week window: Monday of the just-ended week through following Monday (exclusive). Sunday trigger always uses the Mon–Sat window that just closed.
+- Fetches all shadow profiles via `strategy_profiles WHERE is_shadow=true`
+- Per profile: queries `shadow_positions` with `status IN (closed,stopped,expired)` and `exit_date` within the week
+- Opened count via `Prefer: count=exact` Content-Range header
+- Computes: trades_won/lost, win_rate_pct, total_pnl, avg_pnl_per_trade, best/worst_trade_pnl, divergent_trades, divergent_win_rate
+- Live P&L from `trade_decisions.pnl` sum for same period — one query shared across all profiles
+- UPSERTs `shadow_performance` using `Prefer: resolution=merge-duplicates` on UNIQUE(shadow_profile, week_start)
+- Slack summary with per-profile breakdown
+
+**DB queries run:**
+- `GET strategy_profiles?is_shadow=eq.true`
+- `GET shadow_positions?shadow_profile=eq.X&status=in.(closed,stopped,expired)&exit_date=gte.W&exit_date=lt.E`
+- `GET shadow_positions?...&entry_date=gte.W&entry_date=lt.E` with `Prefer: count=exact`
+- `GET trade_decisions?created_at=gte.W&created_at=lt.E&pnl=not.is.null`
+- `GET strategy_profiles?profile_name=eq.X` (dwm_weight_end)
+- `POST shadow_performance` with `Prefer: resolution=merge-duplicates`
+
+**Auth:** Service role only (`SUPABASE_SERVICE_KEY`).
+
+**Zero-row handling:** Profiles with no closed positions write a row with trades_closed=0, total_pnl=0.0, and NULL for ratio/average fields. Script does not skip or raise.
+
+**Assumptions:** `shadow_positions.status` includes 'stopped' and 'expired' as valid closed states; `exit_date` is a date column; `strategy_profiles.is_shadow` bool identifies shadow profiles.
+
+**Deployment note:** Commit+push on mother_brain, then `git pull` on ridley, then add crontab entry: `0 9 * * 0 cd ~/openclaw-trader && python scripts/shadow_performance_rollup.py`
+
+---
+
+## TASK-SP-06 . FRONTEND-AGENT . DONE — 2026-04-13
+
+### Performance tab added to dashboard
+
+**Files modified:**
+- `dashboard/index.html` — added nav pill, section HTML, and all JavaScript
+
+**Changes (index.html):**
+
+Nav: Added `<button class="nav-pill" onclick="showSection('performance')">Performance</button>` between Ensemble and Economics. Nav row now has 10 pills.
+
+Section `#section-performance`: 3 panels added between `#section-economics` and `#section-about`.
+
+JS functions added:
+- `AGENT_COLORS` — constant map of profile name to CSS variable color
+- `agentColor(name)` — returns the CSS color for a given profile, with substring match fallback
+- `loadPerformance()` — fetches all 3 endpoints in parallel via Promise.all, renders all panels
+- `renderPerfLeaderboard(el, rows)` — table with Agent, Open Positions, Closed, Win Rate, Total P&L, Divergence Win Rate, DWM Weight. P&L green/red. DWM cyan if >1.0, dim otherwise.
+- `renderPerfWeeklyChart(el, data)` — pure HTML percentage bars, no libraries. Grouped by week_start, bar per agent per week scaled to max absolute P&L. Legend included. live_pnl_same_period rendered as a thin reference row.
+- `renderPerfPositions(el, positions)` — trade-table with Ticker, Agent, Entry Date, Entry Price, Current Price, P&L%, Days Held, Divergent. P&L% color tiers: green (>=5%), cyan (0-5%), amber (-5%-0%), red (<-5%). Row click triggers showSection('replay').
+
+`showSection` override: added `if (name === 'performance') loadPerformance();`
+
+**API endpoints consumed:**
+- `GET /api/shadow/leaderboard` — rows with shadow_profile, open_count, closed_count, win_rate, total_pnl, divergent_win_rate, dwm_weight
+- `GET /api/shadow/performance?weeks=12` — rows with shadow_profile, week_start, total_pnl, live_pnl_same_period
+- `GET /api/shadow/positions?status=open` — rows with ticker, shadow_profile, entry_date, entry_price, current_price, current_pnl_pct, was_divergent
+
+**Assumptions:**
+- win_rate and divergent_win_rate from leaderboard are 0.0–1.0 decimals (multiplied by 100 for display)
+- entry_date is ISO string (slice 0-10 for display, parsed for days-held calc)
+- Clicking row positions navigates to Replay tab only — no pre-population of the replay ticker/date (that would need replay selector wiring not included here)
+
+**Follow-on work noticed but not done:**
+- Row click on open positions could pre-populate the Replay date/ticker selector, but that requires cross-section state — currently just switches to the tab
+- The weekly chart bars grow left-to-right for positive P&L and right-to-left for negative (via `right:0` offset) — visually clear but could be made into a centered/diverging chart for better aesthetics
+
+**Sanity check:** 10 nav pills, 10 section divs. JS syntax check passed (node --check). All dynamic strings wrapped in esc().
+
+---
+
+## TASK-SP-05 . BACKEND-AGENT . DONE — 2026-04-13
+
+### 4 Shadow P&L API routes added to ensemble.py
+
+**Files modified:**
+- `dashboard/routes/ensemble.py` — 4 new routes added (~175 lines)
+
+**Endpoints added:**
+
+**GET /api/shadow/positions**
+- Auth: required (oc_session cookie)
+- Params: `profile` (optional, filters by shadow_profile), `status` (optional, default `open`, validated against open/closed/stopped/expired)
+- Query: `shadow_positions` WHERE status=? [AND shadow_profile=?] ORDER BY created_at DESC LIMIT 200
+- Returns: JSON array of position rows
+
+**GET /api/shadow/positions/{position_id}**
+- Auth: required
+- Path param: position_id — validated as UUID via `_validate_uuid`
+- Query: `shadow_positions` WHERE id=? LIMIT 1; then if shadow_chain_id present, `inference_chains` WHERE id=? LIMIT 1
+- Returns: `{"position": {...}, "chain": {...} | null}`
+- 404 if position_id not found
+
+**GET /api/shadow/performance**
+- Auth: required
+- Params: `weeks` (optional, default 12, clamped 1-52)
+- Query: `shadow_performance` ORDER BY week_start DESC LIMIT (weeks * 5)
+- Returns: JSON array of weekly performance rows
+
+**GET /api/shadow/leaderboard**
+- Auth: required
+- No params
+- Two queries: all `shadow_positions` (up to 5000 rows) + `strategy_profiles` WHERE is_shadow=true
+- Aggregates per profile in Python: total_pnl (SUM final_pnl on closed), win_rate, open_count, closed_count, divergent_win_rate, dwm_weight, fitness_score
+- Profiles with 0 positions still appear if they exist in strategy_profiles
+- Returns: JSON array sorted by total_pnl DESC
+
+**DB queries run:**
+- `shadow_positions` — filtered by status (idx_shadow_positions_status) + optional profile filter (idx_shadow_positions_profile)
+- `inference_chains` — point lookup by id (PK)
+- `shadow_performance` — full scan ordered by week_start DESC
+- `shadow_positions` — full aggregate scan for leaderboard, limit 5000
+- `strategy_profiles` — WHERE is_shadow=true
+
+**Auth:** All 4 routes require valid oc_session cookie.
+
+**Deployment:** Deployed to Fly.io — https://openclaw-trader-dash.fly.dev/
+Build: registry.fly.io/openclaw-trader-dash:deployment-01KP52GC9EVMM5BWSFJ7BNBYMG
+
+**Ruff:** All checks passed.
+
+**Follow-on work:**
+- TASK-SP-06 (frontend Performance tab) is now unblocked
+- Leaderboard does Python-side aggregation — if shadow_positions grows beyond ~10k rows, consider a DB-side GROUP BY query
+- shadow_performance has no index on week_start — index would help at scale
+
+---
+
 ## TASK-SLIM-04 . FRONTEND-AGENT . DONE — 2026-04-13
 
 ### Dashboard tab consolidation: 18 → 9 tabs
@@ -5359,3 +5494,274 @@ Unchanged — same sections, same emoji-free text, same Telegram + Slack deliver
 - `yfinance` package is still in Dockerfile but now only used by `routes/replay.py` — correct, keep it
 - After Fly.io deploy, verify SSE stream at `/api/system/stream` still works (EventSource reconnect behavior may differ)
 - `daily_report.py` was noticed but not touched — out of scope for this task
+
+---
+
+## TASK-SP-01 — Shadow P&L Tracker Schema [DONE 2026-04-13]
+
+**Migration file:** `supabase/migrations/20260413_shadow_pnl_tracker.sql`
+
+### Tables created
+
+**shadow_positions** — one row per shadow-profile x ticker x entry_date
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | uuid | PK, gen_random_uuid() |
+| shadow_profile | text | NOT NULL |
+| ticker | text | NOT NULL |
+| entry_date | date | NOT NULL |
+| entry_price | numeric | NOT NULL |
+| position_size_usd | numeric | NOT NULL, DEFAULT 10000 |
+| position_size_shares | numeric | nullable |
+| shadow_chain_id | uuid | FK inference_chains(id) ON DELETE SET NULL |
+| shadow_divergence_id | uuid | FK shadow_divergences(id) ON DELETE SET NULL |
+| was_divergent | boolean | DEFAULT false |
+| vs_live_decision | text | nullable |
+| current_price | numeric | nullable |
+| current_pnl | numeric | nullable |
+| current_pnl_pct | numeric | nullable |
+| peak_pnl_pct | numeric | DEFAULT 0 |
+| status | text | NOT NULL, DEFAULT 'open', CHECK IN (open, closed, stopped, expired) |
+| exit_date | date | nullable |
+| exit_price | numeric | nullable |
+| final_pnl | numeric | nullable |
+| final_pnl_pct | numeric | nullable |
+| close_reason | text | CHECK IN (time_stop, profit_target_1, profit_target_2, trailing_stop, stop_loss, manual) |
+| shadow_was_right | boolean | nullable |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+**shadow_performance** — weekly rollup per shadow profile
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | uuid | PK, gen_random_uuid() |
+| shadow_profile | text | NOT NULL |
+| week_start | date | NOT NULL |
+| trades_opened | integer | DEFAULT 0 |
+| trades_closed | integer | DEFAULT 0 |
+| trades_won | integer | DEFAULT 0 |
+| trades_lost | integer | DEFAULT 0 |
+| win_rate_pct | numeric | nullable |
+| total_pnl | numeric | DEFAULT 0 |
+| avg_pnl_per_trade | numeric | nullable |
+| best_trade_pnl | numeric | nullable |
+| worst_trade_pnl | numeric | nullable |
+| divergent_trades | integer | DEFAULT 0 |
+| divergent_win_rate | numeric | nullable |
+| live_pnl_same_period | numeric | nullable |
+| vs_live_delta | numeric | nullable |
+| dwm_weight_start | numeric | nullable |
+| dwm_weight_end | numeric | nullable |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+| — | — | UNIQUE(shadow_profile, week_start) |
+
+### RLS summary
+
+Both tables:
+- RLS enabled
+- Single ALL policy (`service_role_manages_shadow_positions`, `service_role_manages_shadow_performance`) with `USING (true) WITH CHECK (true)` — service role only, no anon/user access
+
+### Indexes
+
+**shadow_positions:**
+- `idx_shadow_positions_chain_id` ON (shadow_chain_id) — FK index
+- `idx_shadow_positions_divergence_id` ON (shadow_divergence_id) — FK index
+- `idx_shadow_positions_profile` ON (shadow_profile) — primary WHERE filter in dashboard/rollup
+- `idx_shadow_positions_ticker_date` ON (ticker, entry_date) — duplicate detection in opener
+- `idx_shadow_positions_status` ON (status) — open-position filter in mark-to-market
+
+**shadow_performance:**
+- UNIQUE index on (shadow_profile, week_start) — implicit from UNIQUE constraint, enables safe UPSERT
+
+### Data fix applied
+
+- `OPTIONS_FLOW.shadow_type`: was `'SKEPTIC'` → now `'OPTIONS_FLOW'`
+- `FORM4_INSIDER.shadow_type`: was `'CONTRARIAN'` → now `'FORM4_INSIDER'`
+
+Both values were already permitted by the CHECK constraint added in `20260407_kronos_technicals_shadow_profile.sql`.
+
+### Sample queries for backend agents
+
+```sql
+-- shadow_position_opener.py: check if position already opened today
+SELECT id FROM shadow_positions
+WHERE shadow_profile = $1 AND ticker = $2 AND entry_date = $3
+LIMIT 1;
+
+-- shadow_mark_to_market.py: fetch all open positions for nightly update
+SELECT id, shadow_profile, ticker, entry_price, position_size_usd, peak_pnl_pct
+FROM shadow_positions
+WHERE status = 'open';
+
+-- shadow_performance_rollup.py: aggregate closed positions for a week
+SELECT
+  shadow_profile,
+  COUNT(*) FILTER (WHERE status = 'closed') AS trades_closed,
+  COUNT(*) FILTER (WHERE shadow_was_right = true) AS trades_won,
+  SUM(final_pnl) AS total_pnl,
+  AVG(final_pnl) AS avg_pnl_per_trade,
+  MAX(final_pnl) AS best_trade_pnl,
+  MIN(final_pnl) AS worst_trade_pnl,
+  COUNT(*) FILTER (WHERE was_divergent = true) AS divergent_trades,
+  AVG(final_pnl_pct) FILTER (WHERE was_divergent = true AND shadow_was_right = true) AS divergent_win_rate
+FROM shadow_positions
+WHERE entry_date >= $week_start AND entry_date < $week_start + INTERVAL '7 days'
+GROUP BY shadow_profile;
+
+-- GET /api/shadow/positions: list with optional filters
+SELECT * FROM shadow_positions
+WHERE ($profile IS NULL OR shadow_profile = $profile)
+  AND ($status IS NULL OR status = $status)
+ORDER BY entry_date DESC;
+
+-- GET /api/shadow/leaderboard
+SELECT
+  shadow_profile,
+  SUM(final_pnl) AS lifetime_pnl,
+  COUNT(*) FILTER (WHERE shadow_was_right = true)::float / NULLIF(COUNT(*) FILTER (WHERE status = 'closed'), 0) AS win_rate,
+  COUNT(*) FILTER (WHERE status = 'open') AS open_count
+FROM shadow_positions
+GROUP BY shadow_profile
+ORDER BY lifetime_pnl DESC NULLS LAST;
+```
+
+### Gotchas
+
+- `close_reason` and `shadow_was_right` are NULL until the position is closed by `shadow_mark_to_market.py`
+- `current_price`, `current_pnl`, `current_pnl_pct` remain NULL until the first nightly mark-to-market run
+- `peak_pnl_pct` defaults to 0 and should only ever increase — `shadow_mark_to_market.py` must use `GREATEST(peak_pnl_pct, new_pnl_pct)` when updating
+- `shadow_performance` has no `updated_at` — the rollup script should UPSERT using `ON CONFLICT (shadow_profile, week_start) DO UPDATE SET ...` to handle re-runs
+- `shadow_divergence_id` FK references `shadow_divergences` which may be NULL for positions not associated with a recorded divergence (e.g., profile entered on its own without conflicting with the live decision)
+- Migration history cleanup: the remote DB had `20260330_fix_scan_type_constraints` in `supabase_migrations.schema_migrations` with no corresponding local file (applied directly via SQL). It was removed from history. Four previously-applied migrations (`20260407_kronos_technicals_shadow_profile`, `20260407_signal_diversification`, `20260407_system_health`, `20260413_slim01_drop_unused_tables`) were also untracked — all registered. Migration history is now clean and in sync.
+
+---
+
+## TASK-SP-02 — Shadow Position Opener [DONE 2026-04-13]
+
+### Script created
+
+`scripts/shadow_position_opener.py` — opens virtual shadow positions after each scanner run.
+
+### Pipeline
+
+- `pipeline_name`: `shadow_position_opener`
+- Auth: runs as service role (SUPABASE_SERVICE_KEY) — no user session needed
+- Schedule: 7:15 AM PDT (after morning scanner) + 10:30 AM PDT (after midday scanner) weekdays
+
+### Logic flow
+
+1. `fetch_shadow_chains` — `sb_get("inference_chains", ...)` with filters: `profile_name != CONGRESS_MIRROR`, `final_decision IN (enter, strong_enter)`, `created_at >= today_start UTC`
+2. Per chain: `sb_get("shadow_positions", ...)` dedup check on `shadow_profile + ticker + entry_date`
+3. Price: `yfinance.download(ticker, period='1d')` — falls back to `get_latest_quote(ticker)` from Alpaca
+4. `position_size_shares = 10000 / entry_price` (round to 4dp)
+5. `sb_get("shadow_divergences", ...)` filtered by `shadow_chain_id` — `was_divergent=True` if row found
+6. `sb_get("inference_chains", ...)` filtered by `profile_name=CONGRESS_MIRROR + ticker + created_at>=today_start` — `vs_live_decision` from result
+7. `_post_to_supabase("shadow_positions", row)` — `status='open'`
+8. `slack_notify(...)` summary with counts
+
+### DB queries
+
+- READ `inference_chains` — filters: `profile_name != CONGRESS_MIRROR`, `final_decision in (enter,strong_enter)`, `created_at >= today_start`
+- READ `shadow_positions` — dedup check: `shadow_profile + ticker + entry_date`
+- READ `shadow_divergences` — lookup by `shadow_chain_id`
+- READ `inference_chains` — CONGRESS_MIRROR decision: `profile_name=CONGRESS_MIRROR`, `ticker`, `created_at >= today_start`
+- WRITE `shadow_positions` — INSERT with `status='open'`
+
+### Manifest additions
+
+Added to `MANIFEST` in `scripts/manifest.py`:
+- `shadow_opener_morning`: `schedule="15 7 * * 1-5"`, dependencies=`[scanner_morning]`
+- `shadow_opener_midday`: `schedule="30 10 * * 1-5"`, dependencies=`[scanner_midday]`
+
+### Files created/modified
+
+- `/home/mother_brain/projects/openclaw-trader/scripts/shadow_position_opener.py` — created
+- `/home/mother_brain/projects/openclaw-trader/scripts/manifest.py` — two ManifestEntry items appended to MANIFEST
+
+### Imports used from common
+
+`get_latest_quote`, `sb_get`, `slack_notify`
+
+From tracer: `PipelineTracer`, `_post_to_supabase`, `set_active_tracer`, `traced`
+
+### Assumptions
+
+- `inference_chains.profile_name` column contains the profile name string (e.g., `SKEPTIC`, `CONTRARIAN`) — confirmed from TASK-SP-01 schema notes and preflight test code
+- `shadow_divergences.shadow_chain_id` is the FK linking to the inference_chains row — confirmed from TASK-SP-01 schema
+- `CONGRESS_MIRROR` is the live profile identifier — confirmed from shadow_profiles.py (it is NOT in SHADOW_SYSTEM_CONTEXTS but is referenced throughout scanner/inference code as the live benchmark)
+- `today_start` is computed as UTC midnight — inference_chains.created_at is stored in UTC
+
+### Follow-on work noticed (not done)
+
+- TASK-SP-03 (shadow_mark_to_market.py) — DONE (see below)
+- TASK-SP-04 (shadow_performance_rollup.py) — aggregates closed positions; depends on mark-to-market closing rows
+- ridley crontab entries still needed — commit + push + `git pull` on ridley required before crons will fire
+
+---
+
+## TASK-SP-03 — Shadow Mark-to-Market [DONE 2026-04-13]
+
+### Script created
+
+`scripts/shadow_mark_to_market.py`
+
+### Purpose
+
+Nightly mark-to-market for all open shadow positions. Runs 6:00 PM PDT weekdays
+after market close. Updates current P&L state and closes positions that hit exit rules.
+
+### Pipeline
+
+- pipeline_name: `shadow_mark_to_market`
+- Steps traced: `shadow_mtm:load_positions`, `shadow_mtm:fetch_prices`, `shadow_mtm:process_positions`
+- Auth: service role via `_patch_supabase` from tracer (same client used everywhere)
+- No external auth required — internal Supabase only
+
+### DB queries
+
+```sql
+-- Load open positions
+SELECT * FROM shadow_positions WHERE status = 'open';
+
+-- Update open position (mark-to-market, no exit)
+PATCH shadow_positions?id=eq.<uuid>
+  current_price, current_pnl, current_pnl_pct, peak_pnl_pct
+
+-- Close position (exit rule triggered)
+PATCH shadow_positions?id=eq.<uuid>
+  status='closed', exit_date, exit_price, final_pnl, final_pnl_pct,
+  close_reason, shadow_was_right, current_price, current_pnl, current_pnl_pct, peak_pnl_pct
+```
+
+### Exit rules (checked in order)
+
+1. `time_stop` — `np.busday_count(entry_date, today) >= 10`
+2. `stop_loss` — `current_pnl_pct <= -7.5`
+3. `profit_target_2` — `current_pnl_pct >= 25.0`
+4. `profit_target_1` — `current_pnl_pct >= 15.0`
+
+### Key implementation notes
+
+- `peak_pnl_pct` uses `max(existing_peak, current_pnl_pct)` — only ever increases
+- `shadow_was_right = current_pnl > 0` at time of close (uses dollar P&L, not pct)
+- yfinance imported conditionally (`try/except ImportError`) — matches project pattern in catalyst_ingest.py
+- Batch download via `yf.download(tickers, period='1d')` with per-ticker fallback for misses
+- Gracefully handles zero open positions (early exit, no price fetches, Slack notified)
+
+### Manifest update
+
+Added `shadow_mark_to_market` entry to `MANIFEST` in `scripts/manifest.py`:
+- schedule: `0 18 * * 1-5` (6:00 PM PDT weekdays)
+- dependencies: `shadow_opener_morning`, `shadow_opener_midday`
+- output_validator: checks `isinstance(snap.get("total"), int)`
+
+### Files created/modified
+
+- `scripts/shadow_mark_to_market.py` — created
+- `scripts/manifest.py` — added `shadow_mark_to_market` ManifestEntry
+
+### Follow-on work
+
+- ridley crontab: add `0 18 * * 1-5 cd ~/openclaw-trader && python scripts/shadow_mark_to_market.py` after committing + pushing + pulling on ridley
+- TASK-SP-04 (shadow_performance_rollup.py) reads closed rows this script produces

@@ -796,6 +796,7 @@
         <button class="nav-pill" onclick="showSection('health')">Health</button>
         <button class="nav-pill" onclick="showSection('replay')">Replay</button>
         <button class="nav-pill" onclick="showSection('ensemble')">Ensemble</button>
+        <button class="nav-pill" onclick="showSection('performance')">Performance</button>
         <button class="nav-pill" onclick="showSection('economics')">Economics</button>
         <button class="nav-pill" onclick="showSection('about')">How It Works</button>
       </div>
@@ -930,6 +931,29 @@
     </div>
   </div>
 
+
+  <!-- PERFORMANCE -->
+  <div id="section-performance" class="section">
+
+    <!-- Panel 1: Leaderboard -->
+    <div class="card">
+      <h2>Shadow Agent Leaderboard</h2>
+      <div id="perf-leaderboard" class="loading">Loading leaderboard...</div>
+    </div>
+
+    <!-- Panel 2: Weekly P&L Chart -->
+    <div class="card">
+      <h2>Weekly P&L by Agent (12 Weeks)</h2>
+      <div id="perf-weekly-chart">Loading chart...</div>
+    </div>
+
+    <!-- Panel 3: Open Shadow Positions -->
+    <div class="card">
+      <h2>Open Shadow Positions</h2>
+      <div id="perf-positions" class="loading">Loading positions...</div>
+    </div>
+
+  </div>
 
   <!-- ABOUT -->
   <div id="section-about" class="section">
@@ -2941,6 +2965,7 @@ showSection = function(name) {
   origShowSection(name);
   if (name === 'pipeline') loadPipelineTab();
   if (name === 'economics') loadEconomicsTab();
+  if (name === 'performance') loadPerformance();
 };
 
 
@@ -3721,6 +3746,237 @@ function chatClearHistory() {
   container.innerHTML = '<div class="chat-welcome" style="text-align:center;padding:40px 20px;color:var(--dim)">' +
     '<div style="font-size:1.4rem;margin-bottom:12px;background:linear-gradient(135deg,var(--purple),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent">CLAUDE</div>' +
     '<div style="font-size:0.85rem;line-height:1.8;max-width:500px;margin:0 auto">Ask me anything about your portfolio, trades, signals, inference chains, catalysts, or strategy. I have access to all of OpenClaw\'s data.</div></div>';
+}
+
+
+// ============================================================================
+// Performance Tab
+// ============================================================================
+
+const AGENT_COLORS = {
+  'SKEPTIC': 'var(--cyan)',
+  'CONTRARIAN': 'var(--purple)',
+  'REGIME_WATCHER': 'var(--amber)',
+  'OPTIONS_FLOW': 'var(--green)',
+  'FORM4_INSIDER': 'var(--blue)',
+  'KRONOS_TECHNICALS': 'var(--red)',
+};
+
+function agentColor(name) {
+  if (!name) return 'var(--dim)';
+  for (const key of Object.keys(AGENT_COLORS)) {
+    if (name.toUpperCase().includes(key)) return AGENT_COLORS[key];
+  }
+  return 'var(--cyan)';
+}
+
+async function loadPerformance() {
+  const [lbEl, chartEl, posEl] = [
+    document.getElementById('perf-leaderboard'),
+    document.getElementById('perf-weekly-chart'),
+    document.getElementById('perf-positions'),
+  ];
+  lbEl.innerHTML = '<div class="loading">Loading leaderboard...</div>';
+  chartEl.innerHTML = '<div class="loading">Loading chart...</div>';
+  posEl.innerHTML = '<div class="loading">Loading positions...</div>';
+
+  try {
+    const [leaderboard, performance, positions] = await Promise.all([
+      fetch('/api/shadow/leaderboard', {credentials: 'include'}).then(r => r.json()),
+      fetch('/api/shadow/performance?weeks=12', {credentials: 'include'}).then(r => r.json()),
+      fetch('/api/shadow/positions?status=open', {credentials: 'include'}).then(r => r.json()),
+    ]);
+    renderPerfLeaderboard(lbEl, leaderboard);
+    renderPerfWeeklyChart(chartEl, performance);
+    renderPerfPositions(posEl, positions);
+  } catch(e) {
+    lbEl.innerHTML = '<div class="empty-state">Error loading performance data: ' + esc(String(e)) + '</div>';
+    chartEl.innerHTML = '';
+    posEl.innerHTML = '';
+  }
+}
+
+function renderPerfLeaderboard(el, rows) {
+  if (!rows || !rows.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div>No leaderboard data yet. Shadow agents build P&L over time.</div>';
+    return;
+  }
+  let html = '<div style="overflow-x:auto"><table class="trade-table">';
+  html += '<thead><tr>';
+  html += '<th>Agent</th>';
+  html += '<th>Open Positions</th>';
+  html += '<th>Closed</th>';
+  html += '<th>Win Rate</th>';
+  html += '<th>Total P&L</th>';
+  html += '<th>Divergence Win Rate</th>';
+  html += '<th>DWM Weight</th>';
+  html += '</tr></thead><tbody>';
+  for (const row of rows) {
+    const pnl = parseFloat(row.total_pnl || 0);
+    const pnlColor = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const winRate = row.win_rate != null ? (parseFloat(row.win_rate) * 100).toFixed(1) + '%' : '--';
+    const divWinRate = row.divergent_win_rate != null ? (parseFloat(row.divergent_win_rate) * 100).toFixed(1) + '%' : '--';
+    const dwm = parseFloat(row.dwm_weight || 1);
+    const dwmColor = dwm > 1.0 ? 'var(--cyan)' : 'var(--dim)';
+    const color = agentColor(row.shadow_profile || '');
+    html += '<tr>';
+    html += '<td style="font-weight:700;color:' + color + ';">' + esc(row.shadow_profile || '--') + '</td>';
+    html += '<td style="text-align:center;">' + esc(String(row.open_count != null ? row.open_count : '--')) + '</td>';
+    html += '<td style="text-align:center;">' + esc(String(row.closed_count != null ? row.closed_count : '--')) + '</td>';
+    html += '<td style="text-align:center;">' + esc(winRate) + '</td>';
+    html += '<td style="text-align:center;font-weight:700;color:' + pnlColor + ';">' + (pnl >= 0 ? '+' : '') + fmt(pnl, '$') + '</td>';
+    html += '<td style="text-align:center;">' + esc(divWinRate) + '</td>';
+    html += '<td style="text-align:center;font-weight:700;color:' + dwmColor + ';">' + dwm.toFixed(2) + 'x</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+function renderPerfWeeklyChart(el, data) {
+  if (!data || !data.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">&#128200;</div>No weekly performance data yet. Charts populate after the first full trading week.</div>';
+    return;
+  }
+
+  // Group by week_start
+  const weekMap = {};
+  const agentSet = new Set();
+  for (const row of data) {
+    const wk = row.week_start || 'Unknown';
+    if (!weekMap[wk]) weekMap[wk] = {};
+    const agent = row.shadow_profile || 'Unknown';
+    agentSet.add(agent);
+    weekMap[wk][agent] = (weekMap[wk][agent] || 0) + parseFloat(row.total_pnl || 0);
+  }
+
+  const weeks = Object.keys(weekMap).sort();
+  const agents = Array.from(agentSet);
+
+  // Find max absolute P&L for scaling
+  let maxAbs = 0;
+  for (const wk of weeks) {
+    for (const agent of agents) {
+      const val = Math.abs(weekMap[wk][agent] || 0);
+      if (val > maxAbs) maxAbs = val;
+    }
+  }
+  if (maxAbs === 0) maxAbs = 1;
+
+  // Also check for live_pnl_same_period reference
+  const liveRef = {};
+  for (const row of data) {
+    if (row.live_pnl_same_period != null) {
+      liveRef[row.week_start] = parseFloat(row.live_pnl_same_period);
+    }
+  }
+
+  let html = '<div style="overflow-x:auto">';
+  // Legend
+  html += '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;">';
+  for (const agent of agents) {
+    const c = agentColor(agent);
+    html += '<div style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">';
+    html += '<div style="width:12px;height:12px;border-radius:2px;background:' + c + ';flex-shrink:0"></div>';
+    html += '<span style="color:var(--text)">' + esc(agent) + '</span>';
+    html += '</div>';
+  }
+  if (Object.keys(liveRef).length) {
+    html += '<div style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">';
+    html += '<div style="width:12px;height:3px;background:var(--dim);flex-shrink:0"></div>';
+    html += '<span style="color:var(--dim)">Live Reference</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Chart rows per week
+  html += '<div style="display:flex;flex-direction:column;gap:18px;">';
+  for (const wk of weeks) {
+    html += '<div>';
+    // Week label
+    html += '<div style="font-size:0.75rem;color:var(--dim);letter-spacing:1px;margin-bottom:6px;">' + esc(wk) + '</div>';
+    // Bars per agent
+    for (const agent of agents) {
+      const val = weekMap[wk][agent] || 0;
+      const pct = Math.abs(val) / maxAbs * 100;
+      const c = agentColor(agent);
+      const isNeg = val < 0;
+      const label = (isNeg ? '' : '+') + fmt(val, '$');
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">';
+      html += '<div style="width:110px;font-size:0.78rem;color:var(--dim);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(agent.replace(/_/g,' ')) + '</div>';
+      html += '<div style="flex:1;height:16px;background:rgba(255,255,255,0.04);border-radius:3px;overflow:hidden;position:relative;">';
+      if (pct > 0) {
+        html += '<div style="position:absolute;top:0;' + (isNeg ? 'right:0' : 'left:0') + ';width:' + pct.toFixed(1) + '%;height:100%;background:' + c + ';border-radius:3px;opacity:0.75"></div>';
+      }
+      html += '</div>';
+      html += '<div style="width:70px;font-size:0.78rem;font-weight:700;color:' + (isNeg ? 'var(--red)' : 'var(--green)') + ';text-align:left;">' + esc(label) + '</div>';
+      html += '</div>';
+    }
+    // Live reference indicator
+    if (liveRef[wk] != null) {
+      const livePct = Math.abs(liveRef[wk]) / maxAbs * 100;
+      const liveNeg = liveRef[wk] < 0;
+      const liveLabel = (liveNeg ? '' : '+') + fmt(liveRef[wk], '$');
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;opacity:0.6;">';
+      html += '<div style="width:110px;font-size:0.72rem;color:var(--dim);text-align:right;">Live Ref</div>';
+      html += '<div style="flex:1;height:3px;background:rgba(255,255,255,0.04);border-radius:2px;overflow:hidden;position:relative;">';
+      if (livePct > 0) {
+        html += '<div style="position:absolute;top:0;' + (liveNeg ? 'right:0' : 'left:0') + ';width:' + livePct.toFixed(1) + '%;height:100%;background:var(--dim)"></div>';
+      }
+      html += '</div>';
+      html += '<div style="width:70px;font-size:0.72rem;color:var(--dim);">' + esc(liveLabel) + '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
+function renderPerfPositions(el, positions) {
+  if (!positions || !positions.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">&#128203;</div>No open shadow positions right now.</div>';
+    return;
+  }
+  const today = new Date();
+  let html = '<div style="overflow-x:auto"><table class="trade-table">';
+  html += '<thead><tr>';
+  html += '<th>Ticker</th>';
+  html += '<th>Agent</th>';
+  html += '<th>Entry Date</th>';
+  html += '<th>Entry Price</th>';
+  html += '<th>Current Price</th>';
+  html += '<th>P&L%</th>';
+  html += '<th>Days Held</th>';
+  html += '<th>Divergent</th>';
+  html += '</tr></thead><tbody>';
+  for (const pos of positions) {
+    const pnlPct = parseFloat(pos.current_pnl_pct || 0);
+    let pnlColor;
+    if (pnlPct >= 5) pnlColor = 'var(--green)';
+    else if (pnlPct >= 0) pnlColor = 'var(--cyan)';
+    else if (pnlPct >= -5) pnlColor = 'var(--amber)';
+    else pnlColor = 'var(--red)';
+
+    const entryDate = pos.entry_date ? new Date(pos.entry_date) : null;
+    const daysHeld = entryDate ? Math.floor((today - entryDate) / 86400000) : '--';
+    const divergent = pos.was_divergent ? '&#x2713;' : '&mdash;';
+    const divergentColor = pos.was_divergent ? 'var(--amber)' : 'var(--dim)';
+    const agentCol = agentColor(pos.shadow_profile || '');
+
+    html += '<tr style="cursor:pointer" onclick="showSection(\'replay\')" title="Open Replay for ' + esc(pos.ticker || '') + '">';
+    html += '<td class="ticker">' + esc(pos.ticker || '--') + '</td>';
+    html += '<td style="color:' + agentCol + ';font-weight:600;">' + esc(pos.shadow_profile || '--') + '</td>';
+    html += '<td>' + esc(pos.entry_date ? pos.entry_date.slice(0, 10) : '--') + '</td>';
+    html += '<td>' + (pos.entry_price != null ? '$' + parseFloat(pos.entry_price).toFixed(2) : '--') + '</td>';
+    html += '<td>' + (pos.current_price != null ? '$' + parseFloat(pos.current_price).toFixed(2) : '--') + '</td>';
+    html += '<td style="font-weight:700;color:' + pnlColor + ';">' + (pos.current_pnl_pct != null ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%' : '--') + '</td>';
+    html += '<td style="text-align:center;">' + esc(String(daysHeld)) + '</td>';
+    html += '<td style="text-align:center;color:' + divergentColor + ';">' + divergent + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
 }
 
 

@@ -833,8 +833,61 @@ Goal: 19→16 scripts, 30→26 tables, 15→9 tabs, 2 daemons eliminated, ~2,350
 
 ---
 
+## Shadow P&L Tracker Build
+
+Source: Slack thread 1776138502.829629 (#all-lions-awaken)
+Completion thread: 1775527228.672159
+
+Per-agent virtual portfolio system. Every shadow "enter" call becomes a tracked position.
+Fixed $10K position sizing for fair comparison across all 6 shadow agents.
+
+---
+
+### Wave 1 — Schema
+
+### TASK-SP-01 . DB-AGENT . [DONE]
+**Goal:** Create migration with two new tables + fix shadow_type mislabeling. (A) `shadow_positions` — shadow_profile text, ticker text, entry_date date, entry_price numeric, position_size_usd numeric DEFAULT 10000, position_size_shares numeric, shadow_chain_id uuid FK inference_chains, shadow_divergence_id uuid FK shadow_divergences, was_divergent bool, vs_live_decision text, current_price numeric, current_pnl numeric, current_pnl_pct numeric, peak_pnl_pct numeric, status text CHECK IN (open, closed, stopped, expired), exit_date date, exit_price numeric, final_pnl numeric, final_pnl_pct numeric, close_reason text CHECK IN (time_stop, profit_target_1, profit_target_2, trailing_stop, stop_loss, manual), shadow_was_right bool, created_at timestamptz DEFAULT now(). Indexes: shadow_profile, (ticker, entry_date), status. RLS service-role-only. (B) `shadow_performance` — shadow_profile text, week_start date, UNIQUE(shadow_profile, week_start), trades_opened int, trades_closed int, trades_won int, trades_lost int, win_rate_pct numeric, total_pnl numeric, avg_pnl_per_trade numeric, best_trade_pnl numeric, worst_trade_pnl numeric, divergent_trades int, divergent_win_rate numeric, live_pnl_same_period numeric, vs_live_delta numeric, dwm_weight_start numeric, dwm_weight_end numeric, created_at timestamptz DEFAULT now(). RLS service-role-only. (C) Fix mislabeled shadow_type: `UPDATE strategy_profiles SET shadow_type = 'FORM4_INSIDER' WHERE profile_name = 'FORM4_INSIDER'; UPDATE strategy_profiles SET shadow_type = 'OPTIONS_FLOW' WHERE profile_name = 'OPTIONS_FLOW';`
+**Acceptance:** Both tables exist with correct columns/constraints. shadow_type fix applied.
+**Depends on:** nothing
+
+---
+
+### Wave 2 — Scripts + API (parallel — all touch different files)
+
+### TASK-SP-02 . BACKEND-AGENT . [DONE]
+**Goal:** Create `scripts/shadow_position_opener.py`. Runs after each scanner. Finds shadow inference_chains with final_decision IN (enter, strong_enter) for today. Fetches close price via yfinance. Inserts into shadow_positions if not already exists for that profile+ticker+date. Sets was_divergent=true if matching shadow_divergences row exists. Sets vs_live_decision from live CONGRESS_MIRROR chain on same ticker. Uses `from common import sb_get, slack_notify` + `from tracer import PipelineTracer, traced`. Crontab: 15 7 and 30 10, weekdays. Update manifest.py.
+**Acceptance:** Script imports cleanly. Handles empty inference_chains gracefully. Ruff clean.
+**Depends on:** TASK-SP-01
+
+### TASK-SP-03 . BACKEND-AGENT . [DONE]
+**Goal:** Create `scripts/shadow_mark_to_market.py`. Runs 6PM nightly. Fetches prices for all open shadow_positions via yfinance. Updates current_price, current_pnl, current_pnl_pct, peak_pnl_pct. Exit rules: time_stop at 10 trading days, stop_loss at -7.5%, profit_target_1 at +15%, profit_target_2 at +25%. On exit: status=closed, set final_pnl/pct, close_reason, shadow_was_right=(final_pnl > 0). Uses common.py imports. Crontab: 0 18 weekdays. Update manifest.py.
+**Acceptance:** Script imports cleanly. Handles no open positions gracefully. Ruff clean.
+**Depends on:** TASK-SP-01
+
+### TASK-SP-04 . BACKEND-AGENT . [DONE]
+**Goal:** Create `scripts/shadow_performance_rollup.py`. Runs Sunday. Aggregates closed positions per agent into shadow_performance. Pulls live_pnl_same_period from trade_decisions. Upserts on profile+week_start. Uses common.py imports. Crontab: 0 9 Sunday. Update manifest.py.
+**Acceptance:** Script imports cleanly. Ruff clean.
+**Depends on:** TASK-SP-01
+
+### TASK-SP-05 . BACKEND-AGENT . [DONE]
+**Goal:** Add 4 API routes to dashboard. Use existing APIRouter pattern in `dashboard/routes/ensemble.py`: (A) GET /api/shadow/positions (params: profile, status) — list shadow_positions. (B) GET /api/shadow/positions/{id} — single position with joined inference chain tumblers. (C) GET /api/shadow/performance (param: weeks, default 12) — weekly performance data. (D) GET /api/shadow/leaderboard — lifetime pnl, win rate, divergence win rate, dwm_weight, open count per agent. All routes require _require_auth. Deploy to Fly.io.
+**Acceptance:** All 4 routes return valid JSON. Ruff clean. Deployed.
+**Depends on:** TASK-SP-01
+
+---
+
+### Wave 3 — Dashboard
+
+### TASK-SP-06 . FRONTEND-AGENT . [DONE]
+**Goal:** Add "Performance" tab to dashboard. Nav pill + section-performance. 3 panels: (1) Leaderboard table — agents ranked by total P&L. Columns: Agent, Open Positions, Closed, Win Rate, Total P&L, Divergence Win Rate, DWM Weight. Green/red P&L, cyan/dim DWM. (2) Weekly P&L chart — 12 weeks grouped bars per agent. Simple HTML bars, no heavy libs. Live profile P&L as reference line. (3) Open positions grid — all status=open. Columns: Ticker, Agent, Entry Date, Entry Price, Current Price, P&L%, Days Held, Divergent. Color coding: >+5% green, 0-5% cyan, -5-0% amber, <-5% red. Click row links to Replay tab. Match existing theme: Orbitron, var(--) CSS, trade-table class, esc() on dynamic strings.
+**Acceptance:** Performance tab renders with data from all 4 API routes. No JS errors. Font sizes >= 0.85rem.
+**Depends on:** TASK-SP-05
+
+---
+
 ## Completed — Prior Sessions
 
+### Streamline Consolidation (2026-04-13): TASK-SLIM-01 through TASK-SLIM-09 . [DONE]
 ### Pre-Launch Remediation (2026-04-11/12): TASK-FIX-01 through TASK-FIX-17 . [DONE]
 ### Workflow AI Assistant (2026-04-11): TASK-WF-01 through TASK-WF-05 . [DONE]
 ### Kronos Shadow Agent (2026-04-09/10): TASK-K00 through TASK-K06 . [DONE]

@@ -146,6 +146,226 @@ async def get_shadow_kronos_latest(request: Request, oc_session: str | None = Co
 
 
 # ============================================================================
+# Shadow P&L Routes
+# ============================================================================
+
+
+@router.get("/api/shadow/positions")
+async def get_shadow_positions(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    profile: str | None = None,
+    status: str = "open",
+) -> list:
+    _require_auth(request, oc_session)
+    valid_statuses = {"open", "closed", "stopped", "expired"}
+    if status not in valid_statuses:
+        status = "open"
+    client = get_http()
+    params: dict[str, str] = {
+        "select": "id,shadow_profile,ticker,entry_date,entry_price,"
+                  "position_size_usd,position_size_shares,"
+                  "shadow_chain_id,shadow_divergence_id,"
+                  "was_divergent,vs_live_decision,"
+                  "current_price,current_pnl,current_pnl_pct,peak_pnl_pct,"
+                  "status,exit_date,exit_price,final_pnl,final_pnl_pct,"
+                  "close_reason,shadow_was_right,created_at",
+        "status": f"eq.{status}",
+        "order": "created_at.desc",
+        "limit": "200",
+    }
+    if profile:
+        params["shadow_profile"] = f"eq.{profile}"
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/shadow_positions",
+        headers=sb_headers(),
+        params=params,
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@router.get("/api/shadow/positions/{position_id}")
+async def get_shadow_position_detail(
+    position_id: str,
+    request: Request,
+    oc_session: str | None = Cookie(None),
+):
+    from shared import _validate_uuid
+
+    _require_auth(request, oc_session)
+    _validate_uuid(position_id)
+    client = get_http()
+
+    # Fetch the position row
+    pos_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/shadow_positions",
+        headers=sb_headers(),
+        params={
+            "select": "id,shadow_profile,ticker,entry_date,entry_price,"
+                      "position_size_usd,position_size_shares,"
+                      "shadow_chain_id,shadow_divergence_id,"
+                      "was_divergent,vs_live_decision,"
+                      "current_price,current_pnl,current_pnl_pct,peak_pnl_pct,"
+                      "status,exit_date,exit_price,final_pnl,final_pnl_pct,"
+                      "close_reason,shadow_was_right,created_at",
+            "id": f"eq.{position_id}",
+            "limit": "1",
+        },
+    )
+    rows = pos_resp.json() if pos_resp.status_code == 200 else []
+    if not rows:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Shadow position not found")
+
+    position = rows[0]
+
+    # Fetch linked inference chain if present
+    chain_detail = None
+    shadow_chain_id = position.get("shadow_chain_id")
+    if shadow_chain_id:
+        chain_resp = await client.get(
+            f"{SUPABASE_URL}/rest/v1/inference_chains",
+            headers=sb_headers(),
+            params={
+                "select": "id,ticker,chain_date,scan_type,profile_name,"
+                          "tumblers,final_decision,final_confidence,"
+                          "stopping_reason,total_duration_ms,created_at",
+                "id": f"eq.{shadow_chain_id}",
+                "limit": "1",
+            },
+        )
+        chain_rows = chain_resp.json() if chain_resp.status_code == 200 else []
+        if chain_rows:
+            chain_detail = chain_rows[0]
+
+    return {"position": position, "chain": chain_detail}
+
+
+@router.get("/api/shadow/performance")
+async def get_shadow_performance(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+    weeks: int = 12,
+) -> list:
+    _require_auth(request, oc_session)
+    weeks = min(max(1, weeks), 52)
+    # 5 profiles × weeks rows maximum
+    limit = weeks * 5
+    client = get_http()
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/shadow_performance",
+        headers=sb_headers(),
+        params={
+            "select": "id,shadow_profile,week_start,"
+                      "trades_opened,trades_closed,trades_won,trades_lost,"
+                      "win_rate_pct,total_pnl,avg_pnl_per_trade,"
+                      "best_trade_pnl,worst_trade_pnl,"
+                      "divergent_trades,divergent_win_rate,"
+                      "live_pnl_same_period,vs_live_delta,"
+                      "dwm_weight_start,dwm_weight_end,created_at",
+            "order": "week_start.desc",
+            "limit": str(limit),
+        },
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+@router.get("/api/shadow/leaderboard")
+async def get_shadow_leaderboard(
+    request: Request,
+    oc_session: str | None = Cookie(None),
+) -> list:
+    _require_auth(request, oc_session)
+    client = get_http()
+
+    # Fetch all shadow positions (closed for P&L math, open for open_count)
+    pos_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/shadow_positions",
+        headers=sb_headers(),
+        params={
+            "select": "shadow_profile,status,final_pnl,shadow_was_right,was_divergent",
+            "limit": "5000",
+        },
+    )
+    positions = pos_resp.json() if pos_resp.status_code == 200 else []
+
+    # Fetch shadow profiles for dwm_weight
+    prof_resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/strategy_profiles",
+        headers=sb_headers(),
+        params={
+            "select": "profile_name,dwm_weight,fitness_score",
+            "is_shadow": "eq.true",
+        },
+    )
+    profiles = prof_resp.json() if prof_resp.status_code == 200 else []
+    dwm_by_profile: dict[str, float] = {
+        p["profile_name"]: float(p.get("dwm_weight") or 1.0) for p in profiles
+    }
+    fitness_by_profile: dict[str, float] = {
+        p["profile_name"]: float(p.get("fitness_score") or 0.0) for p in profiles
+    }
+
+    # Aggregate per profile
+    stats: dict[str, dict] = {}
+    for row in positions:
+        prof = row["shadow_profile"]
+        if prof not in stats:
+            stats[prof] = {
+                "shadow_profile": prof,
+                "total_pnl": 0.0,
+                "closed_count": 0,
+                "open_count": 0,
+                "wins": 0,
+                "divergent_closed": 0,
+                "divergent_wins": 0,
+            }
+        s = stats[prof]
+        if row["status"] == "open":
+            s["open_count"] += 1
+        else:
+            s["closed_count"] += 1
+            s["total_pnl"] += float(row.get("final_pnl") or 0.0)
+            if row.get("shadow_was_right"):
+                s["wins"] += 1
+            if row.get("was_divergent"):
+                s["divergent_closed"] += 1
+                if row.get("shadow_was_right"):
+                    s["divergent_wins"] += 1
+
+    # Build result list — include profiles with no positions yet
+    all_profiles: set[str] = set(stats.keys()) | set(dwm_by_profile.keys())
+    result = []
+    for prof in all_profiles:
+        s = stats.get(prof, {
+            "shadow_profile": prof,
+            "total_pnl": 0.0,
+            "closed_count": 0,
+            "open_count": 0,
+            "wins": 0,
+            "divergent_closed": 0,
+            "divergent_wins": 0,
+        })
+        closed = s["closed_count"]
+        div_closed = s["divergent_closed"]
+        result.append({
+            "shadow_profile": prof,
+            "total_pnl": round(s["total_pnl"], 2),
+            "win_rate": round(s["wins"] / closed, 4) if closed > 0 else None,
+            "open_count": s["open_count"],
+            "closed_count": closed,
+            "divergent_win_rate": (
+                round(s["divergent_wins"] / div_closed, 4) if div_closed > 0 else None
+            ),
+            "dwm_weight": dwm_by_profile.get(prof),
+            "fitness_score": fitness_by_profile.get(prof),
+        })
+
+    return sorted(result, key=lambda x: x["total_pnl"], reverse=True)
+
+
+# ============================================================================
 # Signal Feed Routes
 # ============================================================================
 
