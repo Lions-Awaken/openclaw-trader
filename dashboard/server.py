@@ -39,6 +39,7 @@ from routes.trading import router as trading_router
 
 # Shared helpers (also used by route modules via their own import)
 from shared import (
+    PASSWORD_HASH,
     SUPABASE_URL,
     _is_authed,
     _require_auth,
@@ -135,15 +136,7 @@ ALLOWED_BUDGET_KEYS = {"daily_claude_budget", "daily_perplexity_budget"}
 # Auth config (signing key, sessions, rate limiting)
 # ============================================================================
 
-DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_KEY", "")
-if not DASHBOARD_PASSWORD:
-    DASHBOARD_PASSWORD = secrets.token_urlsafe(24)
-    print(
-        "[Dashboard] WARNING: No DASHBOARD_KEY set. Using auto-generated password. "
-        "Set DASHBOARD_KEY env var."
-    )
-
-PASSWORD_HASH = hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
+# PASSWORD_HASH imported from shared.py — single source of truth
 
 _SESSION_SIGNING_SALT = os.environ.get("SESSION_SIGNING_SALT", "oc-session-stable-v1")
 if _SESSION_SIGNING_SALT == "oc-session-stable-v1":
