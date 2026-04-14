@@ -30,7 +30,10 @@ openclaw-trader/
 │   ├── ingest_signals.py     # Consolidated Form 4 + options flow ingest (form4 @ 6AM, options @ 7AM weekdays)
 │   ├── calibrator.py         # Weekly calibration + outcome grading + shadow profile DWM weighting
 │   ├── post_trade_analysis.py # Post-trade RAG ingestion — triggered on every trade close
-│   └── meta_analysis.py      # Daily + weekly meta-analysis with RAG + chain + shadow divergence context
+│   ├── meta_analysis.py      # Daily + weekly meta-analysis with RAG + chain + shadow divergence context
+│   ├── shadow_position_opener.py  # Opens virtual positions from shadow enter calls (2x daily after scanner)
+│   ├── shadow_mark_to_market.py   # Nightly shadow position price update + exit rules
+│   └── shadow_performance_rollup.py # Weekly shadow agent performance aggregation
 ├── dashboard/
 │   ├── server.py             # FastAPI app init, auth, middleware (535 lines)
 │   ├── shared.py             # Shared helpers: sb_headers, get_http, auth, validation
@@ -38,10 +41,10 @@ openclaw-trader/
 │   │   ├── trading.py        # Account, positions, trades, pipeline, economics
 │   │   ├── health.py         # Health check, simulator, preflight routes
 │   │   ├── system.py         # System metrics, SSE stream, status
-│   │   ├── ensemble.py       # Shadow profiles, signals, divergences
+│   │   ├── ensemble.py       # Shadow profiles, signals, divergences, P&L tracking
 │   │   ├── replay.py         # Trade replay viewer routes
 │   │   └── chat.py           # AI chat with tool dispatch
-│   ├── index.html            # Dashboard UI (9 tabs)
+│   ├── index.html            # Dashboard UI (10 tabs)
 │   ├── login.html            # Auth page
 │   ├── backtest.py           # Backtesting engine
 │   ├── fly.toml              # Fly.io deployment config
@@ -76,6 +79,8 @@ openclaw-trader/
 | `trade_learnings` | Post-trade RAG post-mortems with embeddings (180-day retention) |
 | `trade_decisions` | Entry/exit records linking orders to inference chains |
 | `strategy_profiles` | Trading profiles (CONSERVATIVE, UNLEASHED) with all parameters |
+| `shadow_positions` | Per-agent virtual portfolio positions ($10K fixed sizing) |
+| `shadow_performance` | Weekly aggregated shadow agent performance stats |
 | `system_stats` | System telemetry (CPU, RAM, GPU temps, service health) from ridley |
 
 ## Tumbler Engine Architecture
@@ -137,11 +142,14 @@ Ridley is in **PDT (America/Los_Angeles)**. Crontab uses `SHELL=/bin/bash` (dash
 | daily_report.py | 14:00 M-F | daily_report | None | ~0.5GB |
 | meta_analysis.py weekly | 16:00 Sun | meta_weekly | Claude + embed | ~3.5GB |
 | calibrator.py | 16:30 Sun | calibrator | None | ~2.6GB |
+| shadow_position_opener.py | 7:15, 10:30 M-F | shadow_position_opener | None | ~1GB |
+| shadow_mark_to_market.py | 18:00 M-F | shadow_mark_to_market | None | ~1GB |
+| shadow_performance_rollup.py | 9:00 Sun | shadow_performance_rollup | None | ~1GB |
 | system_monitor.py | @reboot daemon | system_monitor | None | ~0.5GB |
 
 ## Dashboard Tabs
 
-Dashboard | Pipeline | Trade Log | Positions | Health | Replay | Ensemble | Economics | How It Works
+Dashboard | Pipeline | Trade Log | Positions | Health | Replay | Ensemble | Performance | Economics | How It Works
 
 ## Observability
 
