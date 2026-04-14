@@ -235,8 +235,10 @@ async def login_page(request: Request, oc_session: str | None = Cookie(None)):
     if _is_authed(request, oc_session):
         return RedirectResponse("/", status_code=302)
     csrf = _create_csrf()
-    return FileResponse(
-        Path(__file__).parent / "login.html",
+    html = (Path(__file__).parent / "login.html").read_text()
+    html = html.replace("CSRF_TOKEN_PLACEHOLDER", csrf)
+    return HTMLResponse(
+        html,
         headers={
             "X-CSRF-Token": csrf,
             "Cache-Control": "no-store, no-cache, must-revalidate",
