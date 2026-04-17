@@ -56,14 +56,12 @@ def _fetch_shadow_profiles() -> list[dict]:
 
 @traced("shadow_rollup")
 def _fetch_closed_positions(profile_name: str, week_start: date, week_end: date) -> list[dict]:
-    """Return shadow_positions closed within [week_start, week_end)."""
-    return sb_get("shadow_positions", {
-        "select": "id,final_pnl,was_divergent,shadow_was_right,status",
-        "shadow_profile": f"eq.{profile_name}",
-        "status": "in.(closed,stopped,expired)",
-        "exit_date": f"gte.{week_start.isoformat()}",
-        "exit_date": f"lt.{week_end.isoformat()}",  # noqa: F601 — Supabase REST uses repeated params
-    })
+    """Return shadow_positions closed within [week_start, week_end).
+
+    Delegates to _fetch_closed_positions_raw which handles the duplicate
+    exit_date params correctly via a list-of-tuples.
+    """
+    return _fetch_closed_positions_raw(profile_name, week_start, week_end)
 
 
 def _fetch_closed_positions_raw(

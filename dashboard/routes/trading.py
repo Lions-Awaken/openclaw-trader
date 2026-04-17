@@ -1,7 +1,8 @@
 """
 Trading Data API — /api/account, /api/positions, /api/trades, /api/performance,
-/api/regime, /api/pipeline/*, /api/inference/*, /api/economics/*, /api/budget/*,
-/api/rag/*, /api/sitrep, /api/strategy/*, /api/trade-learnings/*
+/api/regime, /api/pipeline/*, /api/signals/evaluations, /api/inference/*,
+/api/economics/*, /api/budget/*, /api/rag/*, /api/sitrep, /api/strategy/*,
+/api/trade-learnings/*, /api/logs/*
 """
 
 import asyncio
@@ -106,11 +107,22 @@ async def get_performance(request: Request, oc_session: str | None = Cookie(None
     if not SUPABASE_URL:
         return {}
     client = get_http()
-    resp = await client.get(f"{SUPABASE_URL}/rest/v1/account_performance", headers=sb_headers())
-    if resp.status_code == 200:
-        rows = resp.json()
-        return rows[0] if rows else {}
-    return {}
+    perf_resp, date_resp = await asyncio.gather(
+        client.get(f"{SUPABASE_URL}/rest/v1/account_performance", headers=sb_headers()),
+        client.get(
+            f"{SUPABASE_URL}/rest/v1/trade_decisions",
+            headers=sb_headers(),
+            params={"select": "created_at", "order": "created_at.desc", "limit": "1"},
+        ),
+    )
+    result = {}
+    if perf_resp.status_code == 200:
+        rows = perf_resp.json()
+        result = rows[0] if rows else {}
+    if date_resp.status_code == 200:
+        date_rows = date_resp.json()
+        result["last_trade_at"] = date_rows[0]["created_at"] if date_rows else None
+    return result
 
 
 @router.get("/api/regime")
@@ -118,7 +130,18 @@ async def get_regime(request: Request, oc_session: str | None = Cookie(None)):
     _require_auth(request, oc_session)
     regime_file = Path.home() / ".openclaw/workspace/memory/regime-current.json"
     if regime_file.exists():
-        return json.loads(regime_file.read_text())
+        data = json.loads(regime_file.read_text())
+        ts = data.get("timestamp")
+        if ts:
+            try:
+                updated = datetime.fromisoformat(ts)
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(timezone.utc) - updated).days
+                data["age_days"] = age_days
+            except (ValueError, TypeError):
+                pass
+        return data
     return {"regime": "UNKNOWN", "action": "No regime data — run regime.py first"}
 
 
@@ -212,20 +235,6 @@ async def get_pipeline_run_detail(
 # ============================================================================
 # Signals API Routes
 # ============================================================================
-
-
-@router.get("/api/signals/accuracy")
-async def get_signal_accuracy(request: Request, oc_session: str | None = Cookie(None)):
-    _require_auth(request, oc_session)
-    if not SUPABASE_URL:
-        return []
-    client = get_http()
-    resp = await client.get(
-        f"{SUPABASE_URL}/rest/v1/signal_accuracy_report",
-        headers=sb_headers(),
-        params={"order": "week_start.desc", "limit": "12"},
-    )
-    return resp.json() if resp.status_code == 200 else []
 
 
 @router.get("/api/signals/evaluations")
