@@ -382,6 +382,17 @@ EVENT_TRIGGERED: list[ManifestEntry] = [
         writes_to_pipeline_runs=False,
         freshness_hours=None,
     ),
+    ManifestEntry(
+        name="ollama_watchdog",
+        script="scripts/ollama_watchdog.py",
+        pipeline_name="ollama_watchdog",
+        schedule="25 5,30 6,55 8,45 12 * * 1-5",
+        schedule_desc="Pre-cron Ollama health check + auto-restart (4x daily M-F)",
+        expected_steps=[],
+        criticality="high",
+        writes_to_pipeline_runs=False,
+        freshness_hours=None,
+    ),
 ]
 
 ALL_ENTRIES: list[ManifestEntry] = MANIFEST + EVENT_TRIGGERED
