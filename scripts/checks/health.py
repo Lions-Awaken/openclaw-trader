@@ -377,7 +377,8 @@ def check_301_crontab_entries():
 
 
 def check_302_script_files_exist():
-    script_dir = os.path.dirname(__file__)
+    # health.py lives in scripts/checks/ — go up one level to scripts/
+    script_dir = os.path.dirname(os.path.dirname(__file__))
     required_scripts = [
         "scanner.py", "inference_engine.py", "calibrator.py", "meta_analysis.py",
         "common.py", "tracer.py", "shadow_profiles.py", "health_check.py",
@@ -753,7 +754,9 @@ def _check_dashboard_endpoint(path: str, label: str):
     if not _is_dashboard_running():
         return "skip", "dashboard not running", f"{path} returns data", ""
     try:
-        resp = _client.get(f"http://localhost:8000{path}", timeout=5.0)
+        resp = _client.get(f"http://localhost:9090{path}", timeout=5.0)
+        if resp.status_code == 401:
+            return "pass", "HTTP 401 (route exists, auth required)", f"{path} reachable", ""
         if resp.status_code == 200:
             data = resp.json()
             if data:
@@ -886,7 +889,8 @@ def check_1001_crontab_vs_manifest():
 
 def check_1002_script_files_on_disk():
     from manifest import ALL_ENTRIES
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # health.py is at scripts/checks/health.py — 3 dirnames to reach project root
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     missing = []
     for entry in ALL_ENTRIES:
         full_path = os.path.join(project_root, entry.script)

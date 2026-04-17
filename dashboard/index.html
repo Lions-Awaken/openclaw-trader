@@ -2801,20 +2801,33 @@ async function loadDashboard() {
     pnlEl.className = 'value ' + pnlClass(totalPnl);
   } catch(e) { console.error('Account fetch failed:', e); }
 
-  // Performance (win rate, trade count)
+  // Performance (win rate, trade count, staleness)
   try {
     const perf = await fetch('/api/performance').then(r => r.json());
     document.getElementById('win-rate').textContent = (perf.win_rate_pct || 0) + '%';
-    document.getElementById('total-trades').textContent = perf.total_trades || 0;
+    const tradesEl = document.getElementById('total-trades');
+    tradesEl.textContent = perf.total_trades || 0;
+    const oldStale = document.getElementById('perf-stale-tag');
+    if (oldStale) oldStale.remove();
+    if (perf.last_trade_at) {
+      const days = Math.floor((Date.now() - new Date(perf.last_trade_at).getTime()) / 86400000);
+      if (days > 3) {
+        tradesEl.insertAdjacentHTML('afterend',
+          `<div id="perf-stale-tag" style="font-size:0.75rem;color:var(--yellow);margin-top:4px">last trade ${days}d ago</div>`);
+      }
+    }
   } catch(e) { console.error('Performance fetch failed:', e); }
 
   // Regime
   try {
     const regime = await fetch('/api/regime').then(r => r.json());
     const el = document.getElementById('regime-display');
+    const staleTag = regime.age_days > 1
+      ? `<span style="font-size:0.75rem;color:var(--${regime.age_days > 3 ? 'red' : 'yellow'});margin-left:12px">${regime.age_days}d old</span>`
+      : '';
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-        <span class="regime-badge regime-${regime.regime}">${regime.regime}</span>
+        <span class="regime-badge regime-${regime.regime}">${regime.regime}</span>${staleTag}
         <span style="color:var(--dim)">${regime.action || ''}</span>
       </div>
       ${regime.spy_price ? `<div style="margin-top:12px;font-size:0.85rem;color:var(--dim)">
