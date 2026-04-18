@@ -334,6 +334,55 @@ body {
   box-shadow: 0 0 16px rgba(255,51,68,0.4) !important;
 }
 
+/* Parallax title — illuminated dropcap hammer replacing the 'P' */
+.parallax-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.02em;
+  margin: 0;
+}
+.parallax-title .parallax-tail {
+  display: inline-block;
+  /* tail text inherits h1 font/color; slight left margin to pair with dropcap */
+  margin-left: 0.04em;
+}
+.dropcap-hammer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15em;
+  height: 1.15em;
+  padding: 0.1em;
+  border: 3px solid var(--cyan);
+  border-radius: 14px;
+  background: rgba(34, 211, 238, 0.08);
+  color: var(--cyan);
+  box-shadow:
+    0 0 18px rgba(34, 211, 238, 0.45),
+    0 0 40px rgba(34, 211, 238, 0.18),
+    inset 0 0 14px rgba(34, 211, 238, 0.22);
+  text-decoration: none;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  position: relative;
+  top: -0.02em;
+}
+.dropcap-hammer svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.55));
+}
+.dropcap-hammer:hover {
+  border-color: var(--cyan);
+  background: rgba(34, 211, 238, 0.14);
+  box-shadow:
+    0 0 28px rgba(34, 211, 238, 0.65),
+    0 0 60px rgba(34, 211, 238, 0.25),
+    inset 0 0 20px rgba(34, 211, 238, 0.35);
+  transform: scale(1.04);
+}
+
 .share-panel {
   margin-top: 16px;
   border: 2px solid rgba(168,85,247,0.3);
