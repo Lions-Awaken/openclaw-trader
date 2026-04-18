@@ -96,11 +96,20 @@ def _test_alive() -> tuple[bool, str]:
 
 
 def _restart_ollama() -> tuple[bool, str]:
-    """Drop page cache + restart Ollama service. Requires sudo."""
+    """Compact memory, drop caches, restart Ollama. Requires sudo."""
     try:
-        # Drop caches to defragment unified memory
+        # Compact memory first (defragment without evicting)
         subprocess.run(
-            ["sudo", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches"],
+            ["sudo", "sh", "-c",
+             "echo 1 > /proc/sys/vm/compact_memory"],
+            check=False,  # may not exist on all kernels
+            capture_output=True,
+            timeout=10,
+        )
+        # Then drop caches as backup (handles "genuinely too full")
+        subprocess.run(
+            ["sudo", "sh", "-c",
+             "sync; echo 3 > /proc/sys/vm/drop_caches"],
             check=True,
             capture_output=True,
             timeout=10,
