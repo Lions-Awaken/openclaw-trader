@@ -585,7 +585,7 @@ def seed() -> None:
             "trigger_conditions": tmpl["trigger_conditions"],
             "times_matched": tmpl["times_matched"],
             "times_correct": tmpl["times_correct"],
-            "success_rate": tmpl["success_rate"],
+            # success_rate is a generated column (times_correct/times_matched)
             "avg_return_pct": tmpl["avg_return_pct"],
             "template_confidence": tmpl["template_confidence"],
             "min_occurrences_for_trust": 1,
