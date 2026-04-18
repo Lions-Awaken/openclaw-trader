@@ -305,7 +305,7 @@ def generate_embedding(text: str) -> list[float] | None:
     try:
         resp = _client.post(
             f"{OLLAMA_URL}/api/embeddings",
-            json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "0"},
+            json={"model": "nomic-embed-text", "prompt": text, "keep_alive": "5m"},
             timeout=60.0,
         )
         if resp.status_code == 200:
