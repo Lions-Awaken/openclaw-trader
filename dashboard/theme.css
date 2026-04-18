@@ -334,14 +334,16 @@ body {
 /* Parallax title — illuminated dropcap hammer replacing the 'P' */
 .parallax-title {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.02em;
   margin: 0;
+  line-height: 1;
 }
 .parallax-title .parallax-tail {
   display: inline-block;
   /* tail text inherits h1 font/color; slight left margin to pair with dropcap */
   margin-left: 0.04em;
+  line-height: 1;
 }
 .dropcap-hammer {
   display: inline-flex;
@@ -354,7 +356,10 @@ body {
   transition: all 0.2s ease;
   flex-shrink: 0;
   position: relative;
-  top: -0.05em;
+  /* SVG viewBox has ~8% empty space below the visible hammer path.
+     Shift the container down so the visible hammer bottom lines up
+     with the bottom of the 'arallax' text. */
+  top: 0.13em;
 }
 .dropcap-hammer svg {
   width: 100%;
