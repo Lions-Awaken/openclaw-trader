@@ -158,7 +158,7 @@ def call_ollama_qwen(prompt: str) -> str | None:
         "prompt": prompt,
         "stream": False,
         "options": {"num_predict": 512, "temperature": 0.3},
-        "keep_alive": "0",
+        "keep_alive": "5m",
     }
     try:
         with httpx.Client(timeout=60.0) as client:
