@@ -344,6 +344,10 @@ body {
   /* tail text inherits h1 font/color; slight left margin to pair with dropcap */
   margin-left: 0.04em;
   line-height: 1;
+  position: relative;
+  /* Push the text down so its bottom lines up with the visible hammer bottom.
+     SVG viewBox has ~8% empty space below the visible hammer path. */
+  top: 0.22em;
 }
 .dropcap-hammer {
   display: inline-flex;
@@ -356,10 +360,7 @@ body {
   transition: all 0.2s ease;
   flex-shrink: 0;
   position: relative;
-  /* SVG viewBox has ~8% empty space below the visible hammer path.
-     Shift the container down so the visible hammer bottom lines up
-     with the bottom of the 'arallax' text. */
-  top: 0.22em;
+  top: 0;
 }
 .dropcap-hammer svg {
   width: 100%;
