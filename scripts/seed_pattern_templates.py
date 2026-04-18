@@ -30,7 +30,7 @@ TEMPLATES = [
             "average volume. Prior trend was up. Measured move target "
             "equals the consolidation range added to breakout level."
         ),
-        "pattern_category": "breakout",
+        "pattern_category": "momentum_continuation",
         "trigger_conditions": {
             "atr_contraction_pct": 40,
             "consolidation_weeks": "2-4",
@@ -51,7 +51,7 @@ TEMPLATES = [
             "on volume surge above the base high. Strong institutional "
             "accumulation visible in up/down volume ratio."
         ),
-        "pattern_category": "breakout",
+        "pattern_category": "momentum_continuation",
         "trigger_conditions": {
             "base_depth_max_pct": 15,
             "base_weeks": "5-8",
@@ -72,7 +72,7 @@ TEMPLATES = [
             "on declining volume. Breakout above handle high on "
             "volume expansion. Classic institutional accumulation."
         ),
-        "pattern_category": "breakout",
+        "pattern_category": "momentum_continuation",
         "trigger_conditions": {
             "cup_depth_pct": "15-35",
             "cup_weeks": "6-12",
@@ -94,7 +94,7 @@ TEMPLATES = [
             "a bullish reversal candle (hammer, engulfing). RSI "
             "pulls back to 40-50 range from overbought, not oversold."
         ),
-        "pattern_category": "pullback",
+        "pattern_category": "mean_reversion",
         "trigger_conditions": {
             "trend": "up",
             "ma_test": "20 EMA",
@@ -116,7 +116,7 @@ TEMPLATES = [
             "Volume contracts during pullback. Bounce confirmed by "
             "close above prior day high on expanding volume."
         ),
-        "pattern_category": "pullback",
+        "pattern_category": "mean_reversion",
         "trigger_conditions": {
             "trend": "up",
             "ma_test": "50 SMA",
@@ -138,7 +138,7 @@ TEMPLATES = [
             "within the first 90 minutes. Indicates institutional "
             "absorption of weak-hand selling."
         ),
-        "pattern_category": "pullback",
+        "pattern_category": "mean_reversion",
         "trigger_conditions": {
             "intraday_pattern": True,
             "vwap_undercut": True,
@@ -161,7 +161,7 @@ TEMPLATES = [
             "trim). Fills 50%+ of gap within 3 days on increasing "
             "buy volume. Sector peers are stable or rising."
         ),
-        "pattern_category": "gap_reversal",
+        "pattern_category": "catalyst_response",
         "trigger_conditions": {
             "gap_direction": "down",
             "gap_pct": "5-15",
@@ -185,7 +185,7 @@ TEMPLATES = [
             "interest creates squeeze potential. Recovery begins "
             "within 1-3 days with above-average volume."
         ),
-        "pattern_category": "gap_reversal",
+        "pattern_category": "catalyst_response",
         "trigger_conditions": {
             "gap_direction": "down",
             "gap_pct": "8-20",
@@ -207,7 +207,7 @@ TEMPLATES = [
             "within 3 days — becomes new support. Indicates "
             "institutional demand exceeding supply at all prices."
         ),
-        "pattern_category": "gap_reversal",
+        "pattern_category": "catalyst_response",
         "trigger_conditions": {
             "gap_direction": "up",
             "gap_pct": "5-10",
@@ -230,7 +230,7 @@ TEMPLATES = [
             "up on earnings and holds above gap level. Prior RS "
             "ranking above 80. Institutional sponsorship increasing."
         ),
-        "pattern_category": "earnings_momentum",
+        "pattern_category": "catalyst_response",
         "trigger_conditions": {
             "eps_acceleration": True,
             "revenue_acceleration": True,
@@ -253,7 +253,7 @@ TEMPLATES = [
             "upward. The drift is strongest when the beat is a "
             "surprise (low prior estimate dispersion)."
         ),
-        "pattern_category": "earnings_momentum",
+        "pattern_category": "catalyst_response",
         "trigger_conditions": {
             "eps_beat_pct": ">10",
             "initial_reaction": "positive",
@@ -274,7 +274,7 @@ TEMPLATES = [
             "the move). Volume contracts during base formation. "
             "Breakout from this base often leads to continuation."
         ),
-        "pattern_category": "earnings_momentum",
+        "pattern_category": "catalyst_response",
         "trigger_conditions": {
             "earnings_gap_pct": ">10",
             "base_period_weeks": "3-6",
@@ -296,7 +296,7 @@ TEMPLATES = [
             "divergence). Volume spikes on the support test. "
             "Fundamentals unchanged — selling is technical/sentiment."
         ),
-        "pattern_category": "oversold_bounce",
+        "pattern_category": "mean_reversion",
         "trigger_conditions": {
             "support_type": "major (200SMA/pivot)",
             "rsi_divergence": "bullish",
@@ -319,7 +319,7 @@ TEMPLATES = [
             "(90%+ stocks below 20 SMA). Bounce on sector-wide "
             "volume climax."
         ),
-        "pattern_category": "oversold_bounce",
+        "pattern_category": "mean_reversion",
         "trigger_conditions": {
             "sector_decline_pct": "10-20",
             "decline_weeks": "1-3",
@@ -341,7 +341,7 @@ TEMPLATES = [
             "RSI above 30 on second test (higher low). Break "
             "above the middle peak confirms reversal."
         ),
-        "pattern_category": "oversold_bounce",
+        "pattern_category": "mean_reversion",
         "trigger_conditions": {
             "pattern": "double bottom",
             "near_52w_low": True,
@@ -364,7 +364,7 @@ TEMPLATES = [
             "RS divergence indicates the stock is outperforming "
             "during market weakness — strong institutional demand."
         ),
-        "pattern_category": "relative_strength",
+        "pattern_category": "momentum_continuation",
         "trigger_conditions": {
             "rs_new_high": True,
             "price_new_high": False,
@@ -385,7 +385,7 @@ TEMPLATES = [
             "decile (90th+) over a 4-week period. Often precedes "
             "institutional discovery and further momentum."
         ),
-        "pattern_category": "relative_strength",
+        "pattern_category": "momentum_continuation",
         "trigger_conditions": {
             "rs_prior": "40-60 pctile",
             "rs_current": ">90 pctile",
@@ -405,7 +405,7 @@ TEMPLATES = [
             "turning up from bottom third). Leading stock typically "
             "moves first and furthest during sector rotation."
         ),
-        "pattern_category": "relative_strength",
+        "pattern_category": "momentum_continuation",
         "trigger_conditions": {
             "stock_rs": "sector top",
             "sector_rotation": "turning up from bottom third",
@@ -427,7 +427,7 @@ TEMPLATES = [
             "or during a pullback — signals institutional buying "
             "before a formal breakout."
         ),
-        "pattern_category": "volume_breakout",
+        "pattern_category": "signal_combination",
         "trigger_conditions": {
             "volume": "exceeds max down-vol of prior 10 days",
             "close_position": "upper third of range",
@@ -447,7 +447,7 @@ TEMPLATES = [
             "day sees 3x+ volume with price moving up. The contrast "
             "signals a shift from disinterest to sudden demand."
         ),
-        "pattern_category": "volume_breakout",
+        "pattern_category": "signal_combination",
         "trigger_conditions": {
             "dry_up_threshold": "50% below avg",
             "dry_up_days": 5,
@@ -470,7 +470,7 @@ TEMPLATES = [
             "shorts and triggers short-covering rally. Often leads "
             "to a sharp reversal."
         ),
-        "pattern_category": "failed_breakdown",
+        "pattern_category": "mean_reversion",
         "trigger_conditions": {
             "support_break": True,
             "recovery_days": "1-3",
@@ -492,7 +492,7 @@ TEMPLATES = [
             "failed breakdown with volume indicates demand "
             "absorption — trapped sellers become fuel for rally."
         ),
-        "pattern_category": "failed_breakdown",
+        "pattern_category": "mean_reversion",
         "trigger_conditions": {
             "range_context": True,
             "intraday_break": True,
@@ -516,7 +516,7 @@ TEMPLATES = [
             "continues higher as analyst price targets are revised "
             "and institutional funds initiate positions."
         ),
-        "pattern_category": "catalyst",
+        "pattern_category": "catalyst_response",
         "trigger_conditions": {
             "catalyst": "FDA approval or positive trial",
             "gap_pct": ">20",
@@ -538,7 +538,7 @@ TEMPLATES = [
             "Follow-through buying continues as the deal's impact "
             "gets priced into models."
         ),
-        "pattern_category": "catalyst",
+        "pattern_category": "catalyst_response",
         "trigger_conditions": {
             "catalyst": "contract/partnership",
             "gap_pct": "10-25",
