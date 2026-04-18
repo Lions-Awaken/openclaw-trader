@@ -90,13 +90,10 @@ body {
   position: relative;
 }
 
-/* Title tight box */
+/* Title tight box — borderless, hammer + text float naked */
 .title-box-tight {
   display: inline-block;
   padding: 8px 20px;
-  border: 4px solid rgba(34,211,238,0.6);
-  border-radius: 12px;
-  box-shadow: var(--glow-cyan);
   margin-bottom: 10px;
 }
 
