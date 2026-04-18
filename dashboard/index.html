@@ -752,15 +752,13 @@
 
       <button onclick="showSection('about')" class="how-it-works-btn">HOW IT WORKS</button>
 
-      <div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:14px;">
-        <div class="paper-badge" id="mode-badge">Paper Trading</div>
-        <div class="active-profile-badge" id="activeProfileBadge">---</div>
+      <!-- Top header row: Share Access | Mode | Profile | Sign Out -->
+      <div class="header-top-row">
+        <button class="share-access-btn" onclick="toggleSharePanel()">Share Access</button>
+        <div class="mode-badge" id="mode-badge">MODE: PAPER TRADING</div>
+        <div class="active-profile-badge" id="activeProfileBadge">PROFILE: ---</div>
+        <a href="/logout" class="sign-out-btn">Sign Out</a>
       </div>
-
-      <!-- Sign Out — mirrors Share Access spec, top-right -->
-      <a href="/logout" class="sign-out-btn">Sign Out</a>
-
-      <button class="share-access-btn" onclick="toggleSharePanel()">Share Access</button>
 
       <div class="strategy-profile-btn" onclick="toggleStrategyPanel()">PROFILES</div>
       <div class="strategy-panel" id="strategyPanel" style="display:none">
@@ -2838,7 +2836,7 @@ async function loadDashboard() {
     equity = acct.equity || 0;
     document.getElementById('equity').textContent = fmt(equity, '$');
     document.getElementById('cash').textContent = fmt(acct.cash, '$');
-    if (acct.paper) document.getElementById('mode-badge').textContent = 'Paper Trading';
+    document.getElementById('mode-badge').textContent = 'MODE: ' + (acct.paper ? 'PAPER TRADING' : 'LIVE TRADING');
     // Total P&L = current equity minus starting capital (Alpaca paper starts at $100K)
     const startingCapital = 100000;
     const totalPnl = equity - startingCapital;
@@ -3512,14 +3510,14 @@ async function loadActiveStrategy() {
     const data = await fetch('/api/strategy/active').then(r => r.json());
     const badge = document.getElementById('activeProfileBadge');
     if (badge && data.profile_name) {
-      badge.textContent = data.profile_name;
+      badge.textContent = 'PROFILE: ' + data.profile_name.replace(/_/g, ' ');
       badge.className = 'active-profile-badge' + (data.profile_name === 'UNLEASHED' ? ' unleashed' : '');
     } else if (badge) {
-      badge.textContent = 'NO PROFILE';
+      badge.textContent = 'PROFILE: NONE';
     }
   } catch(e) {
     const badge = document.getElementById('activeProfileBadge');
-    if (badge) badge.textContent = 'OFFLINE';
+    if (badge) badge.textContent = 'PROFILE: OFFLINE';
   }
 }
 
