@@ -79,7 +79,7 @@ async def get_replay_candidates(
         f"{SUPABASE_URL}/rest/v1/inference_chains",
         headers={**sb_headers(), "Prefer": "count=exact"},
         params={
-            "select": "id,ticker,final_decision,final_confidence,max_depth_reached,stopping_reason,profile_name,scan_type,created_at",
+            "select": "id,ticker,total_score,final_decision,final_confidence,max_depth_reached,stopping_reason,profile_name,scan_type,created_at",
             "profile_name": "eq.CONGRESS_MIRROR",
             "created_at": f"gte.{date}T00:00:00Z",
             "order": "final_confidence.desc",

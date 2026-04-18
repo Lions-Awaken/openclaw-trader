@@ -208,8 +208,10 @@
     font-size: 0.75rem;
     font-weight: 600;
   }
-  .outcome-STRONG_WIN, .outcome-WIN { color: var(--green); background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); }
-  .outcome-LOSS, .outcome-STRONG_LOSS { color: var(--red); background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); }
+  .outcome-STRONG_WIN { color: #16a34a; background: rgba(22, 163, 74, 0.15); border: 1px solid rgba(22, 163, 74, 0.5); font-weight: 700; }
+  .outcome-WIN { color: var(--green); background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); }
+  .outcome-STRONG_LOSS { color: #dc2626; background: rgba(220, 38, 38, 0.15); border: 1px solid rgba(220, 38, 38, 0.5); font-weight: 700; }
+  .outcome-LOSS { color: var(--red); background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); }
   .outcome-SCRATCH { color: var(--dim); background: rgba(107, 107, 128, 0.1); border: 1px solid rgba(107, 107, 128, 0.3); }
 
   /* Trade Detail Expand */
@@ -850,12 +852,18 @@
         <h2 style="margin:0">Recent Pipeline Runs</h2>
         <select id="pipeline-filter" onchange="loadPipelineRuns()" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:0.8rem">
           <option value="">All Pipelines</option>
-          <option value="pre_market_scan">Pre-Market Scan</option>
-          <option value="market_open">Market Open</option>
-          <option value="midday_check">Midday Check</option>
-          <option value="market_close">Market Close</option>
+          <option value="health_check">Health Check</option>
+          <option value="catalyst_ingest">Catalyst Ingest</option>
+          <option value="ingest_form4">Ingest Form4</option>
+          <option value="ingest_options_flow">Ingest Options Flow</option>
+          <option value="scanner">Scanner</option>
+          <option value="position_manager">Position Manager</option>
+          <option value="shadow_position_opener">Shadow Position Opener</option>
+          <option value="shadow_mark_to_market">Shadow Mark to Market</option>
+          <option value="shadow_performance_rollup">Shadow Performance Rollup</option>
           <option value="meta_daily">Meta Daily</option>
-          <option value="meta_weekly">Meta Weekly</option>
+          <option value="daily_report">Daily Report</option>
+          <option value="ollama_watchdog">Ollama Watchdog</option>
         </select>
       </div>
       <div id="pipeline-runs" class="loading">Loading pipeline runs...</div>
@@ -1762,13 +1770,13 @@ const WF_STEPS = [
   { id: 1,  title: "HEALTH CHECK",        desc: "59 automated checks across 13 groups. Validates Ollama, Supabase, Alpaca, Claude API, crontab drift, data freshness. Alerts Slack on failure.", table: "system_health",        cost: "Free",            group: "pre-market"  },
   { id: 2,  title: "CATALYST INGEST",     desc: "5-source market catalyst detection — Finnhub news + insiders, SEC EDGAR, QuiverQuant congressional trades, yfinance signals, FRED macro indicators. Embeds via Ollama for RAG retrieval.", table: "catalyst_events",      cost: "Free",            group: "pre-market"  },
   { id: 3,  title: "FORM 4 INGEST",       desc: "SEC EDGAR Form 4 insider purchase filings. Scores by total value, ownership change, cluster count, filer title. CFO buys = strongest signal.", table: "form4_signals",        cost: "Free",            group: "pre-market"  },
-  { id: 4,  title: "SCANNER SETUP",       desc: "Loads active profile (CONGRESS_MIRROR), checks circuit breakers, verifies Alpaca account equity and buying power. Builds 39-ticker watchlist.", table: "pipeline_runs",        cost: "Free",            group: "scanner"     },
-  { id: 5,  title: "T1 — SIGNAL SCORING", desc: "39 tickers scored against 6 binary signals: Trend, Momentum, Volume, Catalyst, Sentiment, Flow. Score 0–6. Only tickers scoring ≥ 3 advance. Pure computation, no AI.", table: "signal_evaluations",  cost: "Free",            group: "scanner"     },
+  { id: 4,  title: "SCANNER SETUP",       desc: "Loads active profile (CONGRESS_MIRROR), checks circuit breakers, verifies Alpaca account equity and buying power. CONGRESS_MIRROR builds watchlist from recent high-signal congressional trade disclosures (last 21 days); falls back to technical watchlist if insufficient filings.", table: "pipeline_runs",        cost: "Free",            group: "scanner"     },
+  { id: 5,  title: "T1 — TECHNICAL FOUNDATION", desc: "Watchlist tickers scored against 6 binary signals: Trend, Momentum, Volume, Catalyst, Sentiment, Flow. Score 0–6. Only tickers scoring ≥ 3 advance. RAG retrieves similar past signal evaluations. Pure local computation, no AI. Confidence floor: 0.25.", table: "signal_evaluations",  cost: "Free",            group: "scanner"     },
   { id: 6,  title: "SIGNAL ENRICHMENT",   desc: "Candidates enriched with options flow data (3-day lookback) and Form 4 insider purchases (14-day lookback). Adds options_flow_net and form4_insider_score to each candidate.", table: "signal_evaluations",  cost: "Free",            group: "scanner"     },
-  { id: 7,  title: "T2 — FUNDAMENTAL",    desc: "RAG retrieves similar past inference chains and trade learnings via pgvector. Congressional disclosures get confidence boost if filed within 40 days. Hard veto if sentiment < -0.5.", table: "inference_chains",    cost: "Free",            group: "tumbler"     },
-  { id: 8,  title: "T3 — FLOW & CROSS-ASSET", desc: "First LLM call — Ollama qwen2.5:3b on ridley GPU. Analyzes how this setup compares to past chains and outcomes. Shadow context injected for shadow profiles. Confidence ±0.10.", table: "inference_chains",    cost: "Free (local GPU)", group: "tumbler"     },
-  { id: 9,  title: "T4 — PATTERN MATCH",  desc: "Claude Haiku matches against known pattern templates with documented outcomes. Evaluates quality and coherence of the full trade thesis. Confidence ±0.10.", table: "inference_chains",    cost: "~$0.001",         group: "tumbler"     },
-  { id: 10, title: "T5 — COUNTERFACTUAL", desc: "Claude Sonnet as devil's advocate — constructs the strongest argument AGAINST the trade. Asymmetric: can drop confidence by 0.15 but raise only 0.05. Calibration factor applied.", table: "inference_chains",    cost: "~$0.005",         group: "tumbler"     },
+  { id: 7,  title: "T2 — FUNDAMENTAL + SENTIMENT", desc: "RAG retrieves similar past inference chains and trade learnings via pgvector. Congressional disclosures get confidence boost if filed within 40 days. Hard VETO if sentiment < -0.5 — chain terminates immediately. Floor: 0.40.", table: "inference_chains",    cost: "Free",            group: "tumbler"     },
+  { id: 8,  title: "T3 — FLOW & CROSS-ASSET", desc: "First LLM call — Ollama qwen2.5:3b on ridley GPU. Analyzes how this setup compares to past chains and outcomes. Shadow context injected for shadow profiles. Confidence ±0.10. Floor: 0.55. STOP if delta < 0.03 (forced connection rule).", table: "inference_chains",    cost: "Free (local GPU)", group: "tumbler"     },
+  { id: 9,  title: "T4 — PATTERN MATCH",  desc: "Claude Haiku matches against 24 seeded pattern templates with documented outcomes via pgvector RAG. Evaluates quality and coherence of the full trade thesis. Confidence ±0.10. Floor: 0.65.", table: "inference_chains",    cost: "~$0.001",         group: "tumbler"     },
+  { id: 10, title: "T5 — COUNTERFACTUAL", desc: "Claude Sonnet as devil's advocate — constructs the strongest argument AGAINST the trade using trade_learnings loss RAG. Asymmetric: can drop confidence by 0.15 but raise only 0.05. Calibration factor applied. Has not yet fired in production.", table: "inference_chains",    cost: "~$0.005",         group: "tumbler"     },
   { id: 11, title: "EXECUTION GATE",      desc: "Trade executes ONLY if: decision = enter/strong_enter, confidence ≥ 0.60, and ≥ 3 tumblers completed. ATR-based position sizing, market buy + stop-loss.", table: "trade_decisions",     cost: "Free",            group: "execution"   },
   { id: 12, title: "BUDGET GATE",         desc: "Controls which shadow agents run. ≥40% Claude budget: all 6. 20–40%: Regime Watcher + Form 4 + Kronos. <20%: Kronos only (zero API cost).", table: "cost_ledger",         cost: "Free",            group: "shadow"      },
   { id: 13, title: "SKEPTIC",             desc: "Maximally conservative adversarial reviewer. Requires overwhelming evidence. Confidence floors HIGH. Heavily penalizes momentum-chasing. Graded on Conditional Brier Score.", table: "shadow_divergences",  cost: "Claude API",      group: "shadow"      },
@@ -2317,7 +2325,7 @@ window.wfGoToStep = wfGoToStep;
         </div>
     </div>
 
-    <!-- SECTION 1 — What is openclaw-trader? -->
+    <!-- SECTION 1 — What is Parallax? -->
     <div class="card">
       <div class="hiw-collapse-header" onclick="toggleHiwSection(1)">
         <h2 class="hiw-section-header" style="margin:0;">What is Parallax?</h2>
@@ -2325,8 +2333,9 @@ window.wfGoToStep = wfGoToStep;
       </div>
       <div class="hiw-collapse-body" id="hiw-body-1">
         <div class="hiw-body" style="margin-top:16px;">
-          <p>Parallax is an autonomous AI swing trading system running 24/7 on <strong>ridley</strong> &mdash; a NVIDIA Jetson Orin Nano 8GB. It monitors a <strong>39-ticker watchlist</strong> of AI infrastructure stocks (NVDA, AMD, AVGO, SMCI, MRVL and others), identifies high-probability swing setups using a multi-stage AI reasoning chain, and executes paper trades via the Alpaca API.</p>
-          <p>The system is built around an <strong>adversarial ensemble</strong>: one live profile makes trading decisions, while <strong>6 shadow agents</strong> run in parallel, silently evaluating the same candidates and recording their disagreements. Those disagreements become training data for a weekly calibration loop that learns which agents are consistently right.</p>
+          <p>Parallax is an autonomous AI swing trading system running 24/7 on <strong>ridley</strong> &mdash; a NVIDIA Jetson Orin Nano 8GB. It runs a <strong>multi-profile architecture</strong>: the active profile is <strong>CONGRESS_MIRROR</strong>, which dynamically builds its watchlist from recent high-signal congressional trade disclosures (last 21 days). When no qualifying congressional filings exist, it falls back to a technical watchlist of liquid universe stocks.</p>
+          <p>Every candidate is evaluated through a <strong>5-tumbler Lock &amp; Tumbler inference engine</strong>: a staged reasoning chain that begins with free local computation (T1&ndash;T2), advances through a local GPU LLM call (T3 via Ollama qwen2.5:3b), and only reaches the paid Anthropic API for pattern matching (T4 Claude Haiku) and counterfactual synthesis (T5 Claude Sonnet) when confidence warrants it. Each tumbler has a confidence floor; falling below it stops the chain early.</p>
+          <p>The system is built around a <strong>6-shadow adversarial ensemble</strong>: one live profile makes trading decisions, while six independent shadow agents (SKEPTIC, CONTRARIAN, REGIME_WATCHER, OPTIONS_FLOW, FORM4_INSIDER, KRONOS_TECHNICALS) silently evaluate every candidate and record their disagreements. Those disagreements become training data for a <strong>weekly self-calibrating feedback loop</strong> that learns which agents are consistently right and adjusts their DWM weights accordingly.</p>
           <p>The system is <strong>conservative by design</strong>. When in doubt, it does nothing. Cash is a position.</p>
         </div>
       </div>
@@ -2340,27 +2349,39 @@ window.wfGoToStep = wfGoToStep;
       </div>
       <div class="hiw-collapse-body" id="hiw-body-2">
         <div style="overflow-x:auto; margin-top:16px;">
+          <p class="hiw-body" style="margin-bottom:12px;font-size:0.88rem;color:var(--dim);">All times are PDT (America/Los_Angeles). ridley runs on Pacific time. ET = PDT + 3 hours.</p>
           <table class="hiw-table">
             <thead>
               <tr>
-                <th>Time (ET)</th>
+                <th>Time (PDT)</th>
                 <th>Pipeline</th>
                 <th>What it does</th>
               </tr>
             </thead>
             <tbody>
-              <tr><td>5:00 AM</td><td>Health Check</td><td>59 automated checks across 13 groups. Alerts to Slack on failure.</td></tr>
-              <tr><td>5:30 AM</td><td>Catalyst Ingest</td><td>5-source market catalyst detection &mdash; finnhub, SEC EDGAR, QuiverQuant, yfinance, FRED</td></tr>
-              <tr><td>6:00 AM</td><td>Form 4 Ingest</td><td>SEC EDGAR insider filing signals</td></tr>
-              <tr><td>6:35 AM</td><td>Scanner (morning)</td><td>Full scan pipeline &mdash; see below</td></tr>
-              <tr><td>7:00 AM</td><td>Options Flow Ingest</td><td>Unusual options activity signals</td></tr>
-              <tr><td>9:00 AM</td><td>Catalyst Ingest</td><td>Second catalyst run before midday scan</td></tr>
-              <tr><td>9:30 AM</td><td>Scanner (midday)</td><td>Same pipeline, second run</td></tr>
-              <tr><td>Every 30m</td><td>Position Manager</td><td>Trailing stops, time stops, EOD flatten</td></tr>
-              <tr><td>1:30 PM</td><td>Meta Daily</td><td>Claude reflects on shadow divergences, flags unanimous dissent</td></tr>
-              <tr><td>2:00 PM</td><td>Daily Report</td><td>Ops report to Telegram + Slack</td></tr>
-              <tr><td>Sunday 4:00 PM</td><td>Meta Weekly</td><td>Weekly strategy review + pattern discovery</td></tr>
-              <tr><td>Sunday 4:30 PM</td><td>Calibrator</td><td>Grades past divergences, updates DWM weights per agent</td></tr>
+              <tr><td>5:00 AM</td><td>Health Check</td><td>system_check.py --mode health &mdash; automated checks across 13 groups. Alerts to Slack on failure.</td></tr>
+              <tr><td>5:15 AM</td><td>Regime Detection</td><td>regime.py &mdash; detects current market regime before scanner runs</td></tr>
+              <tr><td>5:25 AM</td><td>Ollama Watchdog</td><td>ollama_watchdog.py &mdash; health check + auto-restart before first critical scan window</td></tr>
+              <tr><td>5:30 AM</td><td>Catalyst Ingest</td><td>catalyst_ingest.py &mdash; 5-source detection: Finnhub, SEC EDGAR, QuiverQuant, yfinance, FRED. Embeds via Ollama for RAG.</td></tr>
+              <tr><td>6:00 AM</td><td>Form 4 Ingest</td><td>ingest_signals.py form4 &mdash; SEC EDGAR insider purchase filing signals</td></tr>
+              <tr><td>6:00 AM &ndash; 12:45 PM<br><small>(every 30 min)</small></td><td>Position Manager</td><td>position_manager.py &mdash; trailing stops, time stops, EOD flatten. Runs at :00 and :30 from 6&ndash;11:30 AM plus 12:00 PM and 12:45 PM.</td></tr>
+              <tr><td>6:30 AM</td><td>Ollama Watchdog</td><td>Second watchdog check immediately before morning scanner</td></tr>
+              <tr><td>6:35 AM</td><td>Scanner (morning)</td><td>scanner.py &mdash; full pipeline: CONGRESS_MIRROR watchlist build, signal scoring, enrichment, T1&ndash;T5 tumbler chain, execution gate</td></tr>
+              <tr><td>7:00 AM</td><td>Options Flow Ingest</td><td>ingest_signals.py options &mdash; unusual options activity signals</td></tr>
+              <tr><td>7:15 AM</td><td>Shadow Position Opener</td><td>shadow_position_opener.py &mdash; opens virtual positions for shadow agents from morning scanner enter calls</td></tr>
+              <tr><td>8:55 AM</td><td>Ollama Watchdog</td><td>Third watchdog check before midday catalyst and scanner</td></tr>
+              <tr><td>9:00 AM</td><td>Catalyst Ingest</td><td>Second catalyst run &mdash; refreshes catalyst context before midday scan</td></tr>
+              <tr><td>9:30 AM</td><td>Scanner (midday)</td><td>scanner.py &mdash; same full pipeline, second daily run</td></tr>
+              <tr><td>10:30 AM</td><td>Shadow Position Opener</td><td>shadow_position_opener.py &mdash; opens virtual positions from midday scanner enter calls</td></tr>
+              <tr><td>12:45 PM</td><td>Ollama Watchdog + Position Manager (last)</td><td>Final watchdog check; last position manager run of the day</td></tr>
+              <tr><td>12:50 PM</td><td>Catalyst Ingest</td><td>Third catalyst run &mdash; captures afternoon news before meta daily reflection</td></tr>
+              <tr><td>1:30 PM</td><td>Meta Daily</td><td>meta_analysis.py daily &mdash; Claude Sonnet reviews shadow divergences, flags unanimous dissent, writes RAG context for future T2 calls</td></tr>
+              <tr><td>2:00 PM</td><td>Daily Report</td><td>daily_report.py &mdash; daily ops summary</td></tr>
+              <tr><td>6:00 PM</td><td>Shadow Mark-to-Market</td><td>shadow_mark_to_market.py &mdash; updates shadow position prices nightly, applies exit rules</td></tr>
+              <tr><td>Sunday 9:00 AM</td><td>Shadow Performance Rollup</td><td>shadow_performance_rollup.py &mdash; weekly aggregated shadow agent performance stats</td></tr>
+              <tr><td>Sunday 4:00 PM</td><td>Meta Weekly</td><td>meta_analysis.py weekly &mdash; weekly strategy review + pattern discovery</td></tr>
+              <tr><td>Sunday 4:30 PM</td><td>Calibrator</td><td>calibrator.py &mdash; grades past divergences, updates DWM weights per agent</td></tr>
+              <tr><td>@reboot (daemon)</td><td>System Monitor</td><td>system_monitor.py &mdash; persistent daemon: hardware metrics every 5s + service health every 60s &rarr; system_stats</td></tr>
             </tbody>
           </table>
         </div>
@@ -2379,14 +2400,15 @@ window.wfGoToStep = wfGoToStep;
         <div class="tumbler-card t1">
           <div class="tumbler-card-header">
             <span class="tumbler-badge t1">T1</span>
-            <span class="tumbler-title">Signal Scoring</span>
+            <span class="tumbler-title">Technical Foundation</span>
             <span class="tumbler-cost free">FREE</span>
           </div>
           <div class="tumbler-body">
-            <p>39 watchlist tickers scored against 6 binary signals: Trend, Momentum, Volume, Catalyst, Sentiment, Flow</p>
+            <p>Watchlist tickers scored against 6 binary signals: Trend, Momentum, Volume, Catalyst, Sentiment, Flow. RAG retrieves similar past signal evaluations via pgvector.</p>
             <ul>
-              <li>Score 0&ndash;6. Only tickers scoring &ge; 3 advance.</li>
-              <li>Pure computation &mdash; no AI inference involved.</li>
+              <li>Score 0&ndash;6. Only tickers scoring &ge; 3 advance to the tumbler chain.</li>
+              <li>Pure local computation &mdash; no LLM inference involved.</li>
+              <li><strong>Confidence floor: 0.25</strong> &mdash; chain stops if not reached.</li>
             </ul>
           </div>
         </div>
@@ -2396,14 +2418,15 @@ window.wfGoToStep = wfGoToStep;
         <div class="tumbler-card t2">
           <div class="tumbler-card-header">
             <span class="tumbler-badge t2">T2</span>
-            <span class="tumbler-title">Fundamental Analysis (RAG)</span>
+            <span class="tumbler-title">Fundamental + Sentiment (RAG)</span>
             <span class="tumbler-cost free">FREE</span>
           </div>
           <div class="tumbler-body">
             <ul>
               <li>Retrieves similar past inference chains and trade learnings via pgvector similarity search</li>
-              <li>Congressional trade disclosures get confidence boost if filed within 40 days</li>
-              <li>Hard veto if sentiment score &lt; &minus;0.5</li>
+              <li>Congressional trade disclosures (CONGRESS_MIRROR) get a confidence boost if filed within 40 days</li>
+              <li><strong>Hard VETO if sentiment score &lt; &minus;0.5</strong> &mdash; chain terminates immediately</li>
+              <li><strong>Confidence floor: 0.40</strong></li>
             </ul>
           </div>
         </div>
@@ -2419,8 +2442,9 @@ window.wfGoToStep = wfGoToStep;
           <div class="tumbler-body">
             <ul>
               <li>First LLM call &mdash; runs locally on ridley's Jetson GPU via Ollama (<code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">qwen2.5:3b</code>)</li>
-              <li>Analyzes how this setup compares to past chains and outcomes</li>
+              <li>Analyzes how this setup compares to past chains and outcomes. Shadow context injected for shadow profiles.</li>
               <li>Confidence adjustment: &plusmn;0.10</li>
+              <li><strong>Confidence floor: 0.55</strong> &mdash; <strong>STOP if delta &lt; 0.03</strong> (forced connection rule)</li>
             </ul>
           </div>
         </div>
@@ -2430,14 +2454,15 @@ window.wfGoToStep = wfGoToStep;
         <div class="tumbler-card t4">
           <div class="tumbler-card-header">
             <span class="tumbler-badge t4">T4</span>
-            <span class="tumbler-title">Pattern Match (Claude Haiku &mdash; Anthropic API)</span>
+            <span class="tumbler-title">Pattern Template Matching (Claude Haiku &mdash; Anthropic API)</span>
             <span class="tumbler-cost cheap">~$0.001/call</span>
           </div>
           <div class="tumbler-body">
             <ul>
-              <li>Matches against known pattern templates with documented outcomes</li>
+              <li>Matches against 24 seeded pattern templates with documented outcomes via pgvector RAG</li>
               <li>Evaluates quality and coherence of the full trade thesis</li>
               <li>Confidence adjustment: &plusmn;0.10</li>
+              <li><strong>Confidence floor: 0.65</strong></li>
             </ul>
           </div>
         </div>
@@ -2447,14 +2472,15 @@ window.wfGoToStep = wfGoToStep;
         <div class="tumbler-card t5">
           <div class="tumbler-card-header">
             <span class="tumbler-badge t5">T5</span>
-            <span class="tumbler-title">Counterfactual (Claude Sonnet &mdash; Anthropic API)</span>
+            <span class="tumbler-title">Counterfactual Synthesis (Claude Sonnet &mdash; Anthropic API)</span>
             <span class="tumbler-cost expensive">~$0.005/call</span>
           </div>
           <div class="tumbler-body">
             <ul>
-              <li>Devil's advocate &mdash; constructs the strongest argument AGAINST the trade</li>
+              <li>Devil's advocate &mdash; constructs the strongest argument AGAINST the trade using trade_learnings loss RAG</li>
               <li>Asymmetric adjustment: can drop confidence by 0.15 but raise it only 0.05</li>
-              <li>Most expensive tumbler; only fires when budget allows</li>
+              <li>Calibration factor applied to final confidence</li>
+              <li>Has not yet fired in production (budget gating keeps it rare)</li>
             </ul>
           </div>
         </div>
@@ -2464,7 +2490,7 @@ window.wfGoToStep = wfGoToStep;
         <div class="tumbler-card tgate">
           <div class="tumbler-card-header">
             <span class="tumbler-badge tgate">GATE</span>
-            <span class="tumbler-title">Execution Gate</span>
+            <span class="tumbler-title">Execution Gate &amp; Decision Thresholds</span>
           </div>
           <div class="tumbler-body">
             <p>Trade only executes if <strong>ALL THREE</strong> conditions are met:</p>
@@ -2473,12 +2499,22 @@ window.wfGoToStep = wfGoToStep;
               <li>Final confidence &ge; 0.60</li>
               <li>At least 3 tumblers completed</li>
             </ul>
+            <p style="margin-top:10px;font-size:0.88rem;">
+              <strong>Decision thresholds:</strong>
+              <code style="background:rgba(34,197,94,0.12);padding:1px 6px;border-radius:4px;font-size:0.82rem;color:var(--green)">strong_enter &ge;0.75</code> &nbsp;
+              <code style="background:rgba(34,197,94,0.12);padding:1px 6px;border-radius:4px;font-size:0.82rem;color:var(--green)">enter &ge;0.60</code> &nbsp;
+              <code style="background:rgba(234,179,8,0.12);padding:1px 6px;border-radius:4px;font-size:0.82rem;color:var(--yellow)">watch &ge;0.45</code> &nbsp;
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">skip &ge;0.20</code> &nbsp;
+              <code style="background:rgba(239,68,68,0.1);padding:1px 6px;border-radius:4px;font-size:0.82rem;color:var(--red)">veto &lt;0.20</code>
+            </p>
             <p style="margin-top:10px;font-size:0.88rem;color:var(--dim)">
               Stopping rules: <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">veto_signal</code> &nbsp;
               <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">confidence_floor</code> &nbsp;
-              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">time_limit</code> &nbsp;
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">forced_connection</code> &nbsp;
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">conflicting_signals</code> &nbsp;
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">insufficient_data</code> &nbsp;
               <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">resource_limit</code> &nbsp;
-              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">congress_signal_stale</code>
+              <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">time_limit (30s)</code>
             </p>
           </div>
         </div>
@@ -2518,39 +2554,39 @@ window.wfGoToStep = wfGoToStep;
             <tr>
               <th>Agent</th>
               <th>Type</th>
-              <th>Persona</th>
+              <th>Persona &amp; Grading Metric</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td>SKEPTIC</td>
               <td>LLM (Claude)</td>
-              <td>Require overwhelming evidence. Confidence floors HIGH.</td>
+              <td>Require overwhelming evidence. Confidence floors HIGH. Heavily penalizes momentum-chasing. <strong>Graded: Conditional Brier Score.</strong></td>
             </tr>
             <tr>
               <td>CONTRARIAN</td>
               <td>LLM (Claude)</td>
-              <td>Assume the trade is wrong. Find reasons NOT to enter.</td>
+              <td>Assume the trade is wrong. Overweights sector rotation, institutional distribution, price-fundamental divergence. <strong>Graded: Regime-Conditional IC.</strong></td>
             </tr>
             <tr>
               <td>REGIME_WATCHER</td>
-              <td>LLM (Ollama only)</td>
-              <td>Ignore the ticker. Is this a good time to enter ANYTHING?</td>
+              <td>LLM (Ollama only, stops at T3)</td>
+              <td>Ignore the ticker entirely. Only question: is this a good time to enter ANY long position? Evaluates SPY trend, VIX, yield curve, credit spreads. Zero API cost. <strong>Graded: signal latency.</strong></td>
             </tr>
             <tr>
               <td>OPTIONS_FLOW</td>
               <td>LLM (Claude)</td>
-              <td>Primary signal: unusual options activity &mdash; sweeps, dark pool.</td>
+              <td>Primary signal: unusual options activity &mdash; sweeps, blocks, dark pool prints. Alpha decay 1&ndash;5 days. <strong>Graded: 5-day forward return.</strong></td>
             </tr>
             <tr>
               <td>FORM4_INSIDER</td>
               <td>LLM (Claude)</td>
-              <td>Primary signal: Form 4 purchase filings. CFOs = strongest signal.</td>
+              <td>Primary signal: Form 4 purchase filings by CEOs/CFOs/board members. Cluster buys weighted heavily. CFOs = strongest signal. <strong>Graded: 15-day forward return.</strong></td>
             </tr>
             <tr>
               <td>KRONOS_TECHNICALS</td>
               <td>GPU (Jetson, no LLM)</td>
-              <td>Pure price pattern. 50 Monte Carlo paths, 15-bar OHLCV horizon.</td>
+              <td>Pure price pattern. 252 daily OHLCV candles &rarr; Kronos foundation model &rarr; 50 Monte Carlo paths &rarr; bullish probability at 10-day horizon. No news, no fundamentals. Local GPU only. <strong>Graded: 10-day directional accuracy.</strong></td>
             </tr>
           </tbody>
         </table>
@@ -2613,14 +2649,16 @@ window.wfGoToStep = wfGoToStep;
               </tr>
             </thead>
             <tbody>
-              <tr><td>ridley</td><td>NVIDIA Jetson Orin Nano 8GB &mdash; all trading scripts, Ollama, Kronos GPU inference</td></tr>
-              <tr><td>motherbrain</td><td>Orchestrator machine where Picard lives</td></tr>
-              <tr><td>Supabase</td><td>PostgreSQL + pgvector RAG database</td></tr>
-              <tr><td>Alpaca</td><td>Paper trading API</td></tr>
-              <tr><td>Ollama</td><td>Local LLM runtime on ridley (qwen2.5:3b) &mdash; zero API cost</td></tr>
-              <tr><td>Anthropic API</td><td>Claude Haiku (T4) and Claude Sonnet (T5, meta daily)</td></tr>
-              <tr><td>Kronos-small</td><td>24.7M parameter financial time series model on ridley GPU</td></tr>
-              <tr><td>Fly.io</td><td>Dashboard hosting (openclaw-trader-dash.fly.dev)</td></tr>
+              <tr><td>ridley</td><td>NVIDIA Jetson Orin Nano 8GB &mdash; all trading scripts run here via cron; hosts Ollama and Kronos GPU inference</td></tr>
+              <tr><td>motherbrain</td><td>Orchestrator machine where Picard and the Claude fleet agents live</td></tr>
+              <tr><td>Supabase</td><td>PostgreSQL + pgvector &mdash; all trading state, embeddings, RAG context, signal history</td></tr>
+              <tr><td>Alpaca</td><td>Paper trading API &mdash; order execution and account state</td></tr>
+              <tr><td>Ollama</td><td>Local LLM runtime on ridley (qwen2.5:3b) &mdash; zero API cost for T3 and REGIME_WATCHER</td></tr>
+              <tr><td>Anthropic API</td><td>Claude Haiku (T4 pattern matching) and Claude Sonnet (T5 counterfactual, meta daily/weekly)</td></tr>
+              <tr><td>Kronos-small</td><td>24.7M parameter financial time series foundation model on ridley GPU &mdash; used by KRONOS_TECHNICALS shadow agent</td></tr>
+              <tr><td>Fly.io</td><td>Dashboard hosting (parallax dashboard) + log-shipper app that pipes logs to Grafana Cloud Loki</td></tr>
+              <tr><td>Sentry</td><td>Error tracking &mdash; auto-captures ERROR+ level logs from all scripts</td></tr>
+              <tr><td>Grafana Cloud Loki</td><td>Centralized log aggregation via tu-log-shipper on Fly.io</td></tr>
             </tbody>
           </table>
         </div>
@@ -2635,12 +2673,12 @@ window.wfGoToStep = wfGoToStep;
       </div>
       <div class="hiw-collapse-body" id="hiw-body-8">
         <ul class="circuit-list" style="margin-top:16px;">
-          <li><strong>VIX &gt; 28</strong> &rarr; scanner stands down for the session</li>
-          <li><strong>Portfolio drawdown &gt; 15%</strong> &rarr; circuit breaker trips</li>
-          <li><strong>3 consecutive losses</strong> &rarr; circuit breaker trips</li>
-          <li><strong>Max 3 concurrent positions</strong></li>
-          <li><strong>5% max risk per trade</strong> (ATR-based sizing)</li>
-          <li><strong>10-day max hold period</strong> (time stop)</li>
+          <li><strong>3 consecutive losses</strong> &rarr; circuit breaker trips, scanner stands down</li>
+          <li><strong>Daily drawdown &gt; 2%</strong> &rarr; circuit breaker trips (compares equity vs last_equity from Alpaca)</li>
+          <li><strong>Max concurrent positions</strong> &rarr; configurable per strategy profile (default: 5); scanner scans but does not execute when slot limit reached</li>
+          <li><strong>5% max risk per trade</strong> (ATR-based position sizing)</li>
+          <li><strong>Max hold period</strong> &rarr; configurable per strategy profile (default: 3 days); positions closed via time stop when exceeded</li>
+          <li><strong>Confidence floor: 0.60</strong> &rarr; no trade executes below this threshold regardless of decision label</li>
         </ul>
       </div>
     </div>
@@ -2822,13 +2860,14 @@ async function loadDashboard() {
   try {
     const regime = await fetch('/api/regime').then(r => r.json());
     const el = document.getElementById('regime-display');
+    const regimeName = esc(regime.regime || 'UNKNOWN');
     const staleTag = regime.age_days > 1
       ? `<span style="font-size:0.75rem;color:var(--${regime.age_days > 3 ? 'red' : 'yellow'});margin-left:12px">${regime.age_days}d old</span>`
       : '';
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-        <span class="regime-badge regime-${regime.regime}">${regime.regime}</span>${staleTag}
-        <span style="color:var(--dim)">${regime.action || ''}</span>
+        <span class="regime-badge regime-${regimeName}">${regimeName}</span>${staleTag}
+        <span style="color:var(--dim)">${esc(regime.action || '')}</span>
       </div>
       ${regime.spy_price ? `<div style="margin-top:12px;font-size:0.85rem;color:var(--dim)">
         SPY $${regime.spy_price} | SMA50 $${regime.spy_sma50} | VIX Proxy ${regime.vix_proxy} | ATR% ${regime.atr_pct}%
@@ -2883,8 +2922,8 @@ function buildTradeTable(trades) {
       <td>${t.entry_price ? '$' + parseFloat(t.entry_price).toFixed(2) : '--'}</td>
       <td>${t.exit_price ? '$' + parseFloat(t.exit_price).toFixed(2) : '--'}</td>
       <td class="${pnlClass(pnl)}">${pnl != null ? fmt(pnl, '$') : '--'}</td>
-      <td>${t.signals_fired != null ? t.signals_fired + '/6' : '--'}</td>
-      <td>${t.hold_days || '--'}</td>
+      <td>${t.signals_fired != null ? esc(String(t.signals_fired)) + '/6' : '--'}</td>
+      <td>${t.hold_days != null ? esc(String(t.hold_days)) : '--'}</td>
       <td>${t.outcome ? `<span class="outcome-badge outcome-${esc(t.outcome)}">${esc(t.outcome).replace('_',' ')}</span>` : '--'}</td>
       <td><button class="expand-btn" onclick="toggleDetail(${i})">details</button></td>
     </tr>
@@ -2953,8 +2992,8 @@ async function loadPositions() {
     el.innerHTML = positions.map(p => `
       <div class="position-card">
         <div>
-          <div class="symbol">${p.symbol}</div>
-          <div class="detail">${p.qty} shares @ $${p.avg_entry.toFixed(2)} avg</div>
+          <div class="symbol">${esc(p.symbol)}</div>
+          <div class="detail">${esc(p.qty)} shares @ $${p.avg_entry.toFixed(2)} avg</div>
         </div>
         <div style="text-align:right">
           <div class="${pnlClass(p.unrealized_pl)}" style="font-weight:700;font-size:1.1rem">
@@ -2963,7 +3002,7 @@ async function loadPositions() {
           <div class="detail ${pnlClass(p.unrealized_plpc)}">
             ${p.unrealized_plpc >= 0 ? '+' : ''}${p.unrealized_plpc.toFixed(2)}%
           </div>
-          <div class="detail">Mkt Value: ${fmt(p.market_value, '$')}</div>
+          <div class="detail">Cur: ${fmt(p.current_price, '$')} &nbsp;|&nbsp; Mkt Value: ${fmt(p.market_value, '$')}</div>
         </div>
       </div>
     `).join('');
@@ -2975,6 +3014,11 @@ async function loadPositions() {
 
 const origShowSection = showSection;
 showSection = function(name) {
+  // Clear health auto-refresh when leaving the health tab
+  if (name !== 'health' && _healthAutoRefreshTimer) {
+    clearInterval(_healthAutoRefreshTimer);
+    _healthAutoRefreshTimer = null;
+  }
   origShowSection(name);
   if (name === 'pipeline') loadPipelineTab();
   if (name === 'economics') loadEconomicsTab();
@@ -3146,13 +3190,21 @@ async function loadEconSummary() {
   try {
     const data = await fetch('/api/economics/summary?days=30').then(r => r.json());
     const net = data.net || 0;
+    const pnl = data.total_pnl || 0;
     const netEl = document.getElementById('econ-net');
     netEl.textContent = fmt(net, '$');
     netEl.className = 'value ' + pnlClass(net);
-    document.getElementById('econ-pnl').textContent = fmt(data.total_pnl || 0, '$');
+    const pnlEl = document.getElementById('econ-pnl');
+    pnlEl.textContent = fmt(pnl, '$');
+    pnlEl.className = 'value ' + pnlClass(pnl);
     document.getElementById('econ-costs').textContent = '-' + fmt(data.total_costs || 0, '$');
-    document.getElementById('econ-roi').textContent = (data.roi_pct || 0) + '%';
-  } catch(e) {}
+    document.getElementById('econ-roi').textContent = (data.roi_pct || 0).toFixed(2) + '%';
+  } catch(e) {
+    ['econ-net','econ-pnl','econ-costs','econ-roi'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = 'ERR';
+    });
+  }
 }
 
 async function loadEconBreakdown() {
@@ -3169,9 +3221,9 @@ async function loadEconBreakdown() {
       const amt = row.total || 0;
       const color = amt >= 0 ? 'var(--green)' : 'var(--red)';
       html += '<tr>';
-      html += '<td style="color:' + (catColors[row.category] || 'var(--dim)') + ';font-weight:600">' + (row.category || '').replace(/_/g,' ') + '</td>';
-      html += '<td style="font-size:0.8rem;color:var(--dim)">' + (row.subcategory || '--') + '</td>';
-      html += '<td>' + row.count + '</td>';
+      html += '<td style="color:' + (catColors[row.category] || 'var(--dim)') + ';font-weight:600">' + esc((row.category || '').replace(/_/g,' ')) + '</td>';
+      html += '<td style="font-size:0.8rem;color:var(--dim)">' + esc(row.subcategory || '--') + '</td>';
+      html += '<td>' + esc(String(row.count || 0)) + '</td>';
       html += '<td style="color:' + color + ';font-weight:600">' + fmt(amt, '$') + '</td>';
       html += '</tr>';
     });
@@ -3189,7 +3241,8 @@ async function loadEconChart() {
 
     const canvas = document.getElementById('econ-chart');
     const ctx = canvas.getContext('2d');
-    const W = canvas.width = canvas.offsetWidth * 2;
+    const rawW = canvas.offsetWidth || canvas.getBoundingClientRect().width || 800;
+    const W = canvas.width = rawW * 2;
     const H = canvas.height = 500;
     ctx.clearRect(0, 0, W, H);
 
@@ -3249,7 +3302,9 @@ async function loadEconChart() {
       ctx.font = '20px sans-serif';
       ctx.fillText(label, x + 20, H - 6);
     });
-  } catch(e) {}
+  } catch(e) {
+    document.getElementById('econ-chart').insertAdjacentHTML('afterend', '<div class="empty-state">Chart error: ' + esc(String(e)) + '</div>');
+  }
 }
 
 async function loadBudgetCaps() {
@@ -3268,17 +3323,17 @@ async function loadBudgetCaps() {
       const barColor = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--gold)' : 'var(--green)';
 
       html += '<div class="tool-card">';
-      html += '<div class="name">' + (cfg.config_key || '').replace(/_/g, ' ') + '</div>';
-      html += '<div class="desc">' + (cfg.description || '') + '</div>';
+      html += '<div class="name">' + esc((cfg.config_key || '').replace(/_/g, ' ')) + '</div>';
+      html += '<div class="desc">' + esc(cfg.description || '') + '</div>';
       html += '<div style="margin-top:12px;display:flex;align-items:center;gap:12px">';
-      html += '<span style="font-size:1.2rem;font-weight:800;color:var(--cyan);cursor:pointer" onclick="editBudget(\'' + cfg.config_key + '\',' + value + ')" title="Click to edit">$' + value.toFixed(2) + '</span>';
+      html += '<span style="font-size:1.2rem;font-weight:800;color:var(--cyan);cursor:pointer" onclick="editBudget(\'' + esc(cfg.config_key || '') + '\',' + value + ')" title="Click to edit">$' + value.toFixed(2) + '</span>';
       html += '<span style="font-size:0.8rem;color:var(--dim)">per day</span>';
       html += '</div>';
       html += '<div style="margin-top:8px">';
       html += '<div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:4px"><span>Today: $' + spend.toFixed(4) + '</span><span>' + pct + '%</span></div>';
       html += '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:3px;transition:width 0.3s"></div></div>';
       html += '</div>';
-      html += '<div style="margin-top:4px;font-size:0.7rem;color:var(--dim)">Updated: ' + (cfg.updated_at ? new Date(cfg.updated_at).toLocaleString() : '--') + ' by ' + (cfg.updated_by || '--') + '</div>';
+      html += '<div style="margin-top:4px;font-size:0.7rem;color:var(--dim)">Updated: ' + esc(cfg.updated_at ? new Date(cfg.updated_at).toLocaleString() : '--') + ' by ' + esc(cfg.updated_by || '--') + '</div>';
       html += '</div>';
     });
     html += '</div>';
@@ -3542,11 +3597,13 @@ async function updateTelemetry() {
     }
   } catch(e) {}
 
-  // Supabase latency
+  // Supabase latency + pipeline health — single fetch, reuse response
+  let pipelineHealth = null;
   try {
     const start = performance.now();
-    await fetch('/api/pipeline/health');
+    const sbResp = await fetch('/api/pipeline/health');
     const sbMs = Math.round(performance.now() - start);
+    pipelineHealth = sbResp.ok ? await sbResp.json() : null;
     const sbVal = document.getElementById('telem-sb-val');
     const sbBar = document.getElementById('telem-sb-bar');
     if (sbVal) {
@@ -3593,13 +3650,12 @@ async function updateTelemetry() {
     }
   } catch(e) {}
 
-  // Pipeline health
+  // Pipeline health — reuse response from Supabase latency fetch above
   try {
-    const health = await fetch('/api/pipeline/health').then(r => r.json());
     const hEl = document.getElementById('telem-health');
-    if (hEl && health.score !== undefined) {
-      hEl.textContent = health.score + '%';
-      let color = health.score >= 90 ? 'var(--green)' : health.score >= 70 ? 'var(--yellow)' : 'var(--red)';
+    if (hEl && pipelineHealth && pipelineHealth.score !== undefined) {
+      hEl.textContent = pipelineHealth.score + '%';
+      let color = pipelineHealth.score >= 90 ? 'var(--green)' : pipelineHealth.score >= 70 ? 'var(--yellow)' : 'var(--red)';
       hEl.style.color = color;
       hEl.style.textShadow = '0 0 12px ' + color;
     }
@@ -3817,7 +3873,7 @@ function renderPerfLeaderboard(el, rows) {
   let html = '<div style="overflow-x:auto"><table class="trade-table">';
   html += '<thead><tr>';
   html += '<th>Agent</th>';
-  html += '<th>Open Positions</th>';
+  html += '<th>Open</th>';
   html += '<th>Closed</th>';
   html += '<th>Win Rate</th>';
   html += '<th>Total P&L</th>';
@@ -4007,7 +4063,7 @@ async function loadShadowProfiles() {
   const el = document.getElementById('shadow-profiles');
   try {
     const profiles = await fetch('/api/shadow/profiles', {credentials: 'include'}).then(r => r.json());
-    if (!profiles.length) {
+    if (!Array.isArray(profiles) || !profiles.length) {
       el.innerHTML = '<div class="empty-state">No shadow profiles configured</div>';
       return;
     }
@@ -4046,7 +4102,7 @@ async function loadShadowUnanimous() {
   const el = document.getElementById('shadow-unanimous');
   try {
     const events = await fetch('/api/shadow/unanimous?days=30', {credentials: 'include'}).then(r => r.json());
-    if (!events.length) {
+    if (!Array.isArray(events) || !events.length) {
       el.innerHTML = '<div class="empty-state" style="color:var(--green);">No unanimous dissent events — shadows and live profile are aligned</div>';
       return;
     }
@@ -4059,7 +4115,7 @@ async function loadShadowUnanimous() {
       html += '</div>';
       html += '<div style="margin-top:0.5rem;font-size:0.9rem;color:var(--cyan);">Live confidence: ' + esc(evt.live_confidence || '--') + '</div>';
       if (evt.outcome) {
-        html += '<div style="margin-top:0.3rem;color:' + (evt.outcome.includes('LOSS') ? 'var(--red)' : 'var(--green)') + ';">Outcome: ' + esc(evt.outcome) + (evt.save_value > 0 ? ' (saved $' + evt.save_value.toFixed(0) + ')' : '') + '</div>';
+        html += '<div style="margin-top:0.3rem;color:' + (evt.outcome.includes('LOSS') ? 'var(--red)' : 'var(--green)') + ';">Outcome: ' + esc(evt.outcome) + (evt.save_value > 0 ? ' (saved $' + esc(parseFloat(evt.save_value).toFixed(0)) + ')' : '') + '</div>';
       }
       html += '<div style="margin-top:0.5rem;">';
       for (const s of evt.shadows) {
@@ -4077,7 +4133,7 @@ async function loadShadowDivergences() {
   const el = document.getElementById('shadow-divergences');
   try {
     const divs = await fetch('/api/shadow/divergences?days=30', {credentials: 'include'}).then(r => r.json());
-    if (!divs.length) {
+    if (!Array.isArray(divs) || !divs.length) {
       el.innerHTML = '<div class="empty-state">No divergences recorded yet — shadow inference runs during market hours</div>';
       return;
     }
@@ -4275,24 +4331,32 @@ async function triggerHealthRun() {
         const latest = await fetch('/api/health/latest', {credentials:'include'}).then(r => r.json());
         if (latest.run_id && latest.run_id === triggeredRunId) {
           clearInterval(_healthPollTimer);
-          statusEl.textContent = 'Health check complete.';
           _healthCurrentRunId = latest.run_id;
           const history = await fetch('/api/health/history', {credentials:'include'}).then(r => r.json());
           document.getElementById('health-content').innerHTML = buildHealthUI(latest, history);
+          // Update status on the freshly-rendered DOM node
+          const newStatus = document.getElementById('health-run-status');
+          if (newStatus) newStatus.textContent = 'Health check complete.';
+          // Restart auto-refresh now that we have a fresh render
+          if (_healthAutoRefreshTimer) clearInterval(_healthAutoRefreshTimer);
+          _healthAutoRefreshTimer = setInterval(loadHealth, 30000);
           return;
         }
       } catch(_e) { /* continue polling */ }
       if (polls >= 40) {
         clearInterval(_healthPollTimer);
-        statusEl.textContent = 'Timed out waiting for results. Refresh manually.';
-        btn.disabled = false;
-        btn.textContent = 'RUN NOW';
+        // Re-query DOM — buildHealthUI may have replaced the original nodes
+        const timeoutStatus = document.getElementById('health-run-status');
+        const timeoutBtn = document.getElementById('health-run-btn');
+        if (timeoutStatus) timeoutStatus.textContent = 'Timed out waiting for results. Refresh manually.';
+        if (timeoutBtn) { timeoutBtn.disabled = false; timeoutBtn.textContent = 'RUN NOW'; }
       }
     }, 3000);
   } catch(e) {
-    statusEl.textContent = 'Error: ' + esc(String(e));
-    btn.disabled = false;
-    btn.textContent = 'RUN NOW';
+    const errStatus = document.getElementById('health-run-status');
+    const errBtn = document.getElementById('health-run-btn');
+    if (errStatus) errStatus.textContent = 'Error: ' + esc(String(e));
+    if (errBtn) { errBtn.disabled = false; errBtn.textContent = 'RUN NOW'; }
   }
 }
 
@@ -4572,7 +4636,7 @@ async function loadChainDetail(chainId, ticker, date) {
         loadReplayChart(ticker, date),
         loadReplayWaterfall(chainId),
         loadReplayShadows(ticker, date),
-    ]);
+    ]).catch(function(e) { console.error('[replay] loadChainDetail parallel load error:', e); });
 }
 
 function closeReplayModal() {
@@ -4754,7 +4818,7 @@ function renderShadowComparison(shadows) {
         var right = s.shadow_was_right === true ? ' &#x2713;' : s.shadow_was_right === false ? ' &#x2717;' : '';
         var rightColor = s.shadow_was_right === true ? 'var(--green)' : s.shadow_was_right === false ? 'var(--red)' : '';
         html += '<td style="color:' + color + ';' + border + 'font-size:0.7rem;text-align:center;">';
-        html += esc(s.final_decision || '&#8212;') + '<br>' + ((s.final_confidence || 0) * 100).toFixed(1) + '%';
+        html += (s.final_decision ? esc(s.final_decision) : '&#8212;') + '<br>' + ((s.final_confidence || 0) * 100).toFixed(1) + '%';
         if (right) html += '<span style="color:' + rightColor + '">' + right + '</span>';
         html += '</td>';
     });
