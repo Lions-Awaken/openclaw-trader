@@ -57,28 +57,38 @@
     right: auto;
   }
 
-  /* HOW IT WORKS prominent CTA button */
+  /* HOW IT WORKS prominent CTA button — gold bg, purple text, thick glow */
   .how-it-works-btn {
-    margin-top: 16px;
-    padding: 14px 40px;
-    background: transparent;
-    border: 2px solid var(--cyan, #22d3ee);
-    color: var(--cyan, #22d3ee);
+    margin-top: 20px;
+    padding: 18px 56px;
+    background: #d4a017;
+    border: 5px solid #a855f7;
+    color: #6b21a8;
     font-family: 'Orbitron', sans-serif;
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 3px;
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: 4px;
     text-transform: uppercase;
     cursor: pointer;
-    border-radius: 6px;
-    box-shadow: 0 0 15px rgba(34,211,238,0.2);
+    border-radius: 10px;
+    box-shadow:
+      0 0 20px rgba(168,85,247,0.6),
+      0 0 45px rgba(168,85,247,0.35),
+      0 0 80px rgba(168,85,247,0.15),
+      inset 0 0 18px rgba(212,160,23,0.5);
+    text-shadow: 0 0 8px rgba(107,33,168,0.4);
     transition: all 0.3s ease;
     display: inline-block;
   }
   .how-it-works-btn:hover {
-    box-shadow: 0 0 30px rgba(34,211,238,0.5), 0 0 60px rgba(34,211,238,0.2);
-    background: rgba(34,211,238,0.08);
-    border-color: var(--cyan, #22d3ee);
+    transform: translateY(-2px);
+    box-shadow:
+      0 0 32px rgba(168,85,247,0.85),
+      0 0 70px rgba(168,85,247,0.5),
+      0 0 120px rgba(168,85,247,0.25),
+      inset 0 0 24px rgba(212,160,23,0.65);
+    background: #e5b52a;
+    border-color: #c084fc;
   }
 
   .header { position: relative; }
