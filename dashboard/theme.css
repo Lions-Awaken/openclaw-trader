@@ -350,37 +350,30 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.15em;
-  height: 1.15em;
-  padding: 0.1em;
-  border: 3px solid var(--cyan);
-  border-radius: 14px;
-  background: rgba(34, 211, 238, 0.08);
+  width: 1.6em;
+  height: 1.6em;
   color: var(--cyan);
-  box-shadow:
-    0 0 18px rgba(34, 211, 238, 0.45),
-    0 0 40px rgba(34, 211, 238, 0.18),
-    inset 0 0 14px rgba(34, 211, 238, 0.22);
   text-decoration: none;
   transition: all 0.2s ease;
   flex-shrink: 0;
   position: relative;
-  top: -0.02em;
+  top: -0.05em;
 }
 .dropcap-hammer svg {
   width: 100%;
   height: 100%;
   display: block;
-  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.55));
+  filter:
+    drop-shadow(0 0 8px rgba(34, 211, 238, 0.7))
+    drop-shadow(0 0 18px rgba(34, 211, 238, 0.35));
 }
 .dropcap-hammer:hover {
-  border-color: var(--cyan);
-  background: rgba(34, 211, 238, 0.14);
-  box-shadow:
-    0 0 28px rgba(34, 211, 238, 0.65),
-    0 0 60px rgba(34, 211, 238, 0.25),
-    inset 0 0 20px rgba(34, 211, 238, 0.35);
-  transform: scale(1.04);
+  transform: scale(1.06);
+}
+.dropcap-hammer:hover svg {
+  filter:
+    drop-shadow(0 0 12px rgba(34, 211, 238, 0.9))
+    drop-shadow(0 0 28px rgba(34, 211, 238, 0.5));
 }
 
 .share-panel {
