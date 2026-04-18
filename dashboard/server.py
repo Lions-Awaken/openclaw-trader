@@ -52,7 +52,7 @@ from shared import (
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.staticfiles import StaticFiles
 
-app = FastAPI(title="OpenClaw Trader Dashboard", docs_url=None, redoc_url=None)
+app = FastAPI(title="Parallax Dashboard", docs_url=None, redoc_url=None)
 
 # CORS — restrict to our own origins
 app.add_middleware(
@@ -322,18 +322,18 @@ def _send_magic_email(email: str, link: str, expires_label: str) -> bool:
         return False
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "OpenClaw Trader — Access Link"
+    msg["Subject"] = "Parallax — Access Link"
     msg["From"] = SMTP_FROM
     msg["To"] = email
 
     text = (
-        f"Your OpenClaw Trader access link (expires in {expires_label}):\n\n{link}\n\n"
+        f"Your Parallax access link (expires in {expires_label}):\n\n{link}\n\n"
         "This link is one-time use. It will stop working after you click it or after the timer expires."
     )
     html = (
         f'<div style="font-family:monospace;background:#050508;color:#e8e8f0;padding:40px;'
         f'border-radius:12px;max-width:500px">'
-        f'<h2 style="color:#22d3ee;letter-spacing:3px;margin:0 0 20px">OPENCLAW TRADER</h2>'
+        f'<h2 style="color:#22d3ee;letter-spacing:3px;margin:0 0 20px">PARALLAX</h2>'
         f'<p style="color:#a0a0b0;margin:0 0 20px">You have been granted access to the trading dashboard.</p>'
         f'<a href="{link}" style="display:inline-block;padding:14px 32px;background:transparent;'
         f'border:2px solid #22d3ee;border-radius:10px;color:#22d3ee;text-decoration:none;'

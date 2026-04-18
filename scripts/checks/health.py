@@ -1229,13 +1229,13 @@ def _build_slack_message(results: list[CheckResult], run_id: str) -> str:
 
     if not failures and not warns:
         icon = "✅"
-        headline = f"{icon} OPENCLAW HEALTH CHECK — ALL PASS ({passed}/{total})"
+        headline = f"{icon} PARALLAX HEALTH CHECK — ALL PASS ({passed}/{total})"
     elif failures:
         icon = "🔴"
-        headline = f"{icon} OPENCLAW HEALTH CHECK — {len(failures)} FAILURE{'S' if len(failures) > 1 else ''}"
+        headline = f"{icon} PARALLAX HEALTH CHECK — {len(failures)} FAILURE{'S' if len(failures) > 1 else ''}"
     else:
         icon = "🟡"
-        headline = f"{icon} OPENCLAW HEALTH CHECK — {len(warns)} WARNING{'S' if len(warns) > 1 else ''}"
+        headline = f"{icon} PARALLAX HEALTH CHECK — {len(warns)} WARNING{'S' if len(warns) > 1 else ''}"
 
     lines = [
         headline,
@@ -1267,7 +1267,7 @@ def run_checks(
 ) -> list[CheckResult]:
     now_str = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     print(f"\n  {Fore.CYAN}{'━' * 51}{Style.RESET_ALL}")
-    print(f"  {Fore.WHITE}OPENCLAW SYSTEM HEALTH — {now_str}{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}PARALLAX SYSTEM HEALTH — {now_str}{Style.RESET_ALL}")
     print(f"  {Fore.CYAN}{'━' * 51}{Style.RESET_ALL}")
     if dry_run:
         print(f"  {Fore.YELLOW}[DRY RUN — no DB writes, no Slack]{Style.RESET_ALL}")
