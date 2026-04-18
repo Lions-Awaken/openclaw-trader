@@ -737,6 +737,14 @@
   <div class="app-header">
 
     <div class="header-brand">
+      <!-- Top header row: Share Access | Mode | Profile | Sign Out (first, inside purple container) -->
+      <div class="header-top-row">
+        <button class="share-access-btn" onclick="toggleSharePanel()">Share Access</button>
+        <div class="mode-badge" id="mode-badge">MODE: PAPER TRADING</div>
+        <div class="active-profile-badge" id="activeProfileBadge">PROFILE: ---</div>
+        <a href="/logout" class="sign-out-btn">Sign Out</a>
+      </div>
+
       <!-- Title row: hammer as illuminated dropcap 'P' + "arallax" -->
       <div class="title-box-tight">
         <h1 class="parallax-title">
@@ -751,14 +759,6 @@
       <div class="subtitle">Autonomous Trading Agent</div>
 
       <button onclick="showSection('about')" class="how-it-works-btn">HOW IT WORKS</button>
-
-      <!-- Top header row: Share Access | Mode | Profile | Sign Out -->
-      <div class="header-top-row">
-        <button class="share-access-btn" onclick="toggleSharePanel()">Share Access</button>
-        <div class="mode-badge" id="mode-badge">MODE: PAPER TRADING</div>
-        <div class="active-profile-badge" id="activeProfileBadge">PROFILE: ---</div>
-        <a href="/logout" class="sign-out-btn">Sign Out</a>
-      </div>
 
       <div class="strategy-profile-btn" onclick="toggleStrategyPanel()">PROFILES</div>
       <div class="strategy-panel" id="strategyPanel" style="display:none">
