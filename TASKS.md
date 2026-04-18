@@ -5,6 +5,39 @@
 
 ---
 
+## Dead Code Audit — Tier 2/3 Follow-up
+
+Source: In-session dead code audit (2026-04-18)
+Status: Tier 1 complete (3 dead scripts + 1 doc deleted). Tier 2 and 3
+deferred until after Monday's data comes in so we can see which
+endpoints/tables the system actually uses under live load.
+
+### TASK-DEAD-T2 . DB-AGENT . [BLOCKED: post-Monday-data]
+**Goal:** Drop 4-5 unused Supabase tables after verifying no external readers. Candidates:
+- `llm_inferences` (0 rows — likely superseded by pipeline_runs tracing)
+- `research_memories` (0 rows — no writer found in codebase)
+- `data_quality_checks` (0 rows — orphaned)
+- `predictions` (3 stale rows — related to removed `prediction_accuracy` feature)
+- `strategy_adjustments` (0 rows — meta_analysis proposes them but never writes; check if feature is alive)
+Before dropping: grep all scripts + dashboard routes for each table name. Verify no Grafana/external tool reads them.
+**Acceptance:** Dropped tables return "relation does not exist". No scripts or endpoints broken.
+**Output artifact:** Migration + removal rationale in PROGRESS.md.
+**Depends on:** Monday data collection (verify nothing starts writing to these tables)
+
+### TASK-DEAD-T3 . BACKEND-AGENT . [BLOCKED: post-Monday-data]
+**Goal:** Remove 12 orphaned backend endpoints from `dashboard/routes/*.py`. No frontend consumer, no chat tool, no external caller identified. Endpoints to remove:
+- `trading.py`: `/api/rag/status`, `/api/rag/coverage`, `/api/rag/activity`, `/api/trade-learnings/stats`, `/api/trade-learnings/{id}`, `/api/logs/domains`, `/api/logs/domain/{name}`
+- `ensemble.py`: `/api/shadow/kronos/latest`, `/api/shadow/positions/{id}`
+- `health.py`: `/api/health/flight-status`
+- `replay.py`: `/api/replay/outcome`
+- `chat.py`: `POST /api/trades/{id}/reasoning`
+Before removing: scan index.html + systems-console.html + chat tool dispatch for each URL. If any are used by a planned future feature, leave with a TODO comment.
+**Acceptance:** All 12 endpoints removed. Dashboard still loads cleanly. No 404s on any tab.
+**Output artifact:** List of removed endpoints in PROGRESS.md.
+**Depends on:** TASK-DEAD-T2 (do DB first so no endpoint tries to query a dropped table mid-cleanup)
+
+---
+
 ## Parallax Dashboard Alignment Audit
 
 Source: In-session diagnostic + full data audit (2026-04-18)
