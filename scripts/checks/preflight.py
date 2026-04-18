@@ -2445,7 +2445,7 @@ def run_preflight(dry_run: bool = False, concurrency: int = 1) -> int:
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     print("=" * 45)
-    print("  OPENCLAW PREFLIGHT — GO / NO-GO")
+    print("  PARALLAX PREFLIGHT — GO / NO-GO")
     print(f"  {now_str}")
     if dry_run:
         print(f"  {Fore.YELLOW}DRY-RUN MODE — no DB writes{Style.RESET_ALL}")

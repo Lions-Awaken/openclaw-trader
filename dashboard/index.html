@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OpenClaw Trader</title>
+<title>Parallax</title>
 <link rel="stylesheet" href="/theme.css">
 <style>
   /* Legacy variable mappings for existing dashboard JS */
@@ -721,7 +721,7 @@
   <div class="app-header">
 
     <div class="header-brand">
-      <div class="title-box-tight"><h1>OpenClaw Trader</h1></div>
+      <div class="title-box-tight"><h1>Parallax</h1></div>
       <div class="subtitle">Autonomous Trading Agent</div>
 
       <button onclick="showSection('about')" class="how-it-works-btn">HOW IT WORKS</button>
@@ -2286,7 +2286,7 @@ window.wfGoToStep = wfGoToStep;
                             <span class="buildlog-dot lit" style="background:var(--cyan);box-shadow:var(--glow-cyan)"></span>
                             <span class="buildlog-dot lit" style="background:var(--green);box-shadow:var(--glow-green)"></span>
                         </div>
-                        <span class="buildlog-title-pill">OPENCLAW://AI-CHAT</span>
+                        <span class="buildlog-title-pill">PARALLAX://AI-CHAT</span>
                         <button onclick="chatClearHistory()" style="margin-left:auto;background:transparent;border:1px solid var(--border);color:var(--dim);padding:6px 14px;border-radius:6px;font-size:0.7rem;cursor:pointer;letter-spacing:1px">CLEAR</button>
                     </div>
                     <div id="chat-messages" style="flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:12px">
@@ -2294,7 +2294,7 @@ window.wfGoToStep = wfGoToStep;
                             <div style="font-size:1.4rem;margin-bottom:12px;background:linear-gradient(135deg,var(--purple),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent">CLAUDE</div>
                             <div style="font-size:0.85rem;line-height:1.8;max-width:500px;margin:0 auto">
                                 Ask me anything about your portfolio, trades, signals, inference chains, catalysts, or strategy.
-                                I have access to all of OpenClaw's data.
+                                I have access to all of Parallax's data.
                             </div>
                         </div>
                     </div>
@@ -2320,12 +2320,12 @@ window.wfGoToStep = wfGoToStep;
     <!-- SECTION 1 — What is openclaw-trader? -->
     <div class="card">
       <div class="hiw-collapse-header" onclick="toggleHiwSection(1)">
-        <h2 class="hiw-section-header" style="margin:0;">What is openclaw-trader?</h2>
+        <h2 class="hiw-section-header" style="margin:0;">What is Parallax?</h2>
         <span class="hiw-chevron" id="hiw-chevron-1">&#9660;</span>
       </div>
       <div class="hiw-collapse-body" id="hiw-body-1">
         <div class="hiw-body" style="margin-top:16px;">
-          <p>openclaw-trader is an autonomous AI swing trading system running 24/7 on <strong>ridley</strong> &mdash; a NVIDIA Jetson Orin Nano 8GB. It monitors a <strong>39-ticker watchlist</strong> of AI infrastructure stocks (NVDA, AMD, AVGO, SMCI, MRVL and others), identifies high-probability swing setups using a multi-stage AI reasoning chain, and executes paper trades via the Alpaca API.</p>
+          <p>Parallax is an autonomous AI swing trading system running 24/7 on <strong>ridley</strong> &mdash; a NVIDIA Jetson Orin Nano 8GB. It monitors a <strong>39-ticker watchlist</strong> of AI infrastructure stocks (NVDA, AMD, AVGO, SMCI, MRVL and others), identifies high-probability swing setups using a multi-stage AI reasoning chain, and executes paper trades via the Alpaca API.</p>
           <p>The system is built around an <strong>adversarial ensemble</strong>: one live profile makes trading decisions, while <strong>6 shadow agents</strong> run in parallel, silently evaluating the same candidates and recording their disagreements. Those disagreements become training data for a weekly calibration loop that learns which agents are consistently right.</p>
           <p>The system is <strong>conservative by design</strong>. When in doubt, it does nothing. Cash is a position.</p>
         </div>
@@ -3758,7 +3758,7 @@ function chatClearHistory() {
   const container = document.getElementById('chat-messages');
   container.innerHTML = '<div class="chat-welcome" style="text-align:center;padding:40px 20px;color:var(--dim)">' +
     '<div style="font-size:1.4rem;margin-bottom:12px;background:linear-gradient(135deg,var(--purple),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent">CLAUDE</div>' +
-    '<div style="font-size:0.85rem;line-height:1.8;max-width:500px;margin:0 auto">Ask me anything about your portfolio, trades, signals, inference chains, catalysts, or strategy. I have access to all of OpenClaw\'s data.</div></div>';
+    '<div style="font-size:0.85rem;line-height:1.8;max-width:500px;margin:0 auto">Ask me anything about your portfolio, trades, signals, inference chains, catalysts, or strategy. I have access to all of Parallax\'s data.</div></div>';
 }
 
 

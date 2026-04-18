@@ -381,7 +381,7 @@ def format_report(data: dict) -> str:
     sep = "=" * 50
 
     lines.append(sep)
-    lines.append(f"  OPENCLAW DAILY OPS REPORT -- {TODAY}")
+    lines.append(f"  PARALLAX DAILY OPS REPORT -- {TODAY}")
     lines.append(sep)
     lines.append("")
 

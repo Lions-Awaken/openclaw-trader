@@ -1,9 +1,9 @@
 <!-- Protocol: ~/.claude/protocols/ v1.0.0 -->
-# OpenClaw Trader
+# Parallax (formerly OpenClaw Trader)
 
 ## Overview
 
-Autonomous swing trading agent — scanner, inference engine, position management, and dashboard. Runs on ridley (Jetson) via cron during market hours.
+Autonomous swing trading system — multi-tumbler inference engine, adversarial shadow ensemble, self-calibrating feedback loops, and real-time dashboard. Runs on ridley (Jetson) via cron during market hours.
 
 ## Project Structure
 

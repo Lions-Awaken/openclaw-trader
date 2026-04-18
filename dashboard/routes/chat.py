@@ -76,11 +76,11 @@ WORKFLOW_CONTEXT: dict[int, dict[str, str]] = {
     20: {"title": "META DAILY", "group": "meta", "description": "1:30 PM weekdays. Claude Sonnet reviews the day's shadow divergences. Identifies unanimous dissent (all 6 shadows disagreed with live on a ticker). Output becomes RAG context for future T2 tumbler calls.", "data_in": "shadow_divergences (today), pipeline_health, signal_accuracy, trades, catalysts, chain analysis", "data_out": "meta_reflections row with signal_assessment, operational_issues, adjustments, embedding", "db_table": "meta_reflections", "cost": "~$0.02 per call (Claude Sonnet + Ollama embedding)", "parameters": "Model: Claude Sonnet. Unanimous dissent: all active shadows disagreed on same ticker. RAG: retrieves similar past days for context.", "limitations": "Depends on Claude API budget being available. If budget exhausted, reflection fails with 'Unable to assess'. No automated adjustment execution — proposed adjustments require human approval.", "improvements": "Auto-execute adjustments within +-5% bounds. Add Kronos directional predictions as additional meta context. Track which adjustments were approved vs rejected.", "connections": "Final pipeline step each day. Writes to meta_reflections with embedding. Future T2 calls retrieve these reflections via RAG. The feedback loop: shadows -> divergences -> calibrator -> DWM weights -> meta daily -> RAG context -> future T2 analysis."},
 }
 
-CHAT_SYSTEM_PROMPT = """You are the OpenClaw Trader AI co-pilot — deeply embedded in an autonomous swing trading system built on adversarial AI ensemble architecture.
+CHAT_SYSTEM_PROMPT = """You are the Parallax AI co-pilot — deeply embedded in an autonomous swing trading system built on adversarial AI ensemble architecture.
 
 ## System Architecture
 
-OpenClaw runs on ridley (NVIDIA Jetson Orin Nano 8GB) with these components:
+Parallax runs on ridley (NVIDIA Jetson Orin Nano 8GB) with these components:
 - **Scanner**: Runs 2x daily (6:35 AM, 9:30 AM PDT). 39-ticker AI infrastructure watchlist. 5-tumbler inference chain (T1-T5).
 - **Adversarial Ensemble**: 6 shadow agents run in parallel with the live profile, recording disagreements as training data.
 - **DWM Calibrator**: Weekly grading of shadow divergences. Fitness = correct/dissented. Weight formula: 1.0 x (1 + 0.5 x (fitness - median)), clamped [0.05, 3.0].
@@ -612,7 +612,7 @@ async def get_trade_reasoning(
 
     pnl_str = f"${pnl}" if pnl is not None else "open/unknown"
 
-    prompt = f"""You are analyzing a trade made by OpenClaw, an autonomous swing trading system.
+    prompt = f"""You are analyzing a trade made by Parallax, an autonomous swing trading system.
 
 TRADE DETAILS:
 - Ticker: {ticker}

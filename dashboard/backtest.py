@@ -555,7 +555,7 @@ def compute_summary(
 def print_report(trades: list[Trade], summary: dict) -> None:
     """Print a formatted backtest report to stdout."""
     print("=" * 80)
-    print("  OPENCLAW TRADER — BACKTEST REPORT")
+    print("  PARALLAX — BACKTEST REPORT")
     print("=" * 80)
     print()
 
@@ -607,7 +607,7 @@ def print_report(trades: list[Trade], summary: dict) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="OpenClaw Trader — Backtest the 6-signal swing trading system"
+        description="Parallax — Backtest the 6-signal swing trading system"
     )
     parser.add_argument(
         "--ticker", default="NVDA",
