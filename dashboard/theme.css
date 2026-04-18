@@ -359,7 +359,7 @@ body {
   /* SVG viewBox has ~8% empty space below the visible hammer path.
      Shift the container down so the visible hammer bottom lines up
      with the bottom of the 'arallax' text. */
-  top: 0.13em;
+  top: 0.22em;
 }
 .dropcap-hammer svg {
   width: 100%;
