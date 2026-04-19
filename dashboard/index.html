@@ -728,7 +728,7 @@
 
     <div class="telem-stat">
       <div class="telem-label">LAST UPDATED</div>
-      <div class="telem-value" id="telem-updated" style="font-size:0.65rem;color:var(--text-dim)">---</div>
+      <div class="telem-value body-text-sm" id="telem-updated">---</div>
     </div>
   </aside>
 
@@ -836,12 +836,12 @@
 
     <div class="card">
       <h2>Market Regime</h2>
-      <div id="regime-display" class="loading">Loading regime data...</div>
+      <div id="regime-display" class="loading"><span class="body-text">Loading regime data...</span></div>
     </div>
 
     <div class="card">
       <h2>Recent Trades</h2>
-      <div id="recent-trades" class="loading">Loading trades...</div>
+      <div id="recent-trades" class="loading"><span class="body-text">Loading trades...</span></div>
     </div>
   </div>
 
@@ -885,20 +885,20 @@
           <option value="ollama_watchdog">Ollama Watchdog</option>
         </select>
       </div>
-      <div id="pipeline-runs" class="loading">Loading pipeline runs...</div>
+      <div id="pipeline-runs" class="loading"><span class="body-text">Loading pipeline runs...</span></div>
     </div>
 
     <div class="card">
       <h2>Pipeline DAG</h2>
-      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Click a run above to view its execution tree</p>
+      <p class="body-text-sm" style="margin-bottom:12px">Click a run above to view its execution tree</p>
       <div id="pipeline-dag" class="dag-container">
-        <div class="empty-state">Select a pipeline run to view its DAG</div>
+        <div class="empty-state body-text">Select a pipeline run to view its DAG</div>
       </div>
     </div>
 
     <div class="card">
       <h2>7-Day Timeline</h2>
-      <div id="pipeline-timeline" class="loading">Loading timeline...</div>
+      <div id="pipeline-timeline" class="loading"><span class="body-text">Loading timeline...</span></div>
     </div>
   </div>
 
@@ -906,7 +906,7 @@
   <div id="section-trades" class="section">
     <div class="card">
       <h2>Full Trade History</h2>
-      <div id="trade-log" class="loading">Loading trade history...</div>
+      <div id="trade-log" class="loading"><span class="body-text">Loading trade history...</span></div>
     </div>
   </div>
 
@@ -914,7 +914,7 @@
   <div id="section-positions" class="section">
     <div class="card">
       <h2>Open Positions</h2>
-      <div id="positions-list" class="loading">Loading positions...</div>
+      <div id="positions-list" class="loading"><span class="body-text">Loading positions...</span></div>
     </div>
   </div>
 
@@ -943,7 +943,7 @@
 
     <div class="card">
       <h2>Cost Breakdown</h2>
-      <div id="econ-breakdown" class="loading">Loading cost breakdown...</div>
+      <div id="econ-breakdown" class="loading"><span class="body-text">Loading cost breakdown...</span></div>
     </div>
 
     <div class="card">
@@ -953,8 +953,8 @@
 
     <div class="card">
       <h2>Budget Caps</h2>
-      <p style="font-size:0.8rem;color:var(--dim);margin-bottom:12px">Click a value to edit. Changes take effect immediately.</p>
-      <div id="budget-caps" class="loading">Loading budget config...</div>
+      <p class="body-text-sm" style="margin-bottom:12px">Click a value to edit. Changes take effect immediately.</p>
+      <div id="budget-caps" class="loading"><span class="body-text">Loading budget config...</span></div>
     </div>
   </div>
 
@@ -965,7 +965,7 @@
     <!-- Panel 1: Leaderboard -->
     <div class="card">
       <h2>Shadow Agent Leaderboard</h2>
-      <div id="perf-leaderboard" class="loading">Loading leaderboard...</div>
+      <div id="perf-leaderboard" class="loading"><span class="body-text">Loading leaderboard...</span></div>
     </div>
 
     <!-- Panel 2: Weekly P&L Chart -->
@@ -977,7 +977,7 @@
     <!-- Panel 3: Open Shadow Positions -->
     <div class="card">
       <h2>Open Shadow Positions</h2>
-      <div id="perf-positions" class="loading">Loading positions...</div>
+      <div id="perf-positions" class="loading"><span class="body-text">Loading positions...</span></div>
     </div>
 
   </div>
@@ -1373,7 +1373,7 @@
         <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleWorkflowWidget()">
             <div>
                 <h2 style="font-size: 1.35rem; color: var(--cyan, #22d3ee); margin: 0;">ADVERSARIAL ENSEMBLE — INTERACTIVE WORKFLOW</h2>
-                <p style="color: var(--dim, rgba(200,220,232,0.6)); margin: 0.5rem 0 0 0; font-size: 1rem;">
+                <p class="body-text" style="margin: 0.5rem 0 0 0;">
                     Step through all 20 stages of the daily pipeline with the animated walkthrough below.
                 </p>
             </div>
@@ -1700,7 +1700,7 @@
                   <div style="flex:1;min-width:200px;">
                     <div class="wf-detail-step-num" id="wf-detailStepNum">STEP 1 OF 20 — PRE-MARKET</div>
                     <div class="wf-detail-title" id="wf-detailTitle">HEALTH CHECK</div>
-                    <div class="wf-detail-desc" id="wf-detailDesc">Loading...</div>
+                    <div class="wf-detail-desc body-text" id="wf-detailDesc">Loading...</div>
                     <div class="wf-detail-meta">
                       <div class="wf-meta-chip">
                         <span class="wf-chip-label">Writes To</span>
@@ -2319,7 +2319,7 @@ window.wfGoToStep = wfGoToStep;
                     <div id="chat-messages" style="flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:12px">
                         <div class="chat-welcome" style="text-align:center;padding:40px 20px;color:var(--dim)">
                             <div style="font-size:1.4rem;margin-bottom:12px;background:linear-gradient(135deg,var(--purple),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent">CLAUDE</div>
-                            <div style="font-size:0.85rem;line-height:1.8;max-width:500px;margin:0 auto">
+                            <div class="body-text" style="max-width:500px;margin:0 auto">
                                 Ask me anything about your portfolio, trades, signals, inference chains, catalysts, or strategy.
                                 I have access to all of Parallax's data.
                             </div>
@@ -2351,7 +2351,7 @@ window.wfGoToStep = wfGoToStep;
         <span class="hiw-chevron" id="hiw-chevron-1">&#9660;</span>
       </div>
       <div class="hiw-collapse-body" id="hiw-body-1">
-        <div class="hiw-body" style="margin-top:16px;">
+        <div class="hiw-body body-text" style="margin-top:16px;">
           <p>Parallax is an autonomous AI swing trading system running 24/7 on <strong>ridley</strong> &mdash; a NVIDIA Jetson Orin Nano 8GB. It runs a <strong>multi-profile architecture</strong>: the active profile is <strong>CONGRESS_MIRROR</strong>, which dynamically builds its watchlist from recent high-signal congressional trade disclosures (last 21 days). When no qualifying congressional filings exist, it falls back to a technical watchlist of liquid universe stocks.</p>
           <p>Every candidate is evaluated through a <strong>5-tumbler Lock &amp; Tumbler inference engine</strong>: a staged reasoning chain that begins with free local computation (T1&ndash;T2), advances through a local GPU LLM call (T3 via Ollama qwen2.5:3b), and only reaches the paid Anthropic API for pattern matching (T4 Claude Haiku) and counterfactual synthesis (T5 Claude Sonnet) when confidence warrants it. Each tumbler has a confidence floor; falling below it stops the chain early.</p>
           <p>The system is built around a <strong>6-shadow adversarial ensemble</strong>: one live profile makes trading decisions, while six independent shadow agents (SKEPTIC, CONTRARIAN, REGIME_WATCHER, OPTIONS_FLOW, FORM4_INSIDER, KRONOS_TECHNICALS) silently evaluate every candidate and record their disagreements. Those disagreements become training data for a <strong>weekly self-calibrating feedback loop</strong> that learns which agents are consistently right and adjusts their DWM weights accordingly.</p>
@@ -2368,7 +2368,7 @@ window.wfGoToStep = wfGoToStep;
       </div>
       <div class="hiw-collapse-body" id="hiw-body-2">
         <div style="overflow-x:auto; margin-top:16px;">
-          <p class="hiw-body" style="margin-bottom:12px;font-size:0.88rem;color:var(--dim);">All times are PDT (America/Los_Angeles). ridley runs on Pacific time. ET = PDT + 3 hours.</p>
+          <p class="hiw-body body-text" style="margin-bottom:12px;">All times are PDT (America/Los_Angeles). ridley runs on Pacific time. ET = PDT + 3 hours.</p>
           <table class="hiw-table">
             <thead>
               <tr>
@@ -2378,29 +2378,29 @@ window.wfGoToStep = wfGoToStep;
               </tr>
             </thead>
             <tbody>
-              <tr><td>5:00 AM</td><td>Health Check</td><td>system_check.py --mode health &mdash; automated checks across 13 groups. Alerts to Slack on failure.</td></tr>
-              <tr><td>5:15 AM</td><td>Regime Detection</td><td>regime.py &mdash; detects current market regime before scanner runs</td></tr>
-              <tr><td>5:25 AM</td><td>Ollama Watchdog</td><td>ollama_watchdog.py &mdash; health check + auto-restart before first critical scan window</td></tr>
-              <tr><td>5:30 AM</td><td>Catalyst Ingest</td><td>catalyst_ingest.py &mdash; 5-source detection: Finnhub, SEC EDGAR, QuiverQuant, yfinance, FRED. Embeds via Ollama for RAG.</td></tr>
-              <tr><td>6:00 AM</td><td>Form 4 Ingest</td><td>ingest_signals.py form4 &mdash; SEC EDGAR insider purchase filing signals</td></tr>
-              <tr><td>6:00 AM &ndash; 12:45 PM<br><small>(every 30 min)</small></td><td>Position Manager</td><td>position_manager.py &mdash; trailing stops, time stops, EOD flatten. Runs at :00 and :30 from 6&ndash;11:30 AM plus 12:00 PM and 12:45 PM.</td></tr>
-              <tr><td>6:30 AM</td><td>Ollama Watchdog</td><td>Second watchdog check immediately before morning scanner</td></tr>
-              <tr><td>6:35 AM</td><td>Scanner (morning)</td><td>scanner.py &mdash; full pipeline: CONGRESS_MIRROR watchlist build, signal scoring, enrichment, T1&ndash;T5 tumbler chain, execution gate</td></tr>
-              <tr><td>7:00 AM</td><td>Options Flow Ingest</td><td>ingest_signals.py options &mdash; unusual options activity signals</td></tr>
-              <tr><td>7:15 AM</td><td>Shadow Position Opener</td><td>shadow_position_opener.py &mdash; opens virtual positions for shadow agents from morning scanner enter calls</td></tr>
-              <tr><td>8:55 AM</td><td>Ollama Watchdog</td><td>Third watchdog check before midday catalyst and scanner</td></tr>
-              <tr><td>9:00 AM</td><td>Catalyst Ingest</td><td>Second catalyst run &mdash; refreshes catalyst context before midday scan</td></tr>
-              <tr><td>9:30 AM</td><td>Scanner (midday)</td><td>scanner.py &mdash; same full pipeline, second daily run</td></tr>
-              <tr><td>10:30 AM</td><td>Shadow Position Opener</td><td>shadow_position_opener.py &mdash; opens virtual positions from midday scanner enter calls</td></tr>
-              <tr><td>12:45 PM</td><td>Ollama Watchdog + Position Manager (last)</td><td>Final watchdog check; last position manager run of the day</td></tr>
-              <tr><td>12:50 PM</td><td>Catalyst Ingest</td><td>Third catalyst run &mdash; captures afternoon news before meta daily reflection</td></tr>
-              <tr><td>1:30 PM</td><td>Meta Daily</td><td>meta_analysis.py daily &mdash; Claude Sonnet reviews shadow divergences, flags unanimous dissent, writes RAG context for future T2 calls</td></tr>
-              <tr><td>2:00 PM</td><td>Daily Report</td><td>daily_report.py &mdash; daily ops summary</td></tr>
-              <tr><td>6:00 PM</td><td>Shadow Mark-to-Market</td><td>shadow_mark_to_market.py &mdash; updates shadow position prices nightly, applies exit rules</td></tr>
-              <tr><td>Sunday 9:00 AM</td><td>Shadow Performance Rollup</td><td>shadow_performance_rollup.py &mdash; weekly aggregated shadow agent performance stats</td></tr>
-              <tr><td>Sunday 4:00 PM</td><td>Meta Weekly</td><td>meta_analysis.py weekly &mdash; weekly strategy review + pattern discovery</td></tr>
-              <tr><td>Sunday 4:30 PM</td><td>Calibrator</td><td>calibrator.py &mdash; grades past divergences, updates DWM weights per agent</td></tr>
-              <tr><td>@reboot (daemon)</td><td>System Monitor</td><td>system_monitor.py &mdash; persistent daemon: hardware metrics every 5s + service health every 60s &rarr; system_stats</td></tr>
+              <tr><td>5:00 AM</td><td>Health Check</td><td class="body-text">system_check.py --mode health &mdash; automated checks across 13 groups. Alerts to Slack on failure.</td></tr>
+              <tr><td>5:15 AM</td><td>Regime Detection</td><td class="body-text">regime.py &mdash; detects current market regime before scanner runs</td></tr>
+              <tr><td>5:25 AM</td><td>Ollama Watchdog</td><td class="body-text">ollama_watchdog.py &mdash; health check + auto-restart before first critical scan window</td></tr>
+              <tr><td>5:30 AM</td><td>Catalyst Ingest</td><td class="body-text">catalyst_ingest.py &mdash; 5-source detection: Finnhub, SEC EDGAR, QuiverQuant, yfinance, FRED. Embeds via Ollama for RAG.</td></tr>
+              <tr><td>6:00 AM</td><td>Form 4 Ingest</td><td class="body-text">ingest_signals.py form4 &mdash; SEC EDGAR insider purchase filing signals</td></tr>
+              <tr><td>6:00 AM &ndash; 12:45 PM<br><small>(every 30 min)</small></td><td>Position Manager</td><td class="body-text">position_manager.py &mdash; trailing stops, time stops, EOD flatten. Runs at :00 and :30 from 6&ndash;11:30 AM plus 12:00 PM and 12:45 PM.</td></tr>
+              <tr><td>6:30 AM</td><td>Ollama Watchdog</td><td class="body-text">Second watchdog check immediately before morning scanner</td></tr>
+              <tr><td>6:35 AM</td><td>Scanner (morning)</td><td class="body-text">scanner.py &mdash; full pipeline: CONGRESS_MIRROR watchlist build, signal scoring, enrichment, T1&ndash;T5 tumbler chain, execution gate</td></tr>
+              <tr><td>7:00 AM</td><td>Options Flow Ingest</td><td class="body-text">ingest_signals.py options &mdash; unusual options activity signals</td></tr>
+              <tr><td>7:15 AM</td><td>Shadow Position Opener</td><td class="body-text">shadow_position_opener.py &mdash; opens virtual positions for shadow agents from morning scanner enter calls</td></tr>
+              <tr><td>8:55 AM</td><td>Ollama Watchdog</td><td class="body-text">Third watchdog check before midday catalyst and scanner</td></tr>
+              <tr><td>9:00 AM</td><td>Catalyst Ingest</td><td class="body-text">Second catalyst run &mdash; refreshes catalyst context before midday scan</td></tr>
+              <tr><td>9:30 AM</td><td>Scanner (midday)</td><td class="body-text">scanner.py &mdash; same full pipeline, second daily run</td></tr>
+              <tr><td>10:30 AM</td><td>Shadow Position Opener</td><td class="body-text">shadow_position_opener.py &mdash; opens virtual positions from midday scanner enter calls</td></tr>
+              <tr><td>12:45 PM</td><td>Ollama Watchdog + Position Manager (last)</td><td class="body-text">Final watchdog check; last position manager run of the day</td></tr>
+              <tr><td>12:50 PM</td><td>Catalyst Ingest</td><td class="body-text">Third catalyst run &mdash; captures afternoon news before meta daily reflection</td></tr>
+              <tr><td>1:30 PM</td><td>Meta Daily</td><td class="body-text">meta_analysis.py daily &mdash; Claude Sonnet reviews shadow divergences, flags unanimous dissent, writes RAG context for future T2 calls</td></tr>
+              <tr><td>2:00 PM</td><td>Daily Report</td><td class="body-text">daily_report.py &mdash; daily ops summary</td></tr>
+              <tr><td>6:00 PM</td><td>Shadow Mark-to-Market</td><td class="body-text">shadow_mark_to_market.py &mdash; updates shadow position prices nightly, applies exit rules</td></tr>
+              <tr><td>Sunday 9:00 AM</td><td>Shadow Performance Rollup</td><td class="body-text">shadow_performance_rollup.py &mdash; weekly aggregated shadow agent performance stats</td></tr>
+              <tr><td>Sunday 4:00 PM</td><td>Meta Weekly</td><td class="body-text">meta_analysis.py weekly &mdash; weekly strategy review + pattern discovery</td></tr>
+              <tr><td>Sunday 4:30 PM</td><td>Calibrator</td><td class="body-text">calibrator.py &mdash; grades past divergences, updates DWM weights per agent</td></tr>
+              <tr><td>@reboot (daemon)</td><td>System Monitor</td><td class="body-text">system_monitor.py &mdash; persistent daemon: hardware metrics every 5s + service health every 60s &rarr; system_stats</td></tr>
             </tbody>
           </table>
         </div>
@@ -2422,7 +2422,7 @@ window.wfGoToStep = wfGoToStep;
             <span class="tumbler-title">Technical Foundation</span>
             <span class="tumbler-cost free">FREE</span>
           </div>
-          <div class="tumbler-body">
+          <div class="tumbler-body body-text">
             <p>Watchlist tickers scored against 6 binary signals: Trend, Momentum, Volume, Catalyst, Sentiment, Flow. RAG retrieves similar past signal evaluations via pgvector.</p>
             <ul>
               <li>Score 0&ndash;6. Only tickers scoring &ge; 3 advance to the tumbler chain.</li>
@@ -2440,7 +2440,7 @@ window.wfGoToStep = wfGoToStep;
             <span class="tumbler-title">Fundamental + Sentiment (RAG)</span>
             <span class="tumbler-cost free">FREE</span>
           </div>
-          <div class="tumbler-body">
+          <div class="tumbler-body body-text">
             <ul>
               <li>Retrieves similar past inference chains and trade learnings via pgvector similarity search</li>
               <li>Congressional trade disclosures (CONGRESS_MIRROR) get a confidence boost if filed within 40 days</li>
@@ -2458,7 +2458,7 @@ window.wfGoToStep = wfGoToStep;
             <span class="tumbler-title">Flow &amp; Cross-Asset (Ollama on ridley GPU)</span>
             <span class="tumbler-cost free">FREE (local)</span>
           </div>
-          <div class="tumbler-body">
+          <div class="tumbler-body body-text">
             <ul>
               <li>First LLM call &mdash; runs locally on ridley's Jetson GPU via Ollama (<code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">qwen2.5:3b</code>)</li>
               <li>Analyzes how this setup compares to past chains and outcomes. Shadow context injected for shadow profiles.</li>
@@ -2476,7 +2476,7 @@ window.wfGoToStep = wfGoToStep;
             <span class="tumbler-title">Pattern Template Matching (Claude Haiku &mdash; Anthropic API)</span>
             <span class="tumbler-cost cheap">~$0.001/call</span>
           </div>
-          <div class="tumbler-body">
+          <div class="tumbler-body body-text">
             <ul>
               <li>Matches against 24 seeded pattern templates with documented outcomes via pgvector RAG</li>
               <li>Evaluates quality and coherence of the full trade thesis</li>
@@ -2494,7 +2494,7 @@ window.wfGoToStep = wfGoToStep;
             <span class="tumbler-title">Counterfactual Synthesis (Claude Sonnet &mdash; Anthropic API)</span>
             <span class="tumbler-cost expensive">~$0.005/call</span>
           </div>
-          <div class="tumbler-body">
+          <div class="tumbler-body body-text">
             <ul>
               <li>Devil's advocate &mdash; constructs the strongest argument AGAINST the trade using trade_learnings loss RAG</li>
               <li>Asymmetric adjustment: can drop confidence by 0.15 but raise it only 0.05</li>
@@ -2511,14 +2511,14 @@ window.wfGoToStep = wfGoToStep;
             <span class="tumbler-badge tgate">GATE</span>
             <span class="tumbler-title">Execution Gate &amp; Decision Thresholds</span>
           </div>
-          <div class="tumbler-body">
+          <div class="tumbler-body body-text">
             <p>Trade only executes if <strong>ALL THREE</strong> conditions are met:</p>
             <ul>
               <li>Decision = <code style="background:rgba(34,197,94,0.12);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--green)">enter</code> or <code style="background:rgba(34,197,94,0.12);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--green)">strong_enter</code></li>
               <li>Final confidence &ge; 0.60</li>
               <li>At least 3 tumblers completed</li>
             </ul>
-            <p style="margin-top:10px;font-size:0.88rem;">
+            <p style="margin-top:10px;">
               <strong>Decision thresholds:</strong>
               <code style="background:rgba(34,197,94,0.12);padding:1px 6px;border-radius:4px;font-size:0.82rem;color:var(--green)">strong_enter &ge;0.75</code> &nbsp;
               <code style="background:rgba(34,197,94,0.12);padding:1px 6px;border-radius:4px;font-size:0.82rem;color:var(--green)">enter &ge;0.60</code> &nbsp;
@@ -2526,7 +2526,7 @@ window.wfGoToStep = wfGoToStep;
               <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">skip &ge;0.20</code> &nbsp;
               <code style="background:rgba(239,68,68,0.1);padding:1px 6px;border-radius:4px;font-size:0.82rem;color:var(--red)">veto &lt;0.20</code>
             </p>
-            <p style="margin-top:10px;font-size:0.88rem;color:var(--dim)">
+            <p class="body-text-sm" style="margin-top:10px;">
               Stopping rules: <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">veto_signal</code> &nbsp;
               <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">confidence_floor</code> &nbsp;
               <code style="background:rgba(0,0,0,0.25);padding:1px 6px;border-radius:4px;font-size:0.82rem">forced_connection</code> &nbsp;
@@ -2550,20 +2550,20 @@ window.wfGoToStep = wfGoToStep;
       </div>
       <div class="hiw-collapse-body" id="hiw-body-4">
 
-      <p class="hiw-body" style="margin-bottom:16px; margin-top:16px;">Six agents silently evaluate every candidate the live profile sees, then record their verdict. Their disagreements are training data.</p>
+      <p class="hiw-body body-text" style="margin-bottom:16px; margin-top:16px;">Six agents silently evaluate every candidate the live profile sees, then record their verdict. Their disagreements are training data.</p>
 
       <div class="budget-gate">
         <div class="budget-tier high">
           <div class="bt-threshold">&ge; 40% Claude budget</div>
-          <div class="bt-desc">All 6 shadows run</div>
+          <div class="bt-desc body-text">All 6 shadows run</div>
         </div>
         <div class="budget-tier mid">
           <div class="bt-threshold">20&ndash;40% Claude budget</div>
-          <div class="bt-desc">Regime Watcher, Form 4 Insider, and Kronos only</div>
+          <div class="bt-desc body-text">Regime Watcher, Form 4 Insider, and Kronos only</div>
         </div>
         <div class="budget-tier low">
           <div class="bt-threshold">&lt; 20% Claude budget</div>
-          <div class="bt-desc">Kronos only (zero API cost)</div>
+          <div class="bt-desc body-text">Kronos only (zero API cost)</div>
         </div>
       </div>
 
@@ -2580,32 +2580,32 @@ window.wfGoToStep = wfGoToStep;
             <tr>
               <td>SKEPTIC</td>
               <td>LLM (Claude)</td>
-              <td>Require overwhelming evidence. Confidence floors HIGH. Heavily penalizes momentum-chasing. <strong>Graded: Conditional Brier Score.</strong></td>
+              <td class="body-text">Require overwhelming evidence. Confidence floors HIGH. Heavily penalizes momentum-chasing. <strong>Graded: Conditional Brier Score.</strong></td>
             </tr>
             <tr>
               <td>CONTRARIAN</td>
               <td>LLM (Claude)</td>
-              <td>Assume the trade is wrong. Overweights sector rotation, institutional distribution, price-fundamental divergence. <strong>Graded: Regime-Conditional IC.</strong></td>
+              <td class="body-text">Assume the trade is wrong. Overweights sector rotation, institutional distribution, price-fundamental divergence. <strong>Graded: Regime-Conditional IC.</strong></td>
             </tr>
             <tr>
               <td>REGIME_WATCHER</td>
               <td>LLM (Ollama only, stops at T3)</td>
-              <td>Ignore the ticker entirely. Only question: is this a good time to enter ANY long position? Evaluates SPY trend, VIX, yield curve, credit spreads. Zero API cost. <strong>Graded: signal latency.</strong></td>
+              <td class="body-text">Ignore the ticker entirely. Only question: is this a good time to enter ANY long position? Evaluates SPY trend, VIX, yield curve, credit spreads. Zero API cost. <strong>Graded: signal latency.</strong></td>
             </tr>
             <tr>
               <td>OPTIONS_FLOW</td>
               <td>LLM (Claude)</td>
-              <td>Primary signal: unusual options activity &mdash; sweeps, blocks, dark pool prints. Alpha decay 1&ndash;5 days. <strong>Graded: 5-day forward return.</strong></td>
+              <td class="body-text">Primary signal: unusual options activity &mdash; sweeps, blocks, dark pool prints. Alpha decay 1&ndash;5 days. <strong>Graded: 5-day forward return.</strong></td>
             </tr>
             <tr>
               <td>FORM4_INSIDER</td>
               <td>LLM (Claude)</td>
-              <td>Primary signal: Form 4 purchase filings by CEOs/CFOs/board members. Cluster buys weighted heavily. CFOs = strongest signal. <strong>Graded: 15-day forward return.</strong></td>
+              <td class="body-text">Primary signal: Form 4 purchase filings by CEOs/CFOs/board members. Cluster buys weighted heavily. CFOs = strongest signal. <strong>Graded: 15-day forward return.</strong></td>
             </tr>
             <tr>
               <td>KRONOS_TECHNICALS</td>
               <td>GPU (Jetson, no LLM)</td>
-              <td>Pure price pattern. 252 daily OHLCV candles &rarr; Kronos foundation model &rarr; 50 Monte Carlo paths &rarr; bullish probability at 10-day horizon. No news, no fundamentals. Local GPU only. <strong>Graded: 10-day directional accuracy.</strong></td>
+              <td class="body-text">Pure price pattern. 252 daily OHLCV candles &rarr; Kronos foundation model &rarr; 50 Monte Carlo paths &rarr; bullish probability at 10-day horizon. No news, no fundamentals. Local GPU only. <strong>Graded: 10-day directional accuracy.</strong></td>
             </tr>
           </tbody>
         </table>
@@ -2620,17 +2620,17 @@ window.wfGoToStep = wfGoToStep;
         <span class="hiw-chevron" id="hiw-chevron-5">&#9660;</span>
       </div>
       <div class="hiw-collapse-body" id="hiw-body-5">
-        <p class="hiw-body" style="margin-bottom:16px; margin-top:16px;">Every Sunday, the calibrator grades all ungraded divergences from the past 30 days:</p>
-        <ol class="calib-steps">
+        <p class="hiw-body body-text" style="margin-bottom:16px; margin-top:16px;">Every Sunday, the calibrator grades all ungraded divergences from the past 30 days:</p>
+        <ol class="calib-steps body-text">
           <li>Fetches ungraded <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">shadow_divergences</code> where <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">shadow_was_right</code> is null</li>
           <li>Grades each: was the shadow agent right to dissent?
-            <ul style="margin-top:6px;padding-left:18px;font-size:0.9rem;color:var(--dim)">
+            <ul class="body-text-sm" style="margin-top:6px;padding-left:18px;">
               <li>Kronos: checks actual close price at 10 trading days after signal</li>
               <li>LLM agents: checks <code style="background:rgba(0,0,0,0.2);padding:1px 5px;border-radius:3px;font-size:0.82rem">inference_chains.actual_outcome</code></li>
             </ul>
           </li>
           <li>Fitness score: <span class="hiw-formula">fitness = times_correct / times_dissented</span></li>
-          <li>DWM weight: <span class="hiw-formula">new_weight = 1.0 &times; (1 + 0.5 &times; (fitness &minus; median_fitness))</span>&nbsp;&nbsp;<span style="font-size:0.85rem;color:var(--dim)">clamped [0.05, 3.0]</span></li>
+          <li>DWM weight: <span class="hiw-formula">new_weight = 1.0 &times; (1 + 0.5 &times; (fitness &minus; median_fitness))</span>&nbsp;&nbsp;<span class="body-text-sm">clamped [0.05, 3.0]</span></li>
         </ol>
       </div>
     </div>
@@ -2642,8 +2642,8 @@ window.wfGoToStep = wfGoToStep;
         <span class="hiw-chevron" id="hiw-chevron-6">&#9660;</span>
       </div>
       <div class="hiw-collapse-body" id="hiw-body-6">
-        <p class="hiw-body" style="margin-bottom:16px; margin-top:16px;">Every afternoon, Claude reviews the day's shadow divergences looking for <strong>unanimous dissent</strong> &mdash; all 6 shadows simultaneously disagreed with the live profile. If found:</p>
-        <div class="signal-list">
+        <p class="hiw-body body-text" style="margin-bottom:16px; margin-top:16px;">Every afternoon, Claude reviews the day's shadow divergences looking for <strong>unanimous dissent</strong> &mdash; all 6 shadows simultaneously disagreed with the live profile. If found:</p>
+        <div class="signal-list body-text">
           <div class="signal-item"><span class="num">1</span> Full divergence data injected into Claude Sonnet prompt as HIGH PRIORITY</div>
           <div class="signal-item"><span class="num">2</span> Instruction: "Analyze what the shadows saw that the live profile missed"</div>
           <div class="signal-item"><span class="num">3</span> Output written to <code style="background:rgba(139,92,246,0.15);padding:1px 6px;border-radius:4px;font-size:0.85rem;color:var(--purple)">meta_reflections</code> table</div>
@@ -2668,16 +2668,16 @@ window.wfGoToStep = wfGoToStep;
               </tr>
             </thead>
             <tbody>
-              <tr><td>ridley</td><td>NVIDIA Jetson Orin Nano 8GB &mdash; all trading scripts run here via cron; hosts Ollama and Kronos GPU inference</td></tr>
-              <tr><td>motherbrain</td><td>Orchestrator machine where Picard and the Claude fleet agents live</td></tr>
-              <tr><td>Supabase</td><td>PostgreSQL + pgvector &mdash; all trading state, embeddings, RAG context, signal history</td></tr>
-              <tr><td>Alpaca</td><td>Paper trading API &mdash; order execution and account state</td></tr>
-              <tr><td>Ollama</td><td>Local LLM runtime on ridley (qwen2.5:3b) &mdash; zero API cost for T3 and REGIME_WATCHER</td></tr>
-              <tr><td>Anthropic API</td><td>Claude Haiku (T4 pattern matching) and Claude Sonnet (T5 counterfactual, meta daily/weekly)</td></tr>
-              <tr><td>Kronos-small</td><td>24.7M parameter financial time series foundation model on ridley GPU &mdash; used by KRONOS_TECHNICALS shadow agent</td></tr>
-              <tr><td>Fly.io</td><td>Dashboard hosting (parallax dashboard) + log-shipper app that pipes logs to Grafana Cloud Loki</td></tr>
-              <tr><td>Sentry</td><td>Error tracking &mdash; auto-captures ERROR+ level logs from all scripts</td></tr>
-              <tr><td>Grafana Cloud Loki</td><td>Centralized log aggregation via tu-log-shipper on Fly.io</td></tr>
+              <tr><td>ridley</td><td class="body-text">NVIDIA Jetson Orin Nano 8GB &mdash; all trading scripts run here via cron; hosts Ollama and Kronos GPU inference</td></tr>
+              <tr><td>motherbrain</td><td class="body-text">Orchestrator machine where Picard and the Claude fleet agents live</td></tr>
+              <tr><td>Supabase</td><td class="body-text">PostgreSQL + pgvector &mdash; all trading state, embeddings, RAG context, signal history</td></tr>
+              <tr><td>Alpaca</td><td class="body-text">Paper trading API &mdash; order execution and account state</td></tr>
+              <tr><td>Ollama</td><td class="body-text">Local LLM runtime on ridley (qwen2.5:3b) &mdash; zero API cost for T3 and REGIME_WATCHER</td></tr>
+              <tr><td>Anthropic API</td><td class="body-text">Claude Haiku (T4 pattern matching) and Claude Sonnet (T5 counterfactual, meta daily/weekly)</td></tr>
+              <tr><td>Kronos-small</td><td class="body-text">24.7M parameter financial time series foundation model on ridley GPU &mdash; used by KRONOS_TECHNICALS shadow agent</td></tr>
+              <tr><td>Fly.io</td><td class="body-text">Dashboard hosting (parallax dashboard) + log-shipper app that pipes logs to Grafana Cloud Loki</td></tr>
+              <tr><td>Sentry</td><td class="body-text">Error tracking &mdash; auto-captures ERROR+ level logs from all scripts</td></tr>
+              <tr><td>Grafana Cloud Loki</td><td class="body-text">Centralized log aggregation via tu-log-shipper on Fly.io</td></tr>
             </tbody>
           </table>
         </div>
@@ -2691,7 +2691,7 @@ window.wfGoToStep = wfGoToStep;
         <span class="hiw-chevron" id="hiw-chevron-8">&#9660;</span>
       </div>
       <div class="hiw-collapse-body" id="hiw-body-8">
-        <ul class="circuit-list" style="margin-top:16px;">
+        <ul class="circuit-list body-text" style="margin-top:16px;">
           <li><strong>3 consecutive losses</strong> &rarr; circuit breaker trips, scanner stands down</li>
           <li><strong>Daily drawdown &gt; 2%</strong> &rarr; circuit breaker trips (compares equity vs last_equity from Alpaca)</li>
           <li><strong>Max concurrent positions</strong> &rarr; configurable per strategy profile (default: 5); scanner scans but does not execute when slot limit reached</li>
@@ -2711,26 +2711,26 @@ window.wfGoToStep = wfGoToStep;
     <!-- Shadow Intelligence -->
     <div class="card">
       <h2>SHADOW PROFILE SCOREBOARD</h2>
-      <p style="color: var(--cyan); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 1rem;">
+      <p class="body-text" style="color: var(--cyan); margin-bottom: 1.5rem;">
         Adversarial ensemble performance — fitness scores drive DWM weight allocation
       </p>
-      <div id="shadow-profiles">Loading profiles...</div>
+      <div id="shadow-profiles"><div class="loading body-text">Loading profiles...</div></div>
     </div>
 
     <div class="card">
       <h2>UNANIMOUS DISSENT ALERTS</h2>
-      <p style="color: var(--red); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 1rem;">
+      <p class="body-text" style="color: var(--red); margin-bottom: 1.5rem;">
         Tickers where ALL shadow profiles disagreed with the live entry decision
       </p>
-      <div id="shadow-unanimous">Loading...</div>
+      <div id="shadow-unanimous"><div class="loading body-text">Loading...</div></div>
     </div>
 
     <div class="card">
       <h2>DIVERGENCE HISTORY</h2>
-      <p style="color: var(--cyan); margin-bottom: 1.5rem; font-family: 'Inter', monospace; text-transform: none; font-weight: 400; font-size: 1rem;">
+      <p class="body-text" style="color: var(--cyan); margin-bottom: 1.5rem;">
         Per-scan divergence events between live and shadow profiles — last 30 days
       </p>
-      <div id="shadow-divergences">Loading divergences...</div>
+      <div id="shadow-divergences"><div class="loading body-text">Loading divergences...</div></div>
     </div>
 
     <!-- Divider between Shadow and Signals -->
@@ -2741,8 +2741,8 @@ window.wfGoToStep = wfGoToStep;
     <!-- Signal Sources -->
     <div class="card">
       <h2 style="font-size: 24px;">SIGNAL SOURCES</h2>
-      <p style="color: var(--cyan); margin-bottom: 1.5rem; font-size: 16px;">Options flow, insider filings, and shadow profile fitness</p>
-      <div id="signalfeed-content">Loading...</div>
+      <p class="body-text" style="color: var(--cyan); margin-bottom: 1.5rem;">Options flow, insider filings, and shadow profile fitness</p>
+      <div id="signalfeed-content"><div class="loading body-text">Loading...</div></div>
     </div>
   </div>
 
@@ -2760,7 +2760,7 @@ window.wfGoToStep = wfGoToStep;
       <!-- Candidates: full width -->
       <div class="card" style="padding:12px;overflow-x:auto;">
         <div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">CANDIDATES</div>
-        <div id="replay-grid"><div class="empty-state">Select a date to load candidates</div></div>
+        <div id="replay-grid"><div class="empty-state body-text">Select a date to load candidates</div></div>
       </div>
     </div>
 
@@ -2781,12 +2781,12 @@ window.wfGoToStep = wfGoToStep;
 
         <!-- Tumbler Waterfall -->
         <div class="card" style="padding:12px;margin-bottom:12px;">
-          <div id="replay-waterfall"><div class="empty-state">Loading tumbler chain...</div></div>
+          <div id="replay-waterfall"><div class="empty-state body-text">Loading tumbler chain...</div></div>
         </div>
 
         <!-- Shadow Comparison -->
         <div class="card" style="padding:12px;">
-          <div id="replay-shadows"><div class="empty-state">Loading shadow comparison...</div></div>
+          <div id="replay-shadows"><div class="empty-state body-text">Loading shadow comparison...</div></div>
         </div>
       </div>
     </div>
@@ -2861,7 +2861,7 @@ async function loadDashboard() {
       const days = Math.floor((Date.now() - new Date(perf.last_trade_at).getTime()) / 86400000);
       if (days > 3) {
         tradesEl.insertAdjacentHTML('afterend',
-          `<div id="perf-stale-tag" style="font-size:0.75rem;color:var(--yellow);margin-top:4px">last trade ${days}d ago</div>`);
+          `<div id="perf-stale-tag" class="body-text-sm" style="color:var(--yellow);margin-top:4px">last trade ${days}d ago</div>`);
       }
     }
   } catch(e) { console.error('Performance fetch failed:', e); }
@@ -2872,14 +2872,14 @@ async function loadDashboard() {
     const el = document.getElementById('regime-display');
     const regimeName = esc(regime.regime || 'UNKNOWN');
     const staleTag = regime.age_days > 1
-      ? `<span style="font-size:0.75rem;color:var(--${regime.age_days > 3 ? 'red' : 'yellow'});margin-left:12px">${regime.age_days}d old</span>`
+      ? `<span class="body-text-sm" style="color:var(--${regime.age_days > 3 ? 'red' : 'yellow'});margin-left:12px">${regime.age_days}d old</span>`
       : '';
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
         <span class="regime-badge regime-${regimeName}">${regimeName}</span>${staleTag}
-        <span style="color:var(--dim)">${esc(regime.action || '')}</span>
+        <span class="body-text">${esc(regime.action || '')}</span>
       </div>
-      ${regime.spy_price ? `<div style="margin-top:12px;font-size:0.85rem;color:var(--dim)">
+      ${regime.spy_price ? `<div class="body-text-sm" style="margin-top:12px">
         SPY $${regime.spy_price} | SMA50 $${regime.spy_sma50} | VIX Proxy ${regime.vix_proxy} | ATR% ${regime.atr_pct}%
       </div>` : ''}
     `;
@@ -2892,12 +2892,12 @@ async function loadDashboard() {
     const trades = await fetch('/api/trades').then(r => r.json());
     const el = document.getElementById('recent-trades');
     if (!trades.length) {
-      el.innerHTML = '<div class="empty-state"><div class="icon">📊</div>No trades yet. The agent is watching and waiting.</div>';
+      el.innerHTML = '<div class="empty-state body-text"><div class="icon">📊</div>No trades yet. The agent is watching and waiting.</div>';
       return;
     }
     el.innerHTML = buildTradeTable(trades.slice(0, 10));
   } catch(e) {
-    document.getElementById('recent-trades').innerHTML = '<div class="empty-state">Could not load trades</div>';
+    document.getElementById('recent-trades').innerHTML = '<div class="empty-state body-text">Could not load trades</div>';
   }
 }
 
@@ -2906,12 +2906,12 @@ async function loadTrades() {
   try {
     const trades = await fetch('/api/trades').then(r => r.json());
     if (!trades.length) {
-      el.innerHTML = '<div class="empty-state"><div class="icon">📊</div>No trades recorded yet.<br>The agent will log every entry and exit here.</div>';
+      el.innerHTML = '<div class="empty-state body-text"><div class="icon">📊</div>No trades recorded yet.<br>The agent will log every entry and exit here.</div>';
       return;
     }
     el.innerHTML = buildTradeTable(trades);
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Could not load trade history</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load trade history</div>';
   }
 }
 
@@ -2938,7 +2938,7 @@ function buildTradeTable(trades) {
       <td><button class="expand-btn" onclick="toggleDetail(${i})">details</button></td>
     </tr>
     <tr><td colspan="10">
-      <div id="detail-${i}" class="trade-detail">
+      <div id="detail-${i}" class="trade-detail body-text">
         ${t.reasoning ? `<strong>Reasoning:</strong> ${esc(t.reasoning)}<br>` : ''}
         ${t.what_worked ? `<strong>What worked:</strong> ${esc(t.what_worked)}<br>` : ''}
         ${t.improvement ? `<strong>Improvement:</strong> ${esc(t.improvement)}` : ''}
@@ -2996,7 +2996,7 @@ async function loadPositions() {
   try {
     const positions = await fetch('/api/positions').then(r => r.json());
     if (!positions.length) {
-      el.innerHTML = '<div class="empty-state"><div class="icon">💰</div>No open positions.<br>Cash is a position.</div>';
+      el.innerHTML = '<div class="empty-state body-text"><div class="icon">💰</div>No open positions.<br>Cash is a position.</div>';
       return;
     }
     el.innerHTML = positions.map(p => `
@@ -3017,7 +3017,7 @@ async function loadPositions() {
       </div>
     `).join('');
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Could not load positions</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load positions</div>';
   }
 }
 
@@ -3063,7 +3063,7 @@ async function loadPipelineRuns() {
     const url = '/api/pipeline/runs?days=7' + (filter ? '&pipeline=' + filter : '');
     const runs = await fetch(url).then(r => r.json());
     if (!runs.length) {
-      el.innerHTML = '<div class="empty-state">No pipeline runs in the last 7 days.<br>Runs will appear after the next cron job executes.</div>';
+      el.innerHTML = '<div class="empty-state body-text">No pipeline runs in the last 7 days.<br>Runs will appear after the next cron job executes.</div>';
       return;
     }
     el.innerHTML = runs.map(r => {
@@ -3079,17 +3079,17 @@ async function loadPipelineRuns() {
       '</div>';
     }).join('');
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Could not load pipeline runs</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load pipeline runs</div>';
   }
 }
 
 async function loadPipelineDAG(runId) {
   const el = document.getElementById('pipeline-dag');
-  el.innerHTML = '<div class="loading">Loading DAG...</div>';
+  el.innerHTML = '<div class="loading body-text">Loading DAG...</div>';
   try {
     const data = await fetch('/api/pipeline/run/' + runId).then(r => r.json());
     if (!data.root) {
-      el.innerHTML = '<div class="empty-state">Run not found</div>';
+      el.innerHTML = '<div class="empty-state body-text">Run not found</div>';
       return;
     }
 
@@ -3119,13 +3119,13 @@ async function loadPipelineDAG(runId) {
       // Detail panel
       let detailHtml = '';
       if (s.input_snapshot && Object.keys(s.input_snapshot).length) {
-        detailHtml += '<strong style="color:var(--purple)">Input:</strong><pre>' + JSON.stringify(s.input_snapshot, null, 2) + '</pre>';
+        detailHtml += '<strong style="color:var(--purple)">Input:</strong><pre class="body-text-sm">' + JSON.stringify(s.input_snapshot, null, 2) + '</pre>';
       }
       if (s.output_snapshot && Object.keys(s.output_snapshot).length) {
-        detailHtml += '<strong style="color:var(--purple)">Output:</strong><pre>' + JSON.stringify(s.output_snapshot, null, 2) + '</pre>';
+        detailHtml += '<strong style="color:var(--purple)">Output:</strong><pre class="body-text-sm">' + JSON.stringify(s.output_snapshot, null, 2) + '</pre>';
       }
       if (s.error_message) {
-        detailHtml += '<strong style="color:var(--red)">Error:</strong> ' + esc(s.error_message);
+        detailHtml += '<strong style="color:var(--red)">Error:</strong> <span class="body-text">' + esc(s.error_message) + '</span>';
       }
       if (detailHtml) {
         html += '<div id="dag-' + i + '" class="dag-detail">' + detailHtml + '</div>';
@@ -3134,7 +3134,7 @@ async function loadPipelineDAG(runId) {
 
     el.innerHTML = html;
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Could not load DAG</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load DAG</div>';
   }
 }
 
@@ -3143,7 +3143,7 @@ async function loadPipelineTimeline() {
   try {
     const runs = await fetch('/api/pipeline/runs?days=7').then(r => r.json());
     if (!runs.length) {
-      el.innerHTML = '<div class="empty-state">No runs to display</div>';
+      el.innerHTML = '<div class="empty-state body-text">No runs to display</div>';
       return;
     }
 
@@ -3182,7 +3182,7 @@ async function loadPipelineTimeline() {
 
     el.innerHTML = html;
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Could not load timeline</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load timeline</div>';
   }
 }
 
@@ -3222,7 +3222,7 @@ async function loadEconBreakdown() {
   try {
     const data = await fetch('/api/economics/breakdown?days=30').then(r => r.json());
     if (!data.length) {
-      el.innerHTML = '<div class="empty-state">No cost data yet. Costs are logged automatically by the inference engine and meta-analysis scripts.</div>';
+      el.innerHTML = '<div class="empty-state body-text">No cost data yet. Costs are logged automatically by the inference engine and meta-analysis scripts.</div>';
       return;
     }
     const catColors = {claude_api:'var(--purple)', perplexity_api:'var(--cyan)', fly_hosting:'var(--orange)', supabase:'var(--green)', ollama_power:'var(--gold)', trade_pnl:'var(--green)', finnhub_api:'var(--dim)'};
@@ -3232,7 +3232,7 @@ async function loadEconBreakdown() {
       const color = amt >= 0 ? 'var(--green)' : 'var(--red)';
       html += '<tr>';
       html += '<td style="color:' + (catColors[row.category] || 'var(--dim)') + ';font-weight:600">' + esc((row.category || '').replace(/_/g,' ')) + '</td>';
-      html += '<td style="font-size:0.8rem;color:var(--dim)">' + esc(row.subcategory || '--') + '</td>';
+      html += '<td class="body-text-sm">' + esc(row.subcategory || '--') + '</td>';
       html += '<td>' + esc(String(row.count || 0)) + '</td>';
       html += '<td style="color:' + color + ';font-weight:600">' + fmt(amt, '$') + '</td>';
       html += '</tr>';
@@ -3240,7 +3240,7 @@ async function loadEconBreakdown() {
     html += '</tbody></table>';
     el.innerHTML = html;
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Could not load breakdown</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load breakdown</div>';
   }
 }
 
@@ -3313,7 +3313,7 @@ async function loadEconChart() {
       ctx.fillText(label, x + 20, H - 6);
     });
   } catch(e) {
-    document.getElementById('econ-chart').insertAdjacentHTML('afterend', '<div class="empty-state">Chart error: ' + esc(String(e)) + '</div>');
+    document.getElementById('econ-chart').insertAdjacentHTML('afterend', '<div class="empty-state body-text">Chart error: ' + esc(String(e)) + '</div>');
   }
 }
 
@@ -3322,7 +3322,7 @@ async function loadBudgetCaps() {
   try {
     const data = await fetch('/api/budget/config').then(r => r.json());
     if (!data.length) {
-      el.innerHTML = '<div class="empty-state">No budget config found.</div>';
+      el.innerHTML = '<div class="empty-state body-text">No budget config found.</div>';
       return;
     }
     let html = '<div class="tool-grid">';
@@ -3334,22 +3334,22 @@ async function loadBudgetCaps() {
 
       html += '<div class="tool-card">';
       html += '<div class="name">' + esc((cfg.config_key || '').replace(/_/g, ' ')) + '</div>';
-      html += '<div class="desc">' + esc(cfg.description || '') + '</div>';
+      html += '<div class="desc body-text">' + esc(cfg.description || '') + '</div>';
       html += '<div style="margin-top:12px;display:flex;align-items:center;gap:12px">';
       html += '<span style="font-size:1.2rem;font-weight:800;color:var(--cyan);cursor:pointer" onclick="editBudget(\'' + esc(cfg.config_key || '') + '\',' + value + ')" title="Click to edit">$' + value.toFixed(2) + '</span>';
-      html += '<span style="font-size:0.8rem;color:var(--dim)">per day</span>';
+      html += '<span class="body-text-sm">per day</span>';
       html += '</div>';
       html += '<div style="margin-top:8px">';
-      html += '<div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:4px"><span>Today: $' + spend.toFixed(4) + '</span><span>' + pct + '%</span></div>';
+      html += '<div class="body-text-sm" style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Today: $' + spend.toFixed(4) + '</span><span>' + pct + '%</span></div>';
       html += '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:3px;transition:width 0.3s"></div></div>';
       html += '</div>';
-      html += '<div style="margin-top:4px;font-size:0.7rem;color:var(--dim)">Updated: ' + esc(cfg.updated_at ? new Date(cfg.updated_at).toLocaleString() : '--') + ' by ' + esc(cfg.updated_by || '--') + '</div>';
+      html += '<div class="body-text-sm" style="margin-top:4px">Updated: ' + esc(cfg.updated_at ? new Date(cfg.updated_at).toLocaleString() : '--') + ' by ' + esc(cfg.updated_by || '--') + '</div>';
       html += '</div>';
     });
     html += '</div>';
     el.innerHTML = html;
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Could not load budget config</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load budget config</div>';
   }
 }
 
@@ -3537,7 +3537,7 @@ async function loadStrategyProfiles() {
       const cb = p.circuit_breakers_enabled ? 'ON' : 'OFF';
       html += '<div class="strategy-card' + (isActive ? ' active-profile' : '') + '" onclick="activateStrategy(\'' + p.id + '\')">';
       html += '<div class="strat-name">' + esc(p.profile_name) + (isActive ? ' — ACTIVE' : '') + '</div>';
-      html += '<div class="strat-desc">' + esc(p.description || '') + '</div>';
+      html += '<div class="strat-desc body-text">' + esc(p.description || '') + '</div>';
       html += '<div class="strat-stats">';
       html += '<div class="strat-stat">TARGET <span>' + p.annual_target_pct + '% / YR</span></div>';
       html += '<div class="strat-stat">DAILY <span>' + p.daily_target_pct + '%</span></div>';
@@ -3824,7 +3824,7 @@ function chatClearHistory() {
   const container = document.getElementById('chat-messages');
   container.innerHTML = '<div class="chat-welcome" style="text-align:center;padding:40px 20px;color:var(--dim)">' +
     '<div style="font-size:1.4rem;margin-bottom:12px;background:linear-gradient(135deg,var(--purple),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent">CLAUDE</div>' +
-    '<div style="font-size:0.85rem;line-height:1.8;max-width:500px;margin:0 auto">Ask me anything about your portfolio, trades, signals, inference chains, catalysts, or strategy. I have access to all of Parallax\'s data.</div></div>';
+    '<div class="body-text" style="max-width:500px;margin:0 auto">Ask me anything about your portfolio, trades, signals, inference chains, catalysts, or strategy. I have access to all of Parallax\'s data.</div></div>';
 }
 
 
@@ -3855,9 +3855,9 @@ async function loadPerformance() {
     document.getElementById('perf-weekly-chart'),
     document.getElementById('perf-positions'),
   ];
-  lbEl.innerHTML = '<div class="loading">Loading leaderboard...</div>';
-  chartEl.innerHTML = '<div class="loading">Loading chart...</div>';
-  posEl.innerHTML = '<div class="loading">Loading positions...</div>';
+  lbEl.innerHTML = '<div class="loading body-text">Loading leaderboard...</div>';
+  chartEl.innerHTML = '<div class="loading body-text">Loading chart...</div>';
+  posEl.innerHTML = '<div class="loading body-text">Loading positions...</div>';
 
   try {
     const [leaderboard, performance, positions] = await Promise.all([
@@ -3869,7 +3869,7 @@ async function loadPerformance() {
     renderPerfWeeklyChart(chartEl, performance);
     renderPerfPositions(posEl, positions);
   } catch(e) {
-    lbEl.innerHTML = '<div class="empty-state">Error loading performance data: ' + esc(String(e)) + '</div>';
+    lbEl.innerHTML = '<div class="empty-state body-text">Error loading performance data: ' + esc(String(e)) + '</div>';
     chartEl.innerHTML = '';
     posEl.innerHTML = '';
   }
@@ -3877,7 +3877,7 @@ async function loadPerformance() {
 
 function renderPerfLeaderboard(el, rows) {
   if (!rows || !rows.length) {
-    el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div>No leaderboard data yet. Shadow agents build P&L over time.</div>';
+    el.innerHTML = '<div class="empty-state body-text"><div class="icon">&#128202;</div>No leaderboard data yet. Shadow agents build P&amp;L over time.</div>';
     return;
   }
   let html = '<div style="overflow-x:auto"><table class="trade-table">';
@@ -3914,7 +3914,7 @@ function renderPerfLeaderboard(el, rows) {
 
 function renderPerfWeeklyChart(el, data) {
   if (!data || !data.length) {
-    el.innerHTML = '<div class="empty-state"><div class="icon">&#128200;</div>No weekly performance data yet. Charts populate after the first full trading week.</div>';
+    el.innerHTML = '<div class="empty-state body-text"><div class="icon">&#128200;</div>No weekly performance data yet. Charts populate after the first full trading week.</div>';
     return;
   }
 
@@ -3973,7 +3973,7 @@ function renderPerfWeeklyChart(el, data) {
   for (const wk of weeks) {
     html += '<div>';
     // Week label
-    html += '<div style="font-size:0.75rem;color:var(--dim);letter-spacing:1px;margin-bottom:6px;">' + esc(wk) + '</div>';
+    html += '<div class="body-text-sm" style="letter-spacing:1px;margin-bottom:6px;">' + esc(wk) + '</div>';
     // Bars per agent
     for (const agent of agents) {
       const val = weekMap[wk][agent] || 0;
@@ -4014,7 +4014,7 @@ function renderPerfWeeklyChart(el, data) {
 
 function renderPerfPositions(el, positions) {
   if (!positions || !positions.length) {
-    el.innerHTML = '<div class="empty-state"><div class="icon">&#128203;</div>No open shadow positions right now.</div>';
+    el.innerHTML = '<div class="empty-state body-text"><div class="icon">&#128203;</div>No open shadow positions right now.</div>';
     return;
   }
   const today = new Date();
@@ -4074,7 +4074,7 @@ async function loadShadowProfiles() {
   try {
     const profiles = await fetch('/api/shadow/profiles', {credentials: 'include'}).then(r => r.json());
     if (!Array.isArray(profiles) || !profiles.length) {
-      el.innerHTML = '<div class="empty-state">No shadow profiles configured</div>';
+      el.innerHTML = '<div class="empty-state body-text">No shadow profiles configured</div>';
       return;
     }
     let html = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;">';
@@ -4097,14 +4097,14 @@ async function loadShadowProfiles() {
       html += '<div><span style="color:' + (pct >= 50 ? 'var(--green)' : 'var(--red)') + ';">' + correct + '/' + dissented + ' (' + pct + '%)</span><br><span style="color:var(--dim);font-size:0.75rem;">CORRECT</span></div>';
       html += '</div>';
       if (p.last_graded_at) {
-        html += '<div style="font-size:0.75rem;color:var(--dim);margin-top:0.8rem;">Graded: ' + new Date(p.last_graded_at).toLocaleDateString() + '</div>';
+        html += '<div class="body-text-sm" style="margin-top:0.8rem;">Graded: ' + new Date(p.last_graded_at).toLocaleDateString() + '</div>';
       }
       html += '</div>';
     }
     html += '</div>';
     el.innerHTML = html;
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+    el.innerHTML = '<div class="empty-state body-text">Error: ' + esc(String(e)) + '</div>';
   }
 }
 
@@ -4113,7 +4113,7 @@ async function loadShadowUnanimous() {
   try {
     const events = await fetch('/api/shadow/unanimous?days=30', {credentials: 'include'}).then(r => r.json());
     if (!Array.isArray(events) || !events.length) {
-      el.innerHTML = '<div class="empty-state" style="color:var(--green);">No unanimous dissent events — shadows and live profile are aligned</div>';
+      el.innerHTML = '<div class="empty-state body-text" style="color:var(--green);">No unanimous dissent events — shadows and live profile are aligned</div>';
       return;
     }
     let html = '';
@@ -4123,19 +4123,19 @@ async function loadShadowUnanimous() {
       html += '<span style="font-size:1.2rem;font-weight:900;color:var(--red);">' + esc(evt.ticker) + '</span>';
       html += '<span style="color:var(--dim);">' + esc(evt.date) + '</span>';
       html += '</div>';
-      html += '<div style="margin-top:0.5rem;font-size:0.9rem;color:var(--cyan);">Live confidence: ' + esc(evt.live_confidence || '--') + '</div>';
+      html += '<div class="body-text-sm" style="margin-top:0.5rem;color:var(--cyan);">Live confidence: ' + esc(evt.live_confidence || '--') + '</div>';
       if (evt.outcome) {
-        html += '<div style="margin-top:0.3rem;color:' + (evt.outcome.includes('LOSS') ? 'var(--red)' : 'var(--green)') + ';">Outcome: ' + esc(evt.outcome) + (evt.save_value > 0 ? ' (saved $' + esc(parseFloat(evt.save_value).toFixed(0)) + ')' : '') + '</div>';
+        html += '<div class="body-text" style="margin-top:0.3rem;color:' + (evt.outcome.includes('LOSS') ? 'var(--red)' : 'var(--green)') + ';">Outcome: ' + esc(evt.outcome) + (evt.save_value > 0 ? ' (saved $' + esc(parseFloat(evt.save_value).toFixed(0)) + ')' : '') + '</div>';
       }
       html += '<div style="margin-top:0.5rem;">';
       for (const s of evt.shadows) {
-        html += '<div style="font-size:0.85rem;color:var(--orange);margin-top:0.3rem;">' + esc(s.profile) + ': ' + esc(s.decision) + ' (' + esc(s.reason || '?') + ')</div>';
+        html += '<div class="body-text-sm" style="color:var(--orange);margin-top:0.3rem;">' + esc(s.profile) + ': ' + esc(s.decision) + ' (' + esc(s.reason || '?') + ')</div>';
       }
       html += '</div></div>';
     }
     el.innerHTML = html;
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+    el.innerHTML = '<div class="empty-state body-text">Error: ' + esc(String(e)) + '</div>';
   }
 }
 
@@ -4144,7 +4144,7 @@ async function loadShadowDivergences() {
   try {
     const divs = await fetch('/api/shadow/divergences?days=30', {credentials: 'include'}).then(r => r.json());
     if (!Array.isArray(divs) || !divs.length) {
-      el.innerHTML = '<div class="empty-state">No divergences recorded yet — shadow inference runs during market hours</div>';
+      el.innerHTML = '<div class="empty-state body-text">No divergences recorded yet — shadow inference runs during market hours</div>';
       return;
     }
     let html = '<table style="width:100%;border-collapse:collapse;font-size:0.9rem;">';
@@ -4166,7 +4166,7 @@ async function loadShadowDivergences() {
     html += '</table>';
     el.innerHTML = html;
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+    el.innerHTML = '<div class="empty-state body-text">Error: ' + esc(String(e)) + '</div>';
   }
 }
 
@@ -4181,7 +4181,7 @@ let _healthPollTimer = null;
 
 async function loadHealth() {
   const el = document.getElementById('health-content');
-  el.innerHTML = '<div class="loading">Loading health data...</div>';
+  el.innerHTML = '<div class="loading body-text">Loading health data...</div>';
   try {
     const [data, history] = await Promise.all([
       fetch('/api/health/latest', {credentials:'include'}).then(r => r.json()),
@@ -4193,7 +4193,7 @@ async function loadHealth() {
     if (_healthAutoRefreshTimer) clearInterval(_healthAutoRefreshTimer);
     _healthAutoRefreshTimer = setInterval(loadHealth, 30000);
   } catch(e) {
-    el.innerHTML = '<div class="empty-state">Could not load health data: ' + esc(String(e)) + '</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load health data: ' + esc(String(e)) + '</div>';
   }
 }
 
@@ -4219,7 +4219,7 @@ function buildHealthUI(data, history) {
   // RUN NOW button
   html += '<div style="text-align:center;margin-bottom:32px">';
   html += '<button class="health-run-btn" id="health-run-btn" onclick="triggerHealthRun()">RUN NOW</button>';
-  html += '<div id="health-run-status" style="margin-top:12px;font-size:16px;color:var(--dim);min-height:24px"></div>';
+  html += '<div id="health-run-status" class="body-text" style="margin-top:12px;min-height:24px"></div>';
   html += '</div>';
 
   // Indicator light diagram — 8 groups in pipeline order
@@ -4255,7 +4255,7 @@ function buildHealthUI(data, history) {
         if (c.value != null) html += '<span class="dkey">Value:</span> ' + esc(String(c.value)) + '<br>';
         if (c.expected != null) html += '<span class="dkey">Expected:</span> ' + esc(String(c.expected)) + '<br>';
         if (c.duration_ms != null) html += '<span class="dkey">Duration:</span> ' + esc(String(c.duration_ms)) + 'ms<br>';
-        if (c.error_message) html += '<span class="dkey">Error:</span> <span style="color:var(--red)">' + esc(c.error_message) + '</span>';
+        if (c.error_message) html += '<span class="dkey">Error:</span> <span class="body-text-sm" style="color:var(--red)">' + esc(c.error_message) + '</span>';
         html += '</div>';
         html += '</div>';
       });
@@ -4276,11 +4276,11 @@ function buildHealthUI(data, history) {
     failures.forEach(c => {
       html += '<div class="health-fail-card">';
       html += '<div class="hfc-name">' + esc(c.check_group || '') + ' / ' + esc(c.check_name || '') + '</div>';
-      html += '<div class="hfc-body">';
+      html += '<div class="hfc-body body-text">';
       if (c.value != null) html += '<strong>Value:</strong> ' + esc(String(c.value)) + ' &nbsp; ';
       if (c.expected != null) html += '<strong>Expected:</strong> ' + esc(String(c.expected));
       html += '</div>';
-      if (c.error_message) html += '<div class="hfc-error">' + esc(c.error_message) + '</div>';
+      if (c.error_message) html += '<div class="hfc-error body-text-sm">' + esc(c.error_message) + '</div>';
       html += '</div>';
     });
     html += '</div>';
@@ -4420,7 +4420,7 @@ function txnColor(t) {
 
 async function loadSignalFeed() {
   const el = document.getElementById('signalfeed-content');
-  el.innerHTML = '<div class="loading" style="font-size:16px">Loading signal data...</div>';
+  el.innerHTML = '<div class="loading body-text">Loading signal data...</div>';
   try {
     const [flow, form4, profiles] = await Promise.all([
       fetch('/api/signals/options-flow?days=7', {credentials:'include'}).then(r => r.json()),
@@ -4429,7 +4429,7 @@ async function loadSignalFeed() {
     ]);
     el.innerHTML = buildSignalFeedUI(flow, form4, profiles);
   } catch(e) {
-    el.innerHTML = '<div class="empty-state" style="font-size:16px">Could not load signal data: ' + esc(String(e)) + '</div>';
+    el.innerHTML = '<div class="empty-state body-text">Could not load signal data: ' + esc(String(e)) + '</div>';
   }
 }
 
@@ -4439,10 +4439,10 @@ function buildSignalFeedUI(flow, form4, profiles) {
   // ── OPTIONS FLOW ──────────────────────────────────────────────────────────
   html += '<div style="margin-bottom:40px">';
   html += '<h3 style="font-size:20px;font-weight:800;color:var(--cyan);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Options Flow</h3>';
-  html += '<p style="font-size:16px;color:var(--dim);margin-bottom:16px">Unusual options activity — last 7 days</p>';
+  html += '<p class="body-text" style="margin-bottom:16px">Unusual options activity — last 7 days</p>';
 
   if (!flow || flow.length === 0) {
-    html += '<div class="empty-state" style="font-size:16px">No options flow data yet</div>';
+    html += '<div class="empty-state body-text">No options flow data yet</div>';
   } else {
     html += '<div style="overflow-x:auto">';
     html += '<table class="trade-table" style="font-size:16px">';
@@ -4474,10 +4474,10 @@ function buildSignalFeedUI(flow, form4, profiles) {
   // ── FORM 4 INSIDER ────────────────────────────────────────────────────────
   html += '<div style="margin-bottom:40px">';
   html += '<h3 style="font-size:20px;font-weight:800;color:var(--purple);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Form 4 Insider Filings</h3>';
-  html += '<p style="font-size:16px;color:var(--dim);margin-bottom:16px">SEC Form 4 insider transactions — last 30 days</p>';
+  html += '<p class="body-text" style="margin-bottom:16px">SEC Form 4 insider transactions — last 30 days</p>';
 
   if (!form4 || form4.length === 0) {
-    html += '<div class="empty-state" style="font-size:16px">No Form 4 filings yet</div>';
+    html += '<div class="empty-state body-text">No Form 4 filings yet</div>';
   } else {
     html += '<div style="overflow-x:auto">';
     html += '<table class="trade-table" style="font-size:16px">';
@@ -4512,10 +4512,10 @@ function buildSignalFeedUI(flow, form4, profiles) {
   // ── SHADOW PROFILE FITNESS ─────────────────────────────────────────────────
   html += '<div>';
   html += '<h3 style="font-size:20px;font-weight:800;color:var(--cyan);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Shadow Profile Fitness</h3>';
-  html += '<p style="font-size:16px;color:var(--dim);margin-bottom:24px">Fitness score (cyan) and DWM weight (purple) per shadow profile</p>';
+  html += '<p class="body-text" style="margin-bottom:24px">Fitness score (cyan) and DWM weight (purple) per shadow profile</p>';
 
   if (!profiles || profiles.length === 0) {
-    html += '<div class="empty-state" style="font-size:16px">No shadow profile data</div>';
+    html += '<div class="empty-state body-text">No shadow profile data</div>';
   } else {
     const maxFit = Math.max(...profiles.map(function(p) { return parseFloat(p.fitness_score) || 0; }), 1);
     const maxDwm = Math.max(...profiles.map(function(p) { return parseFloat(p.dwm_weight) || 0; }), 1);
@@ -4596,17 +4596,17 @@ async function loadReplayCandidates() {
     const date = document.getElementById('replay-date').value;
     if (!date) return;
     const grid = document.getElementById('replay-grid');
-    grid.innerHTML = '<div class="empty-state">Loading...</div>';
+    grid.innerHTML = '<div class="empty-state body-text">Loading...</div>';
 
     try {
         const candidates = await fetch('/api/replay/candidates?date=' + date + '&session=' + _replaySession, {credentials:'include'}).then(r => r.json());
         if (!candidates || candidates.length === 0) {
-            grid.innerHTML = '<div class="empty-state">No candidates for this date/session</div>';
+            grid.innerHTML = '<div class="empty-state body-text">No candidates for this date/session</div>';
             return;
         }
         renderCandidateGrid(candidates, date);
     } catch(e) {
-        grid.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+        grid.innerHTML = '<div class="empty-state body-text">Error: ' + esc(String(e)) + '</div>';
     }
 }
 
@@ -4676,7 +4676,7 @@ async function loadReplayChart(ticker, date) {
     try {
         const data = await fetch('/api/replay/ohlcv?ticker=' + ticker + '&date=' + date, {credentials:'include'}).then(r => r.json());
         if (!data || data.length === 0) {
-            container.innerHTML = '<div class="empty-state">No price data</div>';
+            container.innerHTML = '<div class="empty-state body-text">No price data</div>';
             return;
         }
 
@@ -4727,23 +4727,23 @@ async function loadReplayChart(ticker, date) {
         }).observe(container);
 
     } catch(e) {
-        container.innerHTML = '<div class="empty-state">Chart error: ' + esc(String(e)) + '</div>';
+        container.innerHTML = '<div class="empty-state body-text">Chart error: ' + esc(String(e)) + '</div>';
     }
 }
 
 async function loadReplayWaterfall(chainId) {
     const el = document.getElementById('replay-waterfall');
-    el.innerHTML = '<div class="empty-state">Loading chain...</div>';
+    el.innerHTML = '<div class="empty-state body-text">Loading chain...</div>';
 
     try {
         const chain = await fetch('/api/replay/chain?chain_id=' + chainId, {credentials:'include'}).then(r => r.json());
         if (!chain || !chain.tumblers) {
-            el.innerHTML = '<div class="empty-state">No chain data</div>';
+            el.innerHTML = '<div class="empty-state body-text">No chain data</div>';
             return;
         }
         renderWaterfall(chain);
     } catch(e) {
-        el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+        el.innerHTML = '<div class="empty-state body-text">Error: ' + esc(String(e)) + '</div>';
     }
 }
 
@@ -4759,33 +4759,32 @@ function renderWaterfall(chain) {
     html += '<div style="color:var(--cyan);font-size:0.7rem;letter-spacing:2px;margin-bottom:8px;">TUMBLER CHAIN</div>';
 
     if (!chain.tumblers || chain.tumblers.length === 0) {
-        html += '<div class="empty-state">No tumblers fired</div>';
+        html += '<div class="empty-state body-text">No tumblers fired</div>';
     } else {
         chain.tumblers.forEach(function(t) {
             var color = TUMBLER_COLORS[t.tumbler_name] || 'var(--dim)';
             var delta = t.confidence_delta || 0;
             var deltaStr = (delta >= 0 ? '+' : '') + delta.toFixed(3);
             var deltaColor = delta > 0 ? 'var(--green)' : delta < 0 ? 'var(--red)' : 'var(--dim)';
-            var finding = t.key_finding || '&#8212;';
             html += '<div style="display:grid;grid-template-columns:32px 140px 1fr 60px 50px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">';
             html += '<div style="color:' + color + ';font-size:0.75rem;font-weight:700;">T' + (t.depth || '?') + '</div>';
-            html += '<div style="font-size:0.65rem;color:var(--dim)">' + esc(t.tumbler_name || '') + '</div>';
-            html += '<div style="font-size:0.65rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(t.key_finding || '') + '">' + esc((t.key_finding || '').substring(0, 80)) + '</div>';
+            html += '<div class="body-text-sm">' + esc(t.tumbler_name || '') + '</div>';
+            html += '<div class="body-text-sm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(t.key_finding || '') + '">' + esc((t.key_finding || '').substring(0, 80)) + '</div>';
             html += '<div style="color:' + deltaColor + ';font-size:0.75rem;font-weight:700;">' + deltaStr + '</div>';
-            html += '<div style="font-size:0.6rem;color:var(--dim)">' + (t.duration_ms || 0) + 'ms</div>';
+            html += '<div class="body-text-sm">' + (t.duration_ms || 0) + 'ms</div>';
             html += '</div>';
         });
     }
 
     if (chain.stopping_reason) {
-        html += '<div style="color:var(--amber);font-size:0.7rem;padding:8px 0;">&#x2B21; STOPPED: ' + esc(chain.stopping_reason) + '</div>';
+        html += '<div class="body-text-sm" style="color:var(--amber);padding:8px 0;">&#x2B21; STOPPED: ' + esc(chain.stopping_reason) + '</div>';
     }
 
     html += '<div style="margin-top:8px;padding:8px 0;border-top:1px solid var(--border);display:flex;gap:16px;">';
     var decColor = (chain.final_decision === 'enter' || chain.final_decision === 'strong_enter') ? 'var(--green)' : chain.final_decision === 'veto' ? 'var(--red)' : 'var(--cyan)';
     html += '<span style="color:' + decColor + ';font-weight:700;">' + esc(chain.final_decision || '?') + '</span>';
-    html += '<span style="color:var(--text);">' + ((chain.final_confidence || 0) * 100).toFixed(1) + '% confidence</span>';
-    html += '<span style="color:var(--dim);">depth ' + (chain.max_depth_reached || 0) + '</span>';
+    html += '<span class="body-text">' + ((chain.final_confidence || 0) * 100).toFixed(1) + '% confidence</span>';
+    html += '<span class="body-text-sm">depth ' + (chain.max_depth_reached || 0) + '</span>';
     html += '</div>';
 
     html += '</div>';
@@ -4794,17 +4793,17 @@ function renderWaterfall(chain) {
 
 async function loadReplayShadows(ticker, date) {
     const el = document.getElementById('replay-shadows');
-    el.innerHTML = '<div class="empty-state">Loading shadows...</div>';
+    el.innerHTML = '<div class="empty-state body-text">Loading shadows...</div>';
 
     try {
         const shadows = await fetch('/api/replay/shadows?ticker=' + ticker + '&date=' + date, {credentials:'include'}).then(r => r.json());
         if (!shadows || shadows.length === 0) {
-            el.innerHTML = '<div class="empty-state">No shadow data for this ticker</div>';
+            el.innerHTML = '<div class="empty-state body-text">No shadow data for this ticker</div>';
             return;
         }
         renderShadowComparison(shadows);
     } catch(e) {
-        el.innerHTML = '<div class="empty-state">Error: ' + esc(String(e)) + '</div>';
+        el.innerHTML = '<div class="empty-state body-text">Error: ' + esc(String(e)) + '</div>';
     }
 }
 

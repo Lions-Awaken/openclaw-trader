@@ -5,6 +5,199 @@
 
 ---
 
+## Typography System + Interactive Workflow Page Extraction
+
+Source: User request 2026-04-18 — two parallel overhauls driven by the
+Adversarial Ensemble Interactive Workflow being cramped inside its
+collapsed dropdown and the informational text ("59 automated checks…")
+being illegibly small in Orbitron.
+
+**Design decisions:**
+- **Label font (unchanged):** Orbitron for headers, titles, menu/nav
+  items, pill labels, button text, badges, KPI values, stat labels.
+- **Reading font (new):** Inter (Google Fonts) for all informational,
+  explanatory, instructional, and descriptive body text. Inter is
+  purpose-built for screen UI + technical documentation, great at small
+  sizes with a tall x-height and open apertures.
+- **Body color:** `#e8eaed` (Material Design on-dark recommendation) —
+  off-white with neutral tone, optimal contrast without harshness.
+- **Body size:** ~0.9rem (just a hair smaller than header size). Current
+  gray description text is ~0.75rem and hard to read; new default
+  ~0.9rem, line-height 1.55 for readable paragraphs.
+- **Workflow page route:** `GET /workflow` returns `workflow.html` with
+  no dashboard chrome — full viewport canvas for the interactive
+  diagram. HOW IT WORKS button still navigates to `#section-about` on
+  the Dashboard; a secondary link from there opens the standalone page.
+
+---
+
+## Wave 1 — Typography Foundation (blocks everything else)
+
+### TASK-TYPO-01 . FRONTEND-AGENT . [DONE]
+**Goal:** Establish the Inter-based typography system. In
+`dashboard/theme.css`:
+- Add `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');` at the top
+- Define CSS variables in `:root`:
+  - `--font-label: 'Orbitron', sans-serif;` (existing usage pattern)
+  - `--font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;`
+  - `--text-body: #e8eaed;`
+  - `--text-body-dim: #a8abb2;` (for secondary/metadata lines)
+- New utility class `.body-text`:
+  ```css
+  .body-text {
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--text-body);
+    letter-spacing: 0.02em;
+    line-height: 1.55;
+  }
+  ```
+- Variant `.body-text-sm` at 0.8rem for metadata/footnotes
+- DO NOT modify any existing styles yet — purely add. Ruff/lint clean.
+**Acceptance:** Both fonts load (visible in network tab); `.body-text`
+class renders correctly when temporarily added to any element; no
+existing styles changed or broken.
+**Output artifact:** CSS diff in PROGRESS.md.
+**Depends on:** nothing
+
+---
+
+## Wave 2 — Prove-out in How It Works (validates the system before mass rollout)
+
+### TASK-TYPO-02 . FRONTEND-AGENT . [DONE]
+**Goal:** Apply `.body-text` class to all informational paragraphs and
+descriptions inside `#section-about` (How It Works) in
+`dashboard/index.html`:
+- Every `<p>` tag inside the section
+- The 20 workflow step descriptions (populated by JS — update the
+  render function in the workflow widget so its `.wf-description` /
+  description element uses `.body-text` class)
+- "59 automated checks across 13 groups…" and all similar metadata
+  lines currently rendered in gray Orbitron
+- Keep Orbitron for: step titles (HEALTH CHECK, CATALYST, etc.), group
+  labels, node labels, button labels, "STEP X OF Y" counter
+**Acceptance:** Informational text in How It Works reads comfortably at
+0.9rem in Inter; all structural labels remain in Orbitron; no layout
+breakage.
+**Output artifact:** Before/after screenshot + list of updated
+selectors in PROGRESS.md.
+**Depends on:** TASK-TYPO-01
+
+---
+
+## Wave 3 — Standalone Workflow Page Extraction
+
+### TASK-WF-ROUTE-01 . BACKEND-AGENT . [BLOCKED: TASK-TYPO-02]
+**Goal:** Add `GET /workflow` route in `dashboard/server.py`. Serves a
+new standalone file `dashboard/workflow.html`. Auth-protected with
+`_require_auth` matching the `/` and `/systems` routes. Returns the
+file content with `text/html` content type.
+**Acceptance:** Authenticated `curl localhost:9090/workflow` returns
+HTML 200; unauthenticated returns 401/redirect to /login; route
+registered in server.py route list.
+**Output artifact:** Route definition in PROGRESS.md.
+**Depends on:** TASK-TYPO-02
+
+### TASK-WF-PAGE-01 . FRONTEND-AGENT . [BLOCKED: TASK-WF-ROUTE-01]
+**Goal:** Create `dashboard/workflow.html` — standalone full-viewport
+version of the Adversarial Ensemble Interactive Workflow. Extract:
+- All `.wf-*` CSS (currently inline in index.html ~lines 1389-1680)
+- `WF_STEPS` constant + all rendering JS (currently ~lines 1788-2200)
+- The `.wf-shell` HTML markup
+Remove the `.card` container restraint. Layout rules:
+- Full 100vw × 100vh viewport (no dashboard sidebar/header chrome)
+- Small back button top-left → returns to `/#about`
+- Diagram SVG spans full width; nodes spread with 2x current spacing
+- Detail panel sits beside or below the diagram with generous padding
+- Controls (Prev/Restart/Play/Stop/Next + step dots) pinned to bottom
+- Informational text uses `.body-text` (from Wave 1)
+- Structural labels stay Orbitron
+**Acceptance:** `/workflow` renders a full-page diagram with all 20
+steps visible and readable; play/pause/step/restart all work; back
+button returns to /#about; no JS console errors; performance smooth.
+**Output artifact:** Screenshot + node-spacing measurements in
+PROGRESS.md.
+**Depends on:** TASK-WF-ROUTE-01
+
+### TASK-WF-LINK-01 . FRONTEND-AGENT . [BLOCKED: TASK-WF-PAGE-01]
+**Goal:** In `#section-about`, replace the inline 20-step diagram with
+a single prominent "Open Interactive Workflow →" CTA button linking to
+`/workflow`. Keep the narrative text (What is Parallax, Cron Timeline,
+Scanner Pipeline, Ensemble table, Calibration Loop, Infrastructure,
+Circuit Breakers) in place. Remove the inline `.wf-shell` markup + the
+CSS/JS that powered it (now lives in workflow.html). Verify no orphan
+references to wf-* IDs remain in index.html.
+**Acceptance:** #section-about no longer contains the 20-step
+interactive diagram; CTA button visible and opens /workflow; no JS
+errors from missing wf-* element references.
+**Output artifact:** Lines removed from index.html in PROGRESS.md.
+**Depends on:** TASK-WF-PAGE-01
+
+---
+
+## Wave 4 — App-Wide Typography Rollout
+
+### TASK-TYPO-03 . FRONTEND-AGENT . [DONE]
+**Goal:** Audit every section in `dashboard/index.html` (Dashboard,
+Pipeline, Trade Log, Positions, Replay, Ensemble, Performance,
+Economics, About). For each, identify informational/explanatory text
+(paragraph descriptions, empty-state messages, table row reasoning,
+tooltips, error messages, chart labels). Apply `.body-text` or
+`.body-text-sm` class. Keep Orbitron for: h1/h2 headers, nav pills,
+button labels, KPI values (the big dollar amounts), stat labels,
+badge/pill text, column headers in tables.
+
+Also update JS render functions that build innerHTML with inline
+font-family / font-size to remove those inline overrides and rely on
+the class instead.
+
+Run through this list:
+- Dashboard: Market Regime action text, Recent Trades reasoning column
+- Pipeline: run detail JSON snapshots, timeline day labels
+- Trade Log: trade reasoning, what_worked, improvement fields
+- Positions: empty state text, error messages
+- Replay: chain reasoning, waterfall step descriptions, OHLCV loading states
+- Ensemble: shadow profile metadata, divergence reasoning
+- Performance: leaderboard descriptions, position row details
+- Economics: budget descriptions, chart legend labels
+**Acceptance:** Every informational text block uses Inter at the new
+size; structural labels untouched; zero font-family overrides remain
+in inline styles where the default would suffice.
+**Output artifact:** Per-section checklist of changes in PROGRESS.md.
+**Depends on:** TASK-TYPO-02
+
+### TASK-TYPO-04 . FRONTEND-AGENT . [DONE]
+**Goal:** Apply the same typography rollout to
+`dashboard/systems-console.html` (metrics dashboards, alerts, status
+lines) and `dashboard/login.html` (error messages, expiry notices).
+Same rules: Orbitron for structure, Inter for prose.
+**Acceptance:** Systems console and login pages match the main
+dashboard's typography pattern.
+**Output artifact:** Screenshot diffs in PROGRESS.md.
+**Depends on:** TASK-TYPO-03
+
+---
+
+## Wave 5 — Verification
+
+### TASK-UI-VERIFY-01 . PICARD . [BLOCKED: TASK-TYPO-04, TASK-WF-LINK-01]
+**Goal:** Final integration sweep:
+1. Load dashboard; click every tab; verify headers are Orbitron, body
+   text is Inter at 0.9rem, color is #e8eaed
+2. Navigate to `/workflow`; verify full-page standalone diagram works
+3. Navigate to `/systems`; verify typography rollout applied
+4. Check `/login` typography
+5. Hard-refresh on Fly prod; verify all changes deployed
+6. Deploy to Fly.io
+**Acceptance:** All pages render correctly with unified typography. No
+JS errors. Fly.io reachable with new changes.
+**Output artifact:** Completion summary + screenshots of each page in
+PROGRESS.md.
+**Depends on:** TASK-TYPO-04, TASK-WF-LINK-01
+
+---
+
 ## Dead Code Audit — Tier 2/3 Follow-up
 
 Source: In-session dead code audit (2026-04-18)

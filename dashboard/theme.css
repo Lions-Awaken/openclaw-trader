@@ -6,6 +6,7 @@
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* ================================================================
    COLOR PALETTE
@@ -26,6 +27,12 @@
   --gold:     #facc15;
   --amber:    #ffaa22;
 
+  /* Typography system — Orbitron for labels, Inter for body */
+  --font-label: 'Orbitron', sans-serif;
+  --font-body:  'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --text-body:      #e8eaed;
+  --text-body-dim:  #a8abb2;
+
   --text:     #e8e8f0;
   --dim:      rgba(232, 232, 240, 0.35);
 
@@ -38,6 +45,37 @@
   --glow-orange: 0 0 10px rgba(251,146,60,0.35), 0 0 30px rgba(251,146,60,0.15), 0 0 60px rgba(251,146,60,0.05);
   --glow-blue:   0 0 10px rgba(59,130,246,0.35), 0 0 30px rgba(59,130,246,0.15), 0 0 60px rgba(59,130,246,0.05);
   --glow-red:    0 0 10px rgba(255,51,68,0.35), 0 0 30px rgba(255,51,68,0.15), 0 0 60px rgba(255,51,68,0.05);
+}
+
+/* ================================================================
+   READING-OPTIMIZED UTILITY CLASSES
+   Body text — Inter, reading-optimized. Apply to informational paragraphs,
+   descriptions, instructional text, error messages. Overrides the global
+   Orbitron/uppercase/!important rules from the body selector.
+   ================================================================ */
+
+/* Body text — Inter, reading-optimized. Apply to informational paragraphs,
+   descriptions, instructional text, error messages. Overrides the global
+   Orbitron/uppercase/!important rules from the body selector. */
+.body-text {
+  font-family: var(--font-body) !important;
+  font-size: 0.9rem !important;
+  font-weight: 400 !important;
+  color: var(--text-body) !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.55 !important;
+  text-transform: none !important;
+}
+
+/* Smaller variant for metadata, timestamps, footnotes. */
+.body-text-sm {
+  font-family: var(--font-body) !important;
+  font-size: 0.8rem !important;
+  font-weight: 400 !important;
+  color: var(--text-body-dim) !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.5 !important;
+  text-transform: none !important;
 }
 
 /* ================================================================
