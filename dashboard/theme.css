@@ -526,9 +526,9 @@ body {
 }
 .sc-label {
   font-family: 'Orbitron', sans-serif;
-  font-size: 15.4px;
+  font-size: 11px;
   font-weight: 900;
-  letter-spacing: 4px;
+  letter-spacing: 1px;
   fill: currentColor;
   text-transform: uppercase;
   paint-order: stroke;
