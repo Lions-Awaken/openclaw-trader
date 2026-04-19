@@ -177,6 +177,7 @@ def run_service_checks() -> None:
                 "event": "service_down",
                 "function": "run_service_checks",
                 "success": False,
+                "flush": True,  # critical state transition — ship immediately
                 "metadata": {
                     "ollama_down": ollama_down,
                     "supabase_down": supabase_down,
@@ -184,18 +185,20 @@ def run_service_checks() -> None:
             },
         )
 
-    # Recovery transitions — route to Loki as INFO
+    # Recovery transitions — route to Loki as INFO with flush
     if not ollama_down and _prev_ollama_down:
         _logger.info(
             "Service recovered: ollama",
             extra={"event": "service_up", "function": "run_service_checks",
-                   "success": True, "metadata": {"service": "ollama"}},
+                   "success": True, "flush": True,
+                   "metadata": {"service": "ollama"}},
         )
     if not supabase_down and _prev_supabase_down:
         _logger.info(
             "Service recovered: supabase",
             extra={"event": "service_up", "function": "run_service_checks",
-                   "success": True, "metadata": {"service": "supabase"}},
+                   "success": True, "flush": True,
+                   "metadata": {"service": "supabase"}},
         )
 
     _prev_ollama_down = ollama_down
@@ -430,6 +433,7 @@ def main() -> None:
             "event": "daemon_start",
             "function": "main",
             "success": True,
+            "flush": True,  # critical boot event — ship immediately
             "metadata": {
                 "interval_seconds": INTERVAL,
                 "service_check_interval_seconds": INTERVAL * SERVICE_CHECK_EVERY,

@@ -32,6 +32,7 @@ Usage:
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -173,6 +174,9 @@ class LokiHandler(logging.Handler):
         self._client = httpx.Client(timeout=5.0)
         self._push_url = f"{LOKI_URL}/loki/api/v1/push"
         self._auth = (LOKI_USER, LOKI_API_KEY) if LOKI_USER and LOKI_API_KEY else None
+        # Drain pending on clean exit so the last N seconds of logs aren't lost
+        # on SIGTERM / scheduled shutdown. Fleet handler-lifecycle rule.
+        atexit.register(self.flush)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -188,7 +192,11 @@ class LokiHandler(logging.Handler):
 
             self._buffer.append((ts_ns, line))
 
-            if (len(self._buffer) >= self.batch_size
+            # Callers can force an immediate flush for critical boot/recovery
+            # events via `extra={"flush": True}` — bypasses batch/interval gating.
+            force_flush = bool(getattr(record, "flush", False))
+            if (force_flush
+                    or len(self._buffer) >= self.batch_size
                     or (time.time() - self._last_flush) > self.flush_interval):
                 self.flush()
         except Exception:
