@@ -777,10 +777,11 @@
         <a href="/systems" class="system-console-group" title="Systems Console — Ridley Hardware Monitor">
           <svg viewBox="0 0 280 190" fill="none" width="240" height="163" aria-label="Systems Console">
             <defs>
-              <!-- Text baseline: true circle, radius 63 (90% of old 70), center (140,95), sweeps 170°
-                   from angle 175° CCW → (77.24, 89.51) to angle 5° CCW → (202.76, 89.51).
-                   Arc length = 63 × (170°×π/180) ≈ 186.9 units vs text width ≈ 170 units → margin ~8px each side. -->
-              <path id="sc-arc" d="M 77.24 89.51 A 63 63 0 0 1 202.76 89.51" fill="none"/>
+              <!-- Text baseline: true circle, radius 57 (10% smaller than 63), center (140,95), sweeps 170°
+                   from angle 175° CCW → (83.22, 90.03) to angle 5° CCW → (196.78, 90.03).
+                   Arc length = 57 × (170°×π/180) ≈ 169 units. With font 11 + LS 1 text width ≈ 145 units
+                   → margin ~12 units each side, no clipping. -->
+              <path id="sc-arc" d="M 83.22 90.03 A 57 57 0 0 1 196.78 90.03" fill="none"/>
             </defs>
 
             <!-- Guide circle — 10% smaller (r:85→77), cyan 5px stroke, subtle cyan tint fill.
