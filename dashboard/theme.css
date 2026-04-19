@@ -151,7 +151,7 @@ body {
   flex: 1 1 0;  /* equal width, fill remaining space */
 }
 
-/* Mode + Profile pills — match Share Access purple spec */
+/* Mode + Profile pills — purple boundary, colored text */
 .mode-badge,
 .active-profile-badge {
   display: inline-flex;
@@ -160,7 +160,6 @@ body {
   box-sizing: border-box;
   border: 2px solid rgba(168,85,247,0.4);
   border-radius: 12px;
-  color: var(--purple);
   background: transparent;
   font-family: 'Orbitron', sans-serif;
   font-weight: 900;
@@ -168,14 +167,24 @@ body {
   letter-spacing: 2px;
   text-transform: uppercase;
   padding: 8px 16px;
-  text-shadow: var(--glow-purple);
   box-shadow: var(--glow-purple);
   transition: all 0.2s;
-  /* meet in the middle — no gap between mode and profile */
   margin: 0;
 }
-.mode-badge { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-width: 1px; }
-.active-profile-badge { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 1px; }
+.mode-badge {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right-width: 1px;
+  color: var(--yellow);
+  text-shadow: var(--glow-yellow);
+}
+.active-profile-badge {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left-width: 1px;
+  color: var(--green);
+  text-shadow: var(--glow-green);
+}
 .active-profile-badge.unleashed {
   border-color: rgba(255,51,68,0.5);
   color: var(--red);
@@ -328,14 +337,14 @@ body {
 /* Hide old nav if still rendered */
 .nav { display: none !important; }
 
-/* Share Access */
+/* Share Access — purple boundary, cyan text */
 .share-access-btn {
   position: absolute !important;
   top: 14px !important;
   left: 16px !important;
   border: 2px solid rgba(168,85,247,0.4) !important;
   border-radius: 12px !important;
-  color: var(--purple) !important;
+  color: var(--cyan) !important;
   background: transparent !important;
   font-family: 'Orbitron', sans-serif !important;
   font-weight: 900 !important;
@@ -344,21 +353,22 @@ body {
   text-transform: uppercase;
   padding: 8px 16px;
   cursor: pointer;
-  text-shadow: var(--glow-purple);
+  text-shadow: 0 0 8px rgba(34,211,238,0.6);
   box-shadow: var(--glow-purple);
   z-index: 2;
   transition: all 0.2s;
 }
 .share-access-btn:hover {
   border-color: var(--purple) !important;
+  color: #67e8f9 !important;
   box-shadow: 0 0 16px rgba(168,85,247,0.3) !important;
 }
 
-/* Sign Out — identical spec to Share Access (purple), just different text */
+/* Sign Out — same spec as Share Access, red boundary (matches stack-fail pills) */
 .sign-out-btn {
-  border: 2px solid rgba(168,85,247,0.4) !important;
+  border: 2px solid rgba(255,51,68,0.5) !important;
   border-radius: 12px !important;
-  color: var(--purple) !important;
+  color: var(--red) !important;
   background: transparent !important;
   font-family: 'Orbitron', sans-serif !important;
   font-weight: 900 !important;
@@ -368,14 +378,14 @@ body {
   padding: 8px 16px;
   cursor: pointer;
   text-decoration: none;
-  text-shadow: var(--glow-purple);
-  box-shadow: var(--glow-purple);
+  text-shadow: var(--glow-red);
+  box-shadow: var(--glow-red);
   z-index: 2;
   transition: all 0.2s;
 }
 .sign-out-btn:hover {
-  border-color: var(--purple) !important;
-  box-shadow: 0 0 16px rgba(168,85,247,0.3) !important;
+  border-color: var(--red) !important;
+  box-shadow: 0 0 16px rgba(255,51,68,0.4) !important;
 }
 
 /* Brand card — frosted purple frame around title/subtitle/hammer/CTAs
