@@ -51,8 +51,7 @@ LOKI_API_KEY = os.environ.get("LOKI_API_KEY", "")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
-PROJECT_ID = "openclaw-trader"       # matches log_config.project_id
-PROJECT_SHORT = "openclaw"           # matches standard's `project` field
+PROJECT_ID = "openclaw-trader"       # matches log_config.project_id + Loki `app` label
 _HOSTNAME = platform.node()
 
 # Fields the fleet standard promotes to top level
@@ -204,7 +203,7 @@ class LokiHandler(logging.Handler):
         payload: dict = {
             "timestamp": ts_iso,
             "level": _LEVEL_NAMES.get(record.levelno, record.levelname),
-            "project": PROJECT_SHORT,
+            "project": PROJECT_ID,
             "message": record.getMessage(),
         }
 
