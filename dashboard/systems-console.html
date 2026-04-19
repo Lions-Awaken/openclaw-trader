@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OpenClaw Systems Console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/theme.css">
 <style>
 /* ================================================================
    RESET + BASE
@@ -864,14 +865,14 @@ body {
 
 <!-- Disconnect banner -->
 <div class="disconnect-banner" id="disconnectBanner">
-  <span>DISCONNECTED -- RECONNECTING...</span>
+  <span class="body-text">DISCONNECTED -- RECONNECTING...</span>
 </div>
 
 <div class="page-wrapper">
 
   <!-- Alert bar -->
   <div class="alert-bar" id="alertBar">
-    <span class="alert-bar-text" id="alertText"></span>
+    <span class="alert-bar-text body-text" id="alertText"></span>
   </div>
 
   <!-- Header -->
@@ -897,7 +898,7 @@ body {
       <span class="header-title">Systems Console</span>
     </div>
     <div class="header-right">
-      <span class="hw-info" id="hwInfo">Loading...</span>
+      <span class="hw-info body-text-sm" id="hwInfo">Loading...</span>
       <div class="live-dot" id="liveDot"></div>
     </div>
   </header>
@@ -930,7 +931,7 @@ body {
         <div class="sparkline-panel">
           <div class="sparkline-values">
             <span class="big-value" id="inferenceP50">--</span>
-            <span class="sub-value" id="inferenceP95">p95: --</span>
+            <span class="sub-value body-text-sm" id="inferenceP95">p95: --</span>
           </div>
           <div class="sparkline-canvas-wrap"><canvas id="sparkInference"></canvas></div>
         </div>
@@ -948,8 +949,8 @@ body {
             <span class="status-dot" id="ollamaDot" style="background:#808090;flex-shrink:0;"></span>
             <span id="ollamaState" style="font-size:1.2rem;font-weight:900;">--</span>
           </div>
-          <div class="sub-value" id="ollamaModels">No models loaded</div>
-          <div class="sub-value" id="ollamaVram">Model RAM: --</div>
+          <div class="sub-value body-text-sm" id="ollamaModels">No models loaded</div>
+          <div class="sub-value body-text-sm" id="ollamaVram">Model RAM: --</div>
         </div>
       </div>
     </div>
@@ -972,7 +973,7 @@ body {
         <div class="sparkline-panel">
           <div class="sparkline-values">
             <span class="big-value" id="tokensValue">--</span>
-            <span class="sub-value">tok/s</span>
+            <span class="sub-value body-text-sm">tok/s</span>
           </div>
           <div class="sparkline-canvas-wrap"><canvas id="sparkTokens"></canvas></div>
         </div>
@@ -987,8 +988,8 @@ body {
       <div class="panel-body">
         <div class="dual-sparkline">
           <div class="dual-sparkline-legend">
-            <div class="legend-item"><span class="legend-swatch" style="background:var(--amber)"></span>Power (W)</div>
-            <div class="legend-item"><span class="legend-swatch" style="background:var(--red)"></span>TJ Temp</div>
+            <div class="legend-item body-text-sm"><span class="legend-swatch" style="background:var(--amber)"></span>Power (W)</div>
+            <div class="legend-item body-text-sm"><span class="legend-swatch" style="background:var(--red)"></span>TJ Temp</div>
           </div>
           <div class="sparkline-canvas-wrap"><canvas id="sparkPower"></canvas></div>
         </div>
@@ -1006,7 +1007,7 @@ body {
         <div class="sparkline-panel">
           <div class="sparkline-values">
             <span class="big-value" id="networkValue">--</span>
-            <span class="sub-value">ms</span>
+            <span class="sub-value body-text-sm">ms</span>
           </div>
           <div class="sparkline-canvas-wrap"><canvas id="sparkNetwork"></canvas></div>
         </div>
@@ -1725,6 +1726,7 @@ body {
       tdTime.appendChild(dotSpan);
 
       var timeSpan = document.createElement('span');
+      timeSpan.className = 'body-text-sm';
       timeSpan.style.color = stale ? RED : TEXT;
       timeSpan.textContent = relativeTime(p.last_run);
       tdTime.appendChild(timeSpan);
@@ -1952,7 +1954,7 @@ body {
   function renderCpuDrilldown(body) {
     var cpu = metrics.cpu_usage;
     if (!cpu) {
-      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:14px;">No CPU data available</p>';
+      body.innerHTML = '<p class="body-text" style="color:' + TEXT_DIM + '">No CPU data available</p>';
       return;
     }
 
@@ -2008,7 +2010,7 @@ body {
   function renderGpuDrilldown(body) {
     var gpu = metrics.gpu_load;
     if (!gpu) {
-      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:14px;">No GPU data available</p>';
+      body.innerHTML = '<p class="body-text" style="color:' + TEXT_DIM + '">No GPU data available</p>';
       return;
     }
 
@@ -2054,7 +2056,7 @@ body {
   function renderMemDrilldown(body) {
     var mem = metrics.mem_usage;
     if (!mem) {
-      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:14px;">No memory data available</p>';
+      body.innerHTML = '<p class="body-text" style="color:' + TEXT_DIM + '">No memory data available</p>';
       return;
     }
 
@@ -2114,7 +2116,7 @@ body {
   function renderTempDrilldown(body) {
     var temp = metrics.tj_temp;
     if (!temp) {
-      body.innerHTML = '<p style="color:' + TEXT_DIM + ';font-size:14px;">No temperature data available</p>';
+      body.innerHTML = '<p class="body-text" style="color:' + TEXT_DIM + '">No temperature data available</p>';
       return;
     }
 
@@ -2182,7 +2184,7 @@ body {
     if (temp.value >= 80) {
       html += '<div class="modal-section" style="padding:10px;background:rgba(255,51,51,0.1);border-radius:6px;border:1px solid rgba(255,51,51,0.3);">';
       html += '<div style="font-size:14px;color:' + RED + ';letter-spacing:1px;">THERMAL THROTTLE ZONE APPROACHING</div>';
-      html += '<div style="font-size:13px;color:' + TEXT_DIM + ';margin-top:4px;letter-spacing:0.5px;">Clock speeds will reduce above 85C. Current headroom: ' + (85 - temp.value).toFixed(1) + 'C</div>';
+      html += '<div class="body-text" style="color:' + TEXT_DIM + ';margin-top:4px;">Clock speeds will reduce above 85C. Current headroom: ' + (85 - temp.value).toFixed(1) + 'C</div>';
       html += '</div>';
     }
 

@@ -5,6 +5,403 @@
 
 ---
 
+## TASK-TYPO-01 . FRONTEND-AGENT . DONE — 2026-04-18
+
+### Typography foundation established in theme.css
+
+**File modified:** `dashboard/theme.css`
+
+**Exactly what was added (line numbers):**
+
+- **Line 9** — Inter import:
+  `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');`
+
+- **Lines 30–34** — Four CSS variables appended inside `:root` after `--amber: #ffaa22`:
+  - `--font-label: 'Orbitron', sans-serif;`
+  - `--font-body:  'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;`
+  - `--text-body:      #e8eaed;`
+  - `--text-body-dim:  #a8abb2;`
+
+- **Lines 50–79** — Two utility classes added between `:root` close and `GLOBAL BASE` block:
+  - `.body-text` — Inter 0.9rem, weight 400, color `#e8eaed`, letter-spacing 0.02em, line-height 1.55, `text-transform: none !important`
+  - `.body-text-sm` — Inter 0.8rem, weight 400, color `#a8abb2`, line-height 1.5, same overrides
+
+**What was NOT changed:**
+- The `body, button, input, select, textarea, table, th, td` Orbitron rule at lines 86–90 is byte-for-byte identical to the original.
+- No existing rule was modified, only additions made.
+
+**Validation:**
+- Brace balance: 258 open, 258 close — balanced.
+- Both `@import` declarations present.
+- 28 CSS variables in `:root` (24 original + 4 new).
+- `.body-text` and `.body-text-sm` classes confirmed present.
+- Global Orbitron rule confirmed intact.
+
+**Assumptions:**
+- Both Google Fonts URLs will load in the browser environment where the dashboard is served. The imports are standard `@import` declarations at the top of the file.
+- `.body-text` uses `!important` on all properties specifically to override the global `body, button...` `!important` Orbitron rule — this is intentional and required for the class to function correctly.
+
+---
+
+## TASK-TYPO-02 . FRONTEND-AGENT . DONE — 2026-04-18
+
+### `.body-text` applied throughout `#section-about` (How It Works)
+
+**File modified:** `dashboard/index.html`
+
+**Elements that received `.body-text`:**
+
+| Element | Location (approx line) | Notes |
+|---|---|---|
+| `<p class="body-text">` | ~1376 | Workflow card subtitle: "Step through all 20 stages..." — removed `color` and `font-size` inline styles (handled by class) |
+| `<div class="wf-detail-desc body-text">` | ~1703 | Workflow widget step description panel — class added statically; JS `textContent` assignment leaves class intact |
+| `<div class="body-text">` (chat welcome) | ~2322 | AI chat welcome text inside workflow widget container |
+| `<div class="hiw-body body-text">` | ~2354 | Wraps all 4 `<p>` paragraphs in "What is Parallax?" section |
+| `<p class="hiw-body body-text">` | ~2371 | Timezone note in Daily Cron Timeline |
+| 23x `<td class="body-text">` | ~2381-2403 | Third-column "What it does" cells in Cron Timeline table (descriptions); first two columns left as Orbitron labels |
+| 6x `<div class="tumbler-body body-text">` | ~2425-2514 | All 6 tumbler cards (T1-T5 + GATE) — covers all `<p>` and `<li>` content inside each |
+| `<p class="hiw-body body-text">` | ~2553 | Adversarial Ensemble intro sentence |
+| 3x `<div class="bt-desc body-text">` | ~2558-2566 | Budget tier descriptions (All 6 shadows run / Regime Watcher... / Kronos only) |
+| 6x `<td class="body-text">` | ~2583-2608 | Third-column persona/grading descriptions in shadow agent table |
+| `<p class="hiw-body body-text">` | ~2623 | Calibration Loop intro sentence |
+| `<ol class="calib-steps body-text">` | ~2624 | Calibration steps list |
+| `<ul class="body-text-sm">` | ~2627 | Nested sub-list inside calib step 2 (dimmer secondary notes) |
+| `<span class="body-text-sm">` | ~2633 | "clamped [0.05, 3.0]" footnote |
+| `<p class="hiw-body body-text">` | ~2645 | Meta Daily intro sentence |
+| `<div class="signal-list body-text">` | ~2646 | Meta Daily signal-item list (4 numbered steps) |
+| 10x `<td class="body-text">` | ~2671-2680 | Second-column descriptions in Infrastructure table; first column (component names) left as Orbitron |
+| `<ul class="circuit-list body-text">` | ~2694 | Circuit Breakers list (6 items) |
+
+**Inline styles removed (font-size only, per task rules):**
+- `<p style="margin-top:10px;font-size:0.88rem;">` (decision thresholds) — `font-size:0.88rem` removed, `margin-top` retained
+- `<p style="margin-top:10px;font-size:0.88rem;color:var(--dim)">` (stopping rules) — converted to `<p class="body-text-sm" style="margin-top:10px;">`, removing font-size and color (handled by body-text-sm)
+- Workflow card subtitle: removed `color: var(--dim...)` and `font-size: 1rem` inline style
+
+**Workflow widget JS — no changes needed:**
+The `wfUpdateDetail()` function at ~line 2088 uses `document.getElementById('wf-detailDesc').textContent = step.desc`. The `body-text` class was added to the static HTML element `<div class="wf-detail-desc body-text" id="wf-detailDesc">`. Since `textContent` assignment preserves element classes, the JS needed no modification.
+
+**What was left as Orbitron (per task spec):**
+- All `<h2>` headers (`hiw-section-header`)
+- Step titles in workflow widget (`wf-detail-title`, `wf-detail-step-num`)
+- Group labels in SVG diagram (set via `font-family: 'Orbitron, monospace'` attribute in JS)
+- Node labels in SVG diagram (same)
+- Button text (PREV, NEXT, PLAY, STOP, RESTART — `wf-nav-btn`)
+- "STEP X OF Y" counter (`wf-step-counter`)
+- `.wf-db-strip-label` ("DB Tables — active step highlighted")
+- `wf-db-badge` pills (table name badges)
+- Cron Timeline column headers (Time, Pipeline, What it does)
+- Cron Timeline first/second columns (time values, pipeline names)
+- Infra table first column (component names: ridley, Supabase, etc.)
+- Agent table first/second columns (agent names, LLM type labels)
+- `tumbler-badge` pills (T1, T2, T3, T4, T5, GATE)
+- `tumbler-title` spans (Technical Foundation, etc.)
+- `bt-threshold` divs (budget tier thresholds)
+- `buildlog-title-pill` (PARALLAX://AI-CHAT)
+- `wf-meta-chip` labels (Writes To, API Cost, Group)
+
+**Assumptions:**
+- `.body-text !important` overrides `.wf-detail-desc`'s `font-family: 'Orbitron'` (no `!important` there), so the description panel correctly switches to Inter.
+- The `hiw-formula` spans inside calib-steps use `font-family: monospace` — they are code expressions, not prose, so left untouched.
+- `<code>` elements throughout are intentionally monospace label-style — left untouched.
+- No layout breakage expected: only `font-family`, `font-size`, `color`, `text-transform`, `letter-spacing`, `line-height` change; no margin/width/display/flex properties touched.
+
+**Follow-on work (not done here):**
+- TASK-TYPO-02 can now proceed: apply `.body-text` to `#section-about` informational paragraphs.
+
+---
+
+## TASK-TYPO-03 . FRONTEND-AGENT . DONE — 2026-04-18
+
+### `.body-text` / `.body-text-sm` rolled out across all 8 target sections
+
+**File modified:** `dashboard/index.html`
+
+**Approach:** Applied `.body-text` directly to the specific elements containing prose/descriptive/informational text. Did NOT apply to container divs whose `innerHTML` is replaced by JS — to avoid leaking Inter inheritance into Orbitron structural children. Instead, static loading text uses `<span class="body-text">` inside the container, and JS-rendered empty/error states use self-contained `<div class="empty-state body-text">`.
+
+---
+
+**#section-dashboard**
+
+| Element | Change |
+|---|---|
+| `#regime-display` loading state | `<span class="body-text">Loading regime data...</span>` inside container |
+| `#recent-trades` loading state | `<span class="body-text">Loading trades...</span>` inside container |
+| `loadDashboard()` — regime action text | `<span class="body-text">` wrapping `esc(regime.action)` |
+| `loadDashboard()` — SPY metadata line | `<div class="body-text-sm" style="margin-top:12px">` (removed `font-size:0.85rem;color:var(--dim)`) |
+| `loadDashboard()` — stale trade tag | `class="body-text-sm"` (removed `font-size:0.75rem;color:...`) |
+| `loadDashboard()` — empty/error states | `<div class="empty-state body-text">` |
+| `loadTrades()` — empty/error states | `<div class="empty-state body-text">` |
+| `buildTradeTable()` — detail rows | `<div class="trade-detail body-text">` — covers reasoning, what_worked, improvement prose |
+
+---
+
+**#section-pipeline**
+
+| Element | Change |
+|---|---|
+| Pipeline DAG subtitle `<p>` | `class="body-text-sm"` (removed `font-size:0.8rem;color:var(--dim)`) |
+| Static empty state in DAG container | `<div class="empty-state body-text">` |
+| `#pipeline-runs` / `#pipeline-timeline` loading states | `<span class="body-text">` inside container |
+| `loadPipelineRuns()` — empty/error states | `<div class="empty-state body-text">` |
+| `loadPipelineDAG()` — loading/empty/error | `class="loading body-text"` / `<div class="empty-state body-text">` |
+| DAG detail `<pre>` blocks (input/output JSON) | `<pre class="body-text-sm">` — technical data, smaller variant |
+| DAG error_message | `<span class="body-text">` |
+| `loadPipelineTimeline()` — empty/error states | `<div class="empty-state body-text">` |
+
+---
+
+**#section-trades**
+
+| Element | Change |
+|---|---|
+| `#trade-log` loading state | `<span class="body-text">` inside container |
+| `loadTrades()` — empty/error states | `<div class="empty-state body-text">` |
+| `buildTradeTable()` — detail expansion rows | `<div class="trade-detail body-text">` for reasoning/what_worked/improvement |
+
+---
+
+**#section-positions**
+
+| Element | Change |
+|---|---|
+| `#positions-list` loading state | `<span class="body-text">` inside container |
+| `loadPositions()` — empty state | `<div class="empty-state body-text">No open positions.<br>Cash is a position.</div>` |
+| `loadPositions()` — error state | `<div class="empty-state body-text">` |
+
+---
+
+**#section-replay**
+
+| Element | Change |
+|---|---|
+| `replay-grid` static empty state | `<div class="empty-state body-text">Select a date...</div>` |
+| `replay-waterfall` / `replay-shadows` loading | `<div class="empty-state body-text">` |
+| `loadReplayCandidates()` — empty/error states | `<div class="empty-state body-text">` |
+| `loadReplayChart()` — empty/error states | `<div class="empty-state body-text">` |
+| `loadReplayWaterfall()` — empty/error states | `<div class="empty-state body-text">` |
+| `renderWaterfall()` — tumbler_name column | `<div class="body-text-sm">` (was `font-size:0.65rem;color:var(--dim)`) |
+| `renderWaterfall()` — key_finding column | `<div class="body-text-sm">` (was `font-size:0.65rem;color:var(--text)`) |
+| `renderWaterfall()` — duration ms column | `<div class="body-text-sm">` (was `font-size:0.6rem;color:var(--dim)`) |
+| `renderWaterfall()` — stopping_reason | `<div class="body-text-sm" style="color:var(--amber);">` |
+| `renderWaterfall()` — confidence text | `<span class="body-text">` |
+| `renderWaterfall()` — depth metadata | `<span class="body-text-sm">` |
+| `loadReplayShadows()` — empty/error states | `<div class="empty-state body-text">` |
+
+---
+
+**#section-ensemble**
+
+| Element | Change |
+|---|---|
+| Shadow Profile Scoreboard `<p>` | `class="body-text"` (removed Inter inline styles) |
+| Unanimous Dissent `<p>` | `class="body-text"` (removed Inter inline styles) |
+| Divergence History `<p>` | `class="body-text"` (removed Inter inline styles) |
+| Signal Sources `<p>` | `class="body-text"` (removed Inter inline styles) |
+| `shadow-profiles` / `shadow-unanimous` / `shadow-divergences` / `signalfeed-content` loading | `<div class="loading body-text">` inside container (NOT on container itself) |
+| `loadShadowProfiles()` — empty/error states | `<div class="empty-state body-text">` |
+| `loadShadowProfiles()` — Graded timestamp | `<div class="body-text-sm" style="margin-top:0.8rem;">` |
+| `loadShadowUnanimous()` — alignment empty state | `<div class="empty-state body-text">` |
+| `loadShadowUnanimous()` — live confidence | `<div class="body-text-sm" style="color:var(--cyan);">` |
+| `loadShadowUnanimous()` — outcome text | `<div class="body-text">` |
+| `loadShadowUnanimous()` — shadow reason lines | `<div class="body-text-sm" style="color:var(--orange);">` |
+| `loadShadowUnanimous()` — error states | `<div class="empty-state body-text">` |
+| `loadShadowDivergences()` — empty/error states | `<div class="empty-state body-text">` |
+| `loadSignalFeed()` — loading/error states | `<div class="loading body-text">` / `<div class="empty-state body-text">` |
+| `buildSignalFeedUI()` — section subtitle `<p>` tags | `class="body-text"` (3 of them — options flow, form4, fitness) |
+| `buildSignalFeedUI()` — empty states | `<div class="empty-state body-text">` (3 of them) |
+
+---
+
+**#section-performance**
+
+| Element | Change |
+|---|---|
+| `#perf-leaderboard` / `#perf-positions` loading | `<span class="body-text">` inside container |
+| `loadPerformance()` — JS loading states | `<div class="loading body-text">` |
+| `loadPerformance()` — error state | `<div class="empty-state body-text">` |
+| `renderPerfLeaderboard()` — empty state | `<div class="empty-state body-text">` |
+| `renderPerfWeeklyChart()` — empty state | `<div class="empty-state body-text">` |
+| `renderPerfWeeklyChart()` — week label | `<div class="body-text-sm" style="letter-spacing:1px;margin-bottom:6px;">` |
+| `renderPerfPositions()` — empty state | `<div class="empty-state body-text">` |
+
+---
+
+**#section-economics**
+
+| Element | Change |
+|---|---|
+| Budget Caps `<p>` subtitle | `class="body-text-sm"` (removed `font-size:0.8rem;color:var(--dim)`) |
+| `#econ-breakdown` / `#budget-caps` loading states | `<span class="body-text">` inside container |
+| `loadEconBreakdown()` — empty/error states | `<div class="empty-state body-text">` |
+| `loadEconBreakdown()` — subcategory cell | `<td class="body-text-sm">` (removed `font-size:0.8rem;color:var(--dim)`) |
+| `loadBudgetCaps()` — empty/error states | `<div class="empty-state body-text">` |
+| `loadBudgetCaps()` — `.desc` description | `<div class="desc body-text">` |
+| `loadBudgetCaps()` — "per day" label | `<span class="body-text-sm">` (removed `font-size:0.8rem;color:var(--dim)`) |
+| `loadBudgetCaps()` — "Today: $X / Y%" row | `<div class="body-text-sm">` (removed `font-size:0.75rem;margin-bottom:4px`) |
+| `loadBudgetCaps()` — "Updated: ..." timestamp | `<div class="body-text-sm" style="margin-top:4px">` (removed `font-size:0.7rem;color:var(--dim)`) |
+| `loadEconChart()` — error state | `<div class="empty-state body-text">` |
+
+---
+
+**Telemetry sidebar**
+
+| Element | Change |
+|---|---|
+| `#telem-updated` "LAST UPDATED" value | `class="telem-value body-text-sm"` — removed `font-size:0.65rem;color:var(--text-dim)` inline styles |
+
+---
+
+**Other**
+
+| Element | Change |
+|---|---|
+| `loadStrategyProfiles()` — `.strat-desc` | `<div class="strat-desc body-text">` — strategy profile description prose |
+| `chatClearHistory()` — welcome message | `<div class="body-text">` wrapping chat welcome text |
+| `loadHealth()` — loading/error states | `<div class="loading body-text">` / `<div class="empty-state body-text">` |
+| `buildHealthUI()` — health-run-status | `class="body-text"` on the status div |
+| `buildHealthUI()` — `.hfc-body` fail card | `<div class="hfc-body body-text">` |
+| `buildHealthUI()` — `.hfc-error` fail message | `<div class="hfc-error body-text-sm">` |
+| `buildHealthUI()` — check detail error | `<span class="body-text-sm" style="color:var(--red)">` |
+
+---
+
+**Inline style cleanup (font-size/color removed, layout retained):**
+- `#telem-updated`: removed `font-size:0.65rem;color:var(--text-dim)`
+- Budget Caps subtitle `<p>`: removed `font-size:0.8rem;color:var(--dim)`
+- Pipeline DAG subtitle `<p>`: removed `font-size:0.8rem;color:var(--dim)`
+- `loadEconBreakdown()` subcategory cell: removed `font-size:0.8rem;color:var(--dim)`
+- `loadBudgetCaps()` "per day": removed `font-size:0.8rem;color:var(--dim)`
+- `loadBudgetCaps()` today/pct bar: removed `font-size:0.75rem`
+- `loadBudgetCaps()` updated timestamp: removed `font-size:0.7rem;color:var(--dim)`
+- `renderPerfWeeklyChart()` week label: removed `font-size:0.75rem;color:var(--dim)`
+- `loadShadowProfiles()` graded date: removed `font-size:0.75rem;color:var(--dim)`
+- `loadShadowUnanimous()` live confidence: removed `font-size:0.9rem`
+- `loadShadowUnanimous()` shadow reason: removed `font-size:0.85rem`
+- `buildSignalFeedUI()` subtitle `<p>`: removed `font-size:16px;color:var(--dim)`
+- `loadDashboard()` SPY metadata: removed `font-size:0.85rem;color:var(--dim)`
+- `renderWaterfall()` tumbler columns: removed `font-size:0.65rem;color:var(--dim/text)`
+- `renderWaterfall()` duration: removed `font-size:0.6rem`
+- `renderWaterfall()` stopping reason: removed `font-size:0.7rem`
+- `section-ensemble` descriptive `<p>` tags: removed `font-family:'Inter',monospace;text-transform:none;font-weight:400;font-size:1rem`
+
+**What was intentionally left as Orbitron:**
+- All `<h1>`, `<h2>`, `<h3>` card headers
+- KPI values (`#equity`, `#cash`, `#total-pnl`, `#win-rate`, `#total-trades`, `econ-*`)
+- Stat labels (EQUITY, CASH, etc.)
+- Nav pills
+- Button text
+- Badge/pill text (status, outcome, ticker symbols)
+- Table `<th>` cells — all unchanged
+- Ticker cells (`class="ticker"`)
+- Outcome badges
+- Pipeline status dots / run names / durations
+- Position card `.symbol`, `.detail` — structural data
+- Telemetry labels and gauge values
+
+**Assumptions:**
+- JS `innerHTML` replacement on containers means the `.body-text` class on the container div does NOT persist to new content. The class is only useful during the initial static loading state. For that reason, loading text was wrapped in `<span class="body-text">` rather than applied to the container.
+- `<td>` and `<th>` are in the global Orbitron `!important` rule and are safe from Inter inheritance even if a `.body-text` div wraps them.
+- The `empty-state` divs rendered by JS are leaf elements containing only prose text — safe to apply `.body-text` directly.
+- The `trade-detail body-text` div wraps only reasoning prose (strong tags + text) — safe.
+- No layout properties (margin, padding, width, flex, grid) were touched.
+
+**Follow-on work noticed but not done:**
+- The `position-card .detail` class text ("X shares @ $Y avg", "Cur: $Z") could potentially use Inter since it's data-display rather than pure labels, but per the "when uncertain, leave as Orbitron" rule, left alone.
+- The health-check-detail panels' key/value label text (`.dkey` spans and adjacent values) are in Orbitron — these are structured data pairs, not prose. Left alone.
+- The divergences table inline `style` attributes on `<td>` cells don't have typography classes applied — the cells use Orbitron from the global rule. The data in those cells (dates, decisions, YES/NO) are labels/identifiers. Left alone.
+
+---
+
+## TASK-TYPO-04 . FRONTEND-AGENT . DONE — 2026-04-18
+
+### `.body-text` / `.body-text-sm` applied to `systems-console.html` and `login.html`
+
+**Files modified:**
+- `dashboard/systems-console.html`
+- `dashboard/login.html`
+
+---
+
+**systems-console.html**
+
+Note: This file did NOT previously link to `/theme.css` (the task description was slightly incorrect). Added both the Inter font weight to the Google Fonts link and `<link rel="stylesheet" href="/theme.css">` in `<head>`.
+
+| Element / Location | Class applied | Notes |
+|---|---|---|
+| `#disconnectBanner` span (line ~868) | `.body-text` | Status advisory: "DISCONNECTED -- RECONNECTING..." |
+| `#alertText` span (line ~875) | `.body-text` | Alert bar advisory messages (CPU 42% // MEMORY 85%) |
+| `#hwInfo` span (line ~901) | `.body-text-sm` | Header metadata: hostname, CPU, power mode |
+| `#inferenceP95` span (line ~934) | `.body-text-sm` | "p95: --" / "no recent data" sub-value |
+| `#ollamaModels` div (line ~952) | `.body-text-sm` | "No models loaded" / model list |
+| `#ollamaVram` div (line ~953) | `.body-text-sm` | "Model RAM: -- MB" |
+| `.sub-value` for tok/s unit (line ~976) | `.body-text-sm` | "tok/s" unit label under Ollama Throughput big value |
+| `.legend-item` for "Power (W)" (line ~991) | `.body-text-sm` | Dual-sparkline legend in Power & Thermal panel |
+| `.legend-item` for "TJ Temp" (line ~992) | `.body-text-sm` | Same panel, second legend item |
+| `.sub-value` for "ms" unit (line ~1010) | `.body-text-sm` | Network Latency panel unit label |
+
+**JS innerHTML templates updated:**
+
+| Function | Change |
+|---|---|
+| `updateCronPanel()` — `timeSpan` (line ~1729) | Added `timeSpan.className = 'body-text-sm'` — relative timestamps like "5m ago", "2h ago" |
+| `renderCpuDrilldown()` — empty state | `<p class="body-text" style="color:...">No CPU data available</p>` |
+| `renderGpuDrilldown()` — empty state | `<p class="body-text" style="color:...">No GPU data available</p>` |
+| `renderMemDrilldown()` — empty state | `<p class="body-text" style="color:...">No memory data available</p>` |
+| `renderTempDrilldown()` — empty state | `<p class="body-text" style="color:...">No temperature data available</p>` |
+| `renderTempDrilldown()` — throttle body text | `<div class="body-text" style="color:...;margin-top:4px;">Clock speeds will reduce above 85C...</div>` — removed `font-size:13px;letter-spacing:0.5px` inline styles |
+
+**What was left as Orbitron (intentional):**
+- `panel-label` — metric panel titles (CPU, GPU, MEMORY, TEMPERATURE, etc.)
+- `big-value` spans — the large metric readout numbers
+- `stack-cell` service names (supabase, alpaca, ollama, etc.)
+- `cron-table` pipeline name column (first `<td>`)
+- `header-title` (Systems Console heading)
+- `preflight-group-name`, `preflight-test-name` — test identifiers and names
+- `preflight-verdict`, `preflight-tally` — GO / NO-GO verdict
+- `modal-title`, `modal-section-title` — drill-down modal headers
+- `modal-mem-label`, `modal-zone-name` — structural data labels in modals
+- `modal-bar-label` — "Core 0", "Load", "Freq" etc. — structural labels
+- `modal-bar-value`, `modal-zone-value`, `modal-mem-value` — data values
+- Alert bar text color/background — stays themed (`.body-text` only changes font, not color)
+- Disconnect banner letter-spacing — overridden by `.body-text`'s `letter-spacing:0.02em`
+- "THERMAL THROTTLE ZONE APPROACHING" header div — structural alert heading, left as Orbitron
+
+---
+
+**login.html**
+
+The `.error` class is server-injected HTML (via `<!-- ERROR_PLACEHOLDER -->` template comment) — class cannot be appended from the frontend. Modified the `.error` CSS rule in the inline `<style>` block to use Inter properties matching `.body-text`.
+
+| CSS rule changed | Change |
+|---|---|
+| `.error` (lines 505–519) | `font-family: 'Inter', sans-serif; font-size: 0.9rem; font-weight: 400; letter-spacing: 0.02em; line-height: 1.55; text-transform: none;` — replaced Orbitron-inherited `font-size: 1.05rem; font-weight: 900; letter-spacing: 1px` |
+| `.error::before` (line 520) | `font-weight: 700; font-family: 'Inter', sans-serif;` — was implicitly inheriting Orbitron weight 900 |
+
+**What was left as Orbitron (intentional):**
+- Boot sequence title (`.typed-title` — PARALLAX)
+- Subtitle (`.typed-sub` — AUTONOMOUS TRADING TERMINAL)
+- Section headers (`.section-header`)
+- Check row labels (`.check-text`, `.check-tag`)
+- Status pills (`.status-pill`)
+- Submit button (`.submit-btn`)
+- Password input (`.key-input`)
+- "AWAITING OPERATOR CREDENTIALS" text
+- ACCESS GRANTED overlay (`.granted-text`, `.granted-sub`, `.granted-loading`)
+- Bar pill text (`.bar-pill`)
+- All JS-animated typewriter text — entire SEQUENCE array untouched
+
+**Assumptions:**
+- `theme.css` was already linked in login.html (line 7). No link change needed.
+- Inter loads via theme.css's `@import` — no additional Google Fonts link needed in login.html.
+- `body` in login.html uses `color: var(--green)` — the `--green` variable from theme.css is `#33ff88`, which was already the case before this task (pre-existing color).
+- The `.error` CSS rule in login.html's `<style>` block takes precedence over theme.css's `.body-text` class (which uses `!important`). To ensure Inter applies even if the server injects `class="error"` only (no `.body-text`), the fix was applied directly to the `.error` CSS rule rather than relying on class co-application.
+
+**Follow-on work noticed but not done:**
+- Login page has no other prose text beyond the error state — the entire page is intentional cyberpunk Orbitron.
+- Rate-limit notice text ("Too many attempts, retry in X min") is rendered server-side inside the `.error` div and will benefit from the `.error` CSS change.
+
+---
+
 ## TASK-SP-04 . BACKEND-AGENT . DONE — 2026-04-13
 
 ### Shadow Performance Rollup script created
