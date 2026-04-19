@@ -99,7 +99,7 @@ body {
 /* Title tight box — borderless, hammer + text float naked */
 .title-box-tight {
   display: inline-block;
-  padding: 8px 20px 0;
+  padding: 0 20px;
   margin-bottom: 0;
 }
 
@@ -108,7 +108,7 @@ body {
   display: block;
   width: 420px;
   margin: 0 auto 20px;
-  padding: 14px 0 10px;
+  padding: 4px 0 8px;
   background: rgba(168, 85, 247, 0.08);
   backdrop-filter: blur(14px) saturate(180%);
   -webkit-backdrop-filter: blur(14px) saturate(180%);
