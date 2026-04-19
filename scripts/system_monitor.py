@@ -57,6 +57,12 @@ from collectors import (  # noqa: E402
 )
 from common import OLLAMA_URL, slack_notify  # noqa: E402
 from config import SUPABASE_KEY, SUPABASE_URL, sb_headers  # noqa: E402
+from loki_logger import get_logger  # noqa: E402
+
+# Route WARN/ERROR + state transitions through loki_logger so this daemon's
+# telemetry lands in Grafana alongside the rest of openclaw's logs. INFO-level
+# cadence prints stay on stdout only (too noisy for Loki at 5s intervals).
+_logger = get_logger("system_monitor", capture_print=False)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 INTERVAL: int = 5          # seconds between rows
@@ -164,6 +170,32 @@ def run_service_checks() -> None:
     if alerts:
         slack_notify(
             f"*System Monitor ALERT* — service(s) DOWN on ridley: {', '.join(alerts)}"
+        )
+        _logger.error(
+            f"Service(s) transitioned to DOWN: {', '.join(alerts)}",
+            extra={
+                "event": "service_down",
+                "function": "run_service_checks",
+                "success": False,
+                "metadata": {
+                    "ollama_down": ollama_down,
+                    "supabase_down": supabase_down,
+                },
+            },
+        )
+
+    # Recovery transitions — route to Loki as INFO
+    if not ollama_down and _prev_ollama_down:
+        _logger.info(
+            "Service recovered: ollama",
+            extra={"event": "service_up", "function": "run_service_checks",
+                   "success": True, "metadata": {"service": "ollama"}},
+        )
+    if not supabase_down and _prev_supabase_down:
+        _logger.info(
+            "Service recovered: supabase",
+            extra={"event": "service_up", "function": "run_service_checks",
+                   "success": True, "metadata": {"service": "supabase"}},
         )
 
     _prev_ollama_down = ollama_down
@@ -344,12 +376,33 @@ def insert_metrics(metrics: dict) -> bool:
             f"[monitor] Supabase returned {resp.status_code}: {resp.text[:200]}",
             flush=True,
         )
+        _logger.warning(
+            f"system_stats write returned {resp.status_code}",
+            extra={
+                "event": "supabase_write_failed",
+                "function": "insert_metrics",
+                "success": False,
+                "metadata": {"status_code": resp.status_code,
+                             "response_preview": resp.text[:200]},
+            },
+        )
         return False
     except httpx.TimeoutException:
         print("[monitor] Supabase write timed out", flush=True)
+        _logger.warning(
+            "system_stats write timed out",
+            extra={"event": "supabase_write_timeout",
+                   "function": "insert_metrics", "success": False},
+        )
         return False
     except Exception as e:
         print(f"[monitor] Supabase write error: {e}", flush=True)
+        _logger.error(
+            f"system_stats write error: {e}",
+            extra={"event": "supabase_write_error",
+                   "function": "insert_metrics", "success": False,
+                   "metadata": {"error": str(e)}},
+        )
         return False
 
 
@@ -370,6 +423,19 @@ def main() -> None:
         f"service checks every {INTERVAL * SERVICE_CHECK_EVERY}s | "
         f"pid={os.getpid()} | {datetime.now(timezone.utc).isoformat()}",
         flush=True,
+    )
+    _logger.info(
+        "system_monitor daemon started",
+        extra={
+            "event": "daemon_start",
+            "function": "main",
+            "success": True,
+            "metadata": {
+                "interval_seconds": INTERVAL,
+                "service_check_interval_seconds": INTERVAL * SERVICE_CHECK_EVERY,
+                "pid": os.getpid(),
+            },
+        },
     )
 
     # Warm up the CPU differential sampler (first call always returns 0%)
@@ -430,12 +496,24 @@ def main() -> None:
                     "[monitor] 10 consecutive failures — sleeping 60s before retry",
                     flush=True,
                 )
+                _logger.error(
+                    "10 consecutive system_stats write failures — backing off 60s",
+                    extra={"event": "write_backoff", "function": "main",
+                           "success": False,
+                           "metadata": {"consecutive_failures": consecutive_failures}},
+                )
                 time.sleep(60)
                 consecutive_failures = 0
                 continue
 
         except Exception as e:
             print(f"[monitor] Unhandled error in main loop: {e}", flush=True)
+            _logger.error(
+                f"Unhandled error in main loop: {e}",
+                extra={"event": "main_loop_error", "function": "main",
+                       "success": False, "metadata": {"error": str(e)}},
+                exc_info=True,
+            )
             consecutive_failures += 1
 
         # Sleep for the remainder of the interval (account for collection time)
