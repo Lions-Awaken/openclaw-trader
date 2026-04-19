@@ -766,18 +766,31 @@
           <div class="subtitle">Autonomous Trading Agent</div>
         </div>
 
-        <!-- Systems Console — arched label over hammer icon -->
+        <!-- Systems Console — SYSTEM CONSOLE arc + hammer, enclosed in cyan guide circle -->
         <a href="/systems" class="system-console-group" title="Systems Console — Ridley Hardware Monitor">
-          <svg viewBox="0 0 240 140" fill="none" width="200" height="117" aria-label="Systems Console">
+          <svg viewBox="0 0 280 190" fill="none" width="240" height="163" aria-label="Systems Console">
             <defs>
-              <path id="sc-arc" d="M 35 60 A 100 100 0 0 1 205 60" fill="none"/>
+              <!-- Text baseline: true circle, radius 70, center (140,95), sweeps 160° across top.
+                   From angle 170° CCW → (71.06, 82.85), to angle 10° CCW → (208.94, 82.85) -->
+              <path id="sc-arc" d="M 71.06 82.85 A 70 70 0 0 1 208.94 82.85" fill="none"/>
             </defs>
+
+            <!-- Guide circle — cyan 5px stroke matches purple container border spec, subtle cyan tint fill.
+                 User will remove once text arc is verified. -->
+            <circle cx="140" cy="95" r="85"
+              fill="rgba(34,211,238,0.08)"
+              stroke="currentColor"
+              stroke-width="5" />
+
+            <!-- SYSTEM CONSOLE text arched along the inner text-baseline arc -->
             <text class="sc-label">
               <textPath href="#sc-arc" startOffset="50%" text-anchor="middle">SYSTEM CONSOLE</textPath>
             </text>
-            <g transform="translate(80, 30) scale(0.8)">
+
+            <!-- Hammer centered at (140, 95): scale 0.7, translate = (140-35, 95-35) = (105, 60) -->
+            <g transform="translate(105, 60) scale(0.7)">
               <path d="M16.60 18.72 L26.20 9.12 Q27.12 8.20 28.42 8.20 L71.58 8.20 Q72.88 8.20 73.80 9.12 L83.40 18.72 Q84.32 19.64 84.32 20.94 L84.32 37.06 Q84.32 38.36 83.40 39.28 L73.80 48.88 Q72.88 49.80 71.58 49.80 L55.98 49.80 Q54.68 49.80 54.68 51.10 L54.68 90.97 Q54.68 92.27 53.38 92.27 L46.62 92.27 Q45.32 92.27 45.32 90.97 L45.32 51.10 Q45.32 49.80 44.02 49.80 L28.42 49.80 Q27.12 49.80 26.20 48.88 L16.60 39.28 Q15.68 38.36 15.68 37.06 L15.68 20.94 Q15.68 19.64 16.60 18.72 Z"
-                fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+                fill="none" stroke="currentColor" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
             </g>
           </svg>
         </a>
