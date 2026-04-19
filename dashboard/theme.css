@@ -369,52 +369,36 @@ body {
   box-shadow: 0 0 16px rgba(168,85,247,0.3) !important;
 }
 
-/* Parallax title — illuminated dropcap hammer replacing the 'P' */
-.parallax-title {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 0.02em;
-  margin: 0;
-  line-height: 1;
-}
-.parallax-title .parallax-tail {
+/* System Console — arched label over hammer icon */
+.system-console-group {
   display: inline-block;
-  /* tail text inherits h1 font/color; slight left margin to pair with dropcap */
-  margin-left: 0.04em;
-  line-height: 1;
-  position: relative;
-  /* Push the text down so its bottom lines up with the visible hammer bottom.
-     SVG viewBox has ~8% empty space below the visible hammer path. */
-  top: 0.22em;
-}
-.dropcap-hammer {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.6em;
-  height: 1.6em;
   color: var(--cyan);
   text-decoration: none;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-  position: relative;
-  top: 0;
+  margin-top: 16px;
+  margin-bottom: 4px;
+  transition: transform 0.2s ease, filter 0.2s ease;
 }
-.dropcap-hammer svg {
-  width: 100%;
-  height: 100%;
+.system-console-group svg {
   display: block;
   filter:
-    drop-shadow(0 0 8px rgba(34, 211, 238, 0.7))
-    drop-shadow(0 0 18px rgba(34, 211, 238, 0.35));
+    drop-shadow(0 0 8px rgba(34, 211, 238, 0.65))
+    drop-shadow(0 0 18px rgba(34, 211, 238, 0.3));
 }
-.dropcap-hammer:hover {
-  transform: scale(1.06);
+.system-console-group:hover {
+  transform: scale(1.04);
 }
-.dropcap-hammer:hover svg {
+.system-console-group:hover svg {
   filter:
-    drop-shadow(0 0 12px rgba(34, 211, 238, 0.9))
-    drop-shadow(0 0 28px rgba(34, 211, 238, 0.5));
+    drop-shadow(0 0 14px rgba(34, 211, 238, 0.95))
+    drop-shadow(0 0 32px rgba(34, 211, 238, 0.5));
+}
+.sc-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  fill: currentColor;
+  text-transform: uppercase;
 }
 
 .share-panel {
