@@ -57,7 +57,7 @@
     right: auto;
   }
 
-  /* HOW IT WORKS — purple-tinted frosted glass */
+  /* HOW IT WORKS — purple frosted glass, cyan text */
   .how-it-works-btn {
     display: block;
     margin: 20px auto 0;
@@ -67,7 +67,7 @@
     backdrop-filter: blur(14px) saturate(180%);
     -webkit-backdrop-filter: blur(14px) saturate(180%);
     border: 5px solid #a855f7;
-    color: #c084fc;
+    color: var(--cyan);
     font-family: 'Orbitron', sans-serif;
     font-size: 24px;
     font-weight: 900;
@@ -80,21 +80,20 @@
       0 0 45px rgba(168,85,247,0.3),
       0 0 80px rgba(168,85,247,0.12),
       inset 0 0 20px rgba(168,85,247,0.12);
-    text-shadow: 0 0 12px rgba(192,132,252,0.8), 0 0 24px rgba(168,85,247,0.5);
+    text-shadow: 0 0 12px rgba(34,211,238,0.8), 0 0 24px rgba(34,211,238,0.5);
     transition: all 0.3s ease;
-    display: inline-block;
   }
   .how-it-works-btn:hover {
     transform: translateY(-2px);
     background: rgba(168, 85, 247, 0.14);
     border-color: #c084fc;
-    color: #d8b4fe;
+    color: #67e8f9;
     box-shadow:
       0 0 32px rgba(168,85,247,0.85),
       0 0 70px rgba(168,85,247,0.5),
       0 0 120px rgba(168,85,247,0.25),
       inset 0 0 28px rgba(168,85,247,0.2);
-    text-shadow: 0 0 16px rgba(216,180,254,1), 0 0 32px rgba(168,85,247,0.7);
+    text-shadow: 0 0 16px rgba(103,232,249,1), 0 0 32px rgba(34,211,238,0.7);
   }
 
   .header { position: relative; }
