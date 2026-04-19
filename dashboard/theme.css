@@ -371,11 +371,11 @@ body {
 
 /* System Console — arched label over hammer icon */
 .system-console-group {
-  display: inline-block;
+  display: block;
+  width: fit-content;
+  margin: 16px auto 8px;
   color: var(--cyan);
   text-decoration: none;
-  margin-top: 16px;
-  margin-bottom: 4px;
   transition: transform 0.2s ease, filter 0.2s ease;
 }
 .system-console-group svg {
@@ -498,9 +498,9 @@ body {
 
 /* PROFILES button — matches HOW IT WORKS spec (purple frosted glass) */
 .strategy-profile-btn {
-  display: inline-block;
+  display: block;
   text-align: center;
-  margin-top: 20px;
+  margin: 20px auto 0;
   width: 420px;
   padding: 18px 0;
   background: rgba(168, 85, 247, 0.08);
