@@ -199,25 +199,28 @@ body {
   box-shadow: 0 0 20px rgba(255,51,68,0.3), 0 0 50px rgba(255,51,68,0.1) !important;
 }
 
-/* Stack status pills */
+/* Stack status pills — equal width, filling container, under header top row */
 .stack-status {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-wrap: nowrap;
+  justify-content: stretch;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 10px;
+  margin-bottom: 8px;
 }
 
 .stack-pill {
-  display: inline-block;
-  padding: 5px 14px;
+  flex: 1 1 0;  /* equal width, fill container */
+  text-align: center;
+  padding: 10px 8px;
   border: 2px solid rgba(255,255,255,0.1);
   border-radius: 14px;
-  font-size: 0.58rem;
+  font-size: 0.72rem;
   font-weight: 900;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   color: var(--text-dim);
   transition: all 0.4s;
+  box-sizing: border-box;
 }
 
 .stack-pill.stack-ok {
