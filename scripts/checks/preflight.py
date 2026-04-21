@@ -523,7 +523,7 @@ def _test_b1() -> tuple[str, str, str | None]:
             found += 1
         else:
             missing.append(table)
-    if found >= 28:
+    if found >= len(expected_tables):
         return ("GO", f"{found}/{len(expected_tables)} tables", None)
     return ("NO-GO", f"{found}/{len(expected_tables)} tables", f"Missing: {missing[:5]}")
 
@@ -600,7 +600,7 @@ def run_group_b(run_id: str | None, dry_run: bool) -> list[TestResult]:
     print(f"\n  {Fore.CYAN}B · {group}{Style.RESET_ALL}")
     results = []
     for fn, tid, name, expected, order in [
-        (_test_b1, "B1", "table inventory", ">= 28 tables", 200),
+        (_test_b1, "B1", "table inventory", "all expected tables", 200),
         (_test_b2, "B2", "shadow_divergences cols", "22 columns", 210),
         (_test_b3, "B3", "shadow profiles", "5 profiles seeded", 220),
         (_test_b4, "B4", "profile_name backfill", "> 100 CONGRESS_MIRROR chains", 230),

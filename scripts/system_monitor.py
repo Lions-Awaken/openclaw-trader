@@ -39,9 +39,9 @@ from datetime import datetime, timezone
 import httpx
 
 # ── Path setup ─────────────────────────────────────────────────────────────────
-# This script lives in scripts/. We need systems-console/ for collectors and config.
+# This script lives in scripts/. Prepend scripts/ so sibling modules resolve when
+# the script is invoked from anywhere.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(_REPO_ROOT, "systems-console"))
 sys.path.insert(0, os.path.join(_REPO_ROOT, "scripts"))
 
 from collectors import (  # noqa: E402
@@ -55,8 +55,13 @@ from collectors import (  # noqa: E402
     get_thermal_zones,
     get_uptime_seconds,
 )
-from common import OLLAMA_URL, slack_notify  # noqa: E402
-from config import SUPABASE_KEY, SUPABASE_URL, sb_headers  # noqa: E402
+from common import (  # noqa: E402
+    OLLAMA_URL,
+    SUPABASE_KEY,
+    SUPABASE_URL,
+    sb_headers,
+    slack_notify,
+)
 from loki_logger import get_logger  # noqa: E402
 
 # Route WARN/ERROR + state transitions through loki_logger so this daemon's
