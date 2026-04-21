@@ -6,6 +6,7 @@ preflight simulator, and stack/latency checks.
 """
 
 import asyncio
+import hmac
 import os
 import subprocess
 import sys
@@ -549,11 +550,20 @@ async def trigger_simulator(request: Request, oc_session: str = Cookie(None)):
     concurrency = min(max(int(body.get("concurrency", 1)), 1), 10)
 
     run_id = str(uuid.uuid4())
+    fly_to_ridley_token = os.environ.get("FLY_TO_RIDLEY_TOKEN", "")
+    if not fly_to_ridley_token:
+        raise HTTPException(
+            status_code=503,
+            detail="FLY_TO_RIDLEY_TOKEN not set — cannot authenticate to ridley trigger endpoint",
+        )
     client = get_http()
     try:
         resp = await client.post(
             f"{RIDLEY_URL}/api/preflight/trigger",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-OpenClaw-Trigger-Token": fly_to_ridley_token,
+            },
             json={"run_id": run_id, "concurrency": concurrency},
             timeout=10.0,
         )
@@ -568,9 +578,18 @@ async def trigger_simulator(request: Request, oc_session: str = Cookie(None)):
 async def trigger_preflight_local(request: Request):
     """Spawn system_check.py --mode preflight locally on ridley. Called by Fly.io proxy.
 
-    This endpoint is intentionally unauthenticated — it is only reachable from
-    within the private Fly.io / ridley network, never from the public internet.
+    Authenticated with a shared-secret header (X-OpenClaw-Trigger-Token) because the
+    endpoint is reachable from the public internet via Tailscale Funnel. The token is
+    checked against the FLY_TO_RIDLEY_TOKEN env var with constant-time compare.
     """
+    expected_token = os.environ.get("FLY_TO_RIDLEY_TOKEN", "")
+    if not expected_token:
+        # Fail closed: if the env isn't set, the endpoint refuses ALL calls.
+        raise HTTPException(status_code=503, detail="trigger auth not configured")
+    incoming_token = request.headers.get("X-OpenClaw-Trigger-Token", "")
+    if not hmac.compare_digest(incoming_token, expected_token):
+        raise HTTPException(status_code=403, detail="invalid trigger token")
+
     body: dict = {}
     try:
         body = await request.json()
