@@ -5,6 +5,283 @@
 
 ---
 
+## Ridley Restoration — Bring openclaw back online on fresh JetPack 6.2.2 (2026-04-20)
+
+**Source:** ridley (Jetson Orin Nano 8GB) was reflashed tonight with JetPack 6.2.2 / L4T 36.5 to
+fix long-standing Ollama CUDA failures. SD card rootfs is clean — zero openclaw state remains.
+Supabase data survives (inference_chains, cost_ledger, etc.). NVMe drive data is intact
+(/mnt/nvme/stream-saber). Fly dashboard `openclaw-trader-dash` has all required secrets.
+
+**Data-driven diagnosis of prior breakdown** (Supabase query results, 2026-04-20):
+- 919 lifetime inference_chains; 10% cleared all 5 tumblers
+- Apr 7-10: 19-20% clear rate (system healthy)
+- Apr 11-14: cleared drops to 0 (tumblers break)
+- Apr 15-20: 5-10 chains/day, all dying at `time_limit` or `confidence_floor`
+- $0.17 lifetime Claude spend — budget was NEVER the bottleneck (`resource_limit` = 0 trips)
+- Root cause: T3 (Ollama qwen2.5:3b) started returning None → `confidence_floor`/`time_limit` cascade
+
+**Mission goal:** By end of session — fresh ridley running the full cron schedule, qwen2.5:3b
+reliably serving T3, scanner completing chains to `all_tumblers_clear` at the Apr-10 baseline
+(~19% clear rate). Alpaca paper trading enabled. Cron active.
+
+**Non-goals:** No architecture changes. No local embeddings migration. No T5 two-stage refactor.
+Those are Phase 2 after stability is proven.
+
+---
+
+### Wave 1 — Ridley base setup (parallel-safe)
+
+### TASK-RR-01 . GEORDI . [DONE]
+**Goal:** Install Python pip + dev tooling on ridley so `pip install -r requirements.txt` works.
+**Acceptance:**
+- `python3 -m pip --version` returns a version (currently: `No module named pip`)
+- `python3 -m venv --help` works (for optional venv)
+- git is already installed (confirmed in survey)
+**Commands:** `sudo apt-get install -y python3-pip python3-venv python3-dev build-essential`
+**Output artifact:** pip version in PROGRESS.md, any package install warnings.
+**Depends on:** nothing
+
+### TASK-RR-02 . GEORDI . [DONE]
+**Goal:** Pull the production Ollama models onto ridley. qwen2.5:3b is the T3 workhorse;
+nomic-embed-text is for catalyst RAG (already referenced in manifest.py as "Ollama embed").
+**Acceptance:**
+- `ollama list` shows `qwen2.5:3b` and `nomic-embed-text`
+- `curl -s http://localhost:11434/api/tags` returns both models
+- Smoke test: `ollama run qwen2.5:3b "Say ok"` returns non-empty response in <20s
+- Confirm 29/29 GPU layers offloaded (grep `offloaded.*layers to GPU` in journalctl)
+**Commands:** `ollama pull qwen2.5:3b && ollama pull nomic-embed-text`
+**Output artifact:** Model sizes + journalctl line showing GPU offload.
+**Depends on:** nothing
+
+### TASK-RR-03 . GEORDI . [DONE]
+**Goal:** Clone openclaw-trader repo to `/home/ridley/openclaw-trader` (canonical path per
+CLAUDE.md deploy flow) at the current HEAD (commit `078a00b`).
+**Acceptance:**
+- `~/openclaw-trader/scripts/manifest.py` exists
+- `git log -1 --oneline` shows commit `078a00b`
+- `git config core.hooksPath .githooks` configured
+- Remote is `https://github.com/Lions-Awaken/openclaw-trader.git` (HTTPS, no auth needed for
+  public repo; if private, use PAT — see RR-04 notes)
+**Rollback:** `rm -rf ~/openclaw-trader` and re-clone.
+**Output artifact:** git log -1 output + hooks path confirmation.
+**Depends on:** nothing
+
+---
+
+### Wave 2 — Python dependencies + secret materialization (after W1)
+
+### TASK-RR-04 . GEORDI . [DONE]
+**Goal:** Install Python dependencies from `requirements.txt` into ridley's system Python
+(matches pre-reflash setup — requirements.txt is pinned to what was working on ridley).
+**Acceptance:**
+- `cd ~/openclaw-trader && pip3 install -r requirements.txt` exits 0
+- `python3 -c "import httpx, sentry_sdk, yfinance, alpaca, finnhub, pandas, fastapi, anthropic"` succeeds
+- `pip3 freeze | grep -E "^(httpx|alpaca|yfinance)"` shows exact pinned versions
+**Risk:** Python 3.10 on ridley vs 3.14 `__pycache__` on mother_brain — pinned versions in
+requirements.txt are 3.10-compatible (verified).
+**Output artifact:** Full `pip3 freeze` output comparison to requirements.txt.
+**Depends on:** TASK-RR-01, TASK-RR-03
+
+### TASK-RR-05 . WORF . [DONE]
+**Goal:** Inventory env-var gaps. Compare `common.py` required vars against Fly secrets +
+claudefleet vault. Document which secrets need transfer and which paths will carry them.
+**Required env vars** (from `common.py` grep):
+`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_API_KEY_2`,
+`ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `PERPLEXITY_API_KEY`, `FINNHUB_API_KEY`,
+`FRED_API_KEY`, `SENTRY_DSN`, `SLACK_BOT_TOKEN`, `SLACK_CHANNEL`, `OLLAMA_URL`
+**Known sources:**
+- Fly `openclaw-trader-dash` secrets: SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY,
+  ALPACA_API_KEY, ALPACA_SECRET_KEY, FINNHUB_API_KEY, SENTRY_DSN (confirmed in Fly secrets list)
+- Vault: anthropic, alpaca, market_data.finnhub, market_data.perplexity, slack, sentry.dsns
+**Acceptance:** Written gap table: each env var → source path or [MISSING]. Flag any vars that
+require human action (e.g., FRED_API_KEY if not in either vault or Fly).
+**Output artifact:** Gap table in PROGRESS.md.
+**Depends on:** nothing
+
+### TASK-RR-06 . GEORDI . [DONE]
+**Goal:** Materialize `/home/ridley/.openclaw-env` on ridley with all required env vars.
+Secrets must NEVER be printed to mother_brain stdout — use SSH pipe pattern:
+`fly ssh console -a <app> -C 'sh -c "env | grep -E ^(VAR1|VAR2|...)"' 2>/dev/null | ssh ridley 'cat > ~/.openclaw-env && chmod 600 ~/.openclaw-env'`
+For vault-sourced secrets: `~/.config/claudefleet/vault-show | python3 -c "..." | ssh ridley 'cat >> ~/.openclaw-env'`
+(vault-show output consumed in pipe, never printed).
+**Acceptance:**
+- `ssh ridley 'ls -la ~/.openclaw-env'` shows mode 600, owned by ridley:ridley
+- `ssh ridley 'wc -l ~/.openclaw-env'` shows N lines where N >= 11 (required vars)
+- `ssh ridley 'source ~/.openclaw-env && python3 -c "import os; print(bool(os.environ[\"SUPABASE_URL\"]))"'` returns `True`
+- NO secret values ever appear in mother_brain Bash tool output
+**Risk:** A failure in the pipe chain could leak secrets to stderr. Redirect stderr carefully.
+**Rollback:** `ssh ridley 'rm -f ~/.openclaw-env'`.
+**Output artifact:** Line count + checksum of env file (no values).
+**Depends on:** TASK-RR-04, TASK-RR-05
+
+### TASK-RR-07 . DATA . [DONE]
+**Goal:** Alpaca paper-trading posture confirmation — verify `ALPACA_BASE_URL` defaults to
+paper endpoint in common.py, and that `alpaca.paper_trade` flag in vault is `"true"`.
+**Acceptance:**
+- grep in common.py: default Alpaca base URL = `https://paper-api.alpaca.markets` (paper)
+- vault value for `alpaca.paper_trade` is `"true"` (string)
+- Brian has explicitly confirmed paper-only for this restore (logged in PROGRESS.md)
+**Output artifact:** Confirmation note in PROGRESS.md with grep evidence.
+**Depends on:** nothing
+
+---
+
+### Wave 3 — Connectivity verification (after W2)
+
+### TASK-RR-08 . GEORDI . [DONE]
+**Goal:** Run a SMOKE TEST of every external service from ridley — Supabase, Alpaca (paper),
+Anthropic, Finnhub, Ollama local, Slack. Non-destructive reads only.
+**Acceptance:** A single test script produces this table:
+```
+Supabase:   ✓ 200 OK  (GET /rest/v1/inference_chains?limit=1)
+Alpaca:     ✓ 200 OK  (GET /v2/account) — paper account, status=ACTIVE
+Anthropic:  ✓ valid (HEAD /v1/messages with small probe — or call_claude with max_tokens=1)
+Finnhub:    ✓ 200 OK (quote probe for SPY)
+Ollama:     ✓ qwen2.5:3b responds to "ok"
+Slack:      ✓ auth.test returns ok=true
+```
+Write script to `scripts/preflight_restore.py` (new, temp — can be removed after).
+**Output artifact:** Full smoke test output in PROGRESS.md.
+**Depends on:** TASK-RR-06
+
+### TASK-RR-09 . GEORDI . [DONE]
+**Goal:** Run `scripts/system_check.py --mode preflight` — the NASA go/no-go preflight
+simulator (17 groups, synthetic data, Mission Readiness score). Entire pipeline with synthetic
+data, no real trades.
+**Acceptance:**
+- Preflight completes without Python exceptions
+- Mission Readiness score ≥ 85% (threshold for go/no-go)
+- All 5 tumblers execute on synthetic data (T3 calls qwen, returns real output)
+- Exit code 0
+**Rollback:** No trades are placed in preflight mode — nothing to roll back.
+**Output artifact:** Preflight output + Mission Readiness score in PROGRESS.md.
+**Depends on:** TASK-RR-08
+
+---
+
+### Wave 4 — Cron + background services (after W3)
+
+### TASK-RR-10 . GEORDI . [DONE]
+**Goal:** Generate crontab from canonical `scripts/manifest.py` + `EVENT_TRIGGERED`, install on
+ridley. Wrap every entry to source `~/.openclaw-env` and cd into project dir.
+**Cron wrapper pattern:**
+```
+<SCHEDULE> cd /home/ridley/openclaw-trader && . ~/.openclaw-env && python3 <SCRIPT> <ARGS> >> /home/ridley/openclaw-trader/logs/<NAME>.log 2>&1
+```
+Include all 17 MANIFEST entries + the 2 EVENT_TRIGGERED cron entries (ollama_watchdog ×4,
+system_monitor @reboot).
+**Script-specific args** (from CLAUDE.md cron table):
+- `system_check.py --mode health` for 05:00 weekday run
+- `catalyst_ingest.py` no args
+- `ingest_signals.py form4` for 06:00, `ingest_signals.py options` for 07:00
+- `scanner.py` no args
+- `meta_analysis.py daily` for 13:30 weekday, `meta_analysis.py weekly` for 16:00 Sunday
+**Acceptance:**
+- `crontab -l | wc -l` ≥ 20 (all entries)
+- `crontab -l | grep -c scanner` == 2 (6:35 + 9:30)
+- `crontab -l | grep -c catalyst_ingest` == 3 (5:30 + 9:00 + 12:50)
+- `crontab -l | grep ollama_watchdog` returns 4 matches
+- `mkdir -p /home/ridley/openclaw-trader/logs` before first cron fires
+**Rollback:** `crontab -r` removes all cron entries.
+**Output artifact:** Full installed crontab copy-pasted into PROGRESS.md (no secrets to worry
+about since it's just schedules).
+**Depends on:** TASK-RR-09
+
+### TASK-RR-11 . GEORDI . [SKIPPED: collectors/ module missing from repo]
+**Goal:** Start `system_monitor.py` as a persistent daemon via systemd user service (not @reboot
+cron — more robust). Ensures hardware metrics → `system_stats` table even when cron isn't firing.
+**Acceptance:**
+- `systemctl --user status openclaw-system-monitor` shows active (running)
+- After 60s, new rows appear in Supabase `system_stats` table
+- Service restarts automatically if the Python process dies (Restart=always)
+**Rollback:** `systemctl --user stop openclaw-system-monitor && systemctl --user disable ...`
+**Output artifact:** systemd unit file contents + first system_stats row timestamp.
+**Depends on:** TASK-RR-10
+
+---
+
+### Wave 5 — Production smoke test (after W4)
+
+### TASK-RR-12 . GEORDI . [DONE]
+**Goal:** Run one REAL `scanner.py` invocation manually (simulating a live 6:35 AM run). Verify
+chain completes all tumblers and writes to `inference_chains` with `stopping_reason` ≠ `time_limit` or `confidence_floor` for at least some tickers.
+**Acceptance:**
+- scanner.py exits 0 after completing its watchlist (or within 5 min)
+- Query Supabase: `SELECT stopping_reason, COUNT(*) FROM inference_chains WHERE created_at > now() - interval '10 min'` returns at least some rows with `all_tumblers_clear` OR `forced_connection` (= tumbler saved cost, healthy). If ALL rows are `time_limit`/`confidence_floor`, system is NOT healthy — halt and investigate T3 output.
+- `pipeline_runs` table has a row for this scanner invocation with status=success
+- T3 tumbler output contains real qwen text (not None) in at least one chain (query `tumblers` jsonb column)
+**Rollback:** Paper trading — no real-money risk. Any positions opened are Alpaca paper.
+**Output artifact:** Summary of chain outcomes: N total, X cleared, Y forced_connection, Z floor/timeout. Paste in PROGRESS.md.
+**Depends on:** TASK-RR-11
+
+### TASK-RR-13 . GEORDI . [DONE — operationally pass; watchdog doesn't write pipeline_runs (follow-on: add @traced)]
+**Goal:** Run `ollama_watchdog.py` manually to verify memory-recovery path works (the thing
+that was failing pre-reflash).
+**Acceptance:**
+- Script exits 0 within 30s
+- Output contains "Ollama healthy" (success case) OR a clean restart sequence
+- New row in `pipeline_runs` for `ollama_watchdog` (first one EVER — pre-reflash had 0 runs logged)
+**Rollback:** None needed; worst case the watchdog restarts Ollama, which causes a 10-20s blip.
+**Output artifact:** Watchdog output + pipeline_runs row.
+**Depends on:** TASK-RR-12
+
+---
+
+### Wave 6 — Handoff + announcement
+
+### TASK-RR-14 . PICARD . [DONE]
+**Goal:** Final integration verification + fleet announcement.
+Verification queries:
+1. `SELECT COUNT(*) FROM inference_chains WHERE created_at > now() - interval '1 hour'` — should have rows
+2. `SELECT COUNT(*) FROM pipeline_runs WHERE started_at > now() - interval '1 hour'` — rows from scanner + watchdog
+3. `SELECT COUNT(*) FROM system_stats WHERE created_at > now() - interval '15 min'` — from system_monitor daemon
+4. `crontab -l | wc -l` on ridley
+Write a comprehensive PROGRESS.md entry covering:
+- Reflash → restoration timeline
+- Mission Readiness preflight score
+- Chain outcome summary (cleared vs floor/timeout)
+- Links to: `docs/kb/jetson-orin-nano-flashing.md`, this TASKS.md section
+Post an announcement to Slack `#all-lions-awaken`:
+```
+openclaw-trader restored to ridley (fresh JetPack 6.2.2).
+Preflight score: <X>/100. First scanner: <Y>/<Z> chains cleared.
+Full summary: <PROGRESS.md link>
+```
+**Acceptance:** All 4 queries return expected row counts. Slack announcement posted. PROGRESS.md has restoration entry with timestamps.
+**Output artifact:** Slack message timestamp + PROGRESS.md entry.
+**Depends on:** TASK-RR-13
+
+---
+
+### Risk Register — Ridley Restoration
+
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| Secret leak during env materialization | LOW | SSH pipe pattern, stderr redirect, no printing to tool output |
+| Python 3.10 on ridley vs 3.14 `__pycache__` from mother_brain | LOW | requirements.txt pinned to 3.10-compatible versions; .pyc will recompile |
+| qwen still OOMs after reflash | MEDIUM | If TASK-RR-09 preflight fails on T3, halt. Investigate via `journalctl -u ollama` before proceeding. Tonight's inference test showed 29/29 GPU offload working. |
+| GitHub repo is private and HTTPS clone fails | LOW | Fallback: use `gh auth login` or PAT in HTTPS URL. Should take <5 min if it happens. |
+| Alpaca account accidentally points at live trading | LOW | TASK-RR-07 verifies paper_trade flag before cron activation |
+| Cron fires before env file is populated | LOW | TASK-RR-10 depends on TASK-RR-06 (env) and TASK-RR-09 (preflight pass). Hard gate. |
+| FRED_API_KEY or OTHER_VAR missing from both vault and Fly | MEDIUM | TASK-RR-05 surfaces gap early. Brian can paste-add to vault in one go. |
+| "Different mode" boot issue recurs | LOW | Cause was missing ridley user — fixed via SD-card chroot. Confirmed in tonight's session. |
+
+---
+
+### Estimated execution time (all tasks)
+
+| Wave | Parallel tasks | Serial time |
+|---|---|---|
+| 1 | RR-01 + RR-02 + RR-03 | ~8 min (ollama pull is the pacesetter) |
+| 2 | RR-04, RR-05, RR-07 (mostly parallel) → RR-06 (gated) | ~5-10 min |
+| 3 | RR-08 → RR-09 | ~5 min |
+| 4 | RR-10 → RR-11 | ~5 min |
+| 5 | RR-12 → RR-13 | ~3-5 min (scanner depends on watchlist size) |
+| 6 | RR-14 | ~2 min |
+| **Total** | | **~30-40 min** |
+
+---
+
 ## Typography System + Interactive Workflow Page Extraction
 
 Source: User request 2026-04-18 — two parallel overhauls driven by the
