@@ -5,6 +5,269 @@
 
 ---
 
+## Ridley Cleanup — Post-SDK-Flash Recovery (2026-04-21)
+
+**Source:** After the Apr-20 JetPack 6.2.2 reflash we pushed additional SDK-package installs on
+ridley and rebooted (current `uptime` = 1d 2h). Cleanup mode — hardware is fine, Ollama runs on
+GPU (4 GB VRAM, 29/29 layers, `MAXN_SUPER`). **Do not touch Ollama.** But state around Ollama
+did not survive, and today (Tue 2026-04-21 PDT) produced zero usable trading output.
+
+**Observed failure modes (2026-04-21 22:30 PDT):**
+1. `~/.openclaw-env` on ridley is truncated to 1094 bytes with **no** `ALPACA_KEY`, `LOKI_URL`,
+   or `SUPABASE_URL`. Every cron fails on its first `sb_get` with `Request URL is missing an
+   'http://' or 'https://' protocol`.
+2. `/etc/timezone = Etc/UTC`. The crontab declares `TZ=America/Los_Angeles` but cron is not
+   honoring it → every schedule fires **7 h early**. Today's `scanner` ran at 23:35 PDT Mon;
+   `shadow_mark_to_market` ran at 11:00 PDT during market hours instead of 18:00 PDT.
+3. Tracer root-row write fails 3/3 retries → `pipeline_runs` has zero inserts for the PDT-today
+   window (latest row is 2026-04-21 04:56 UTC = 21:56 PDT Mon).
+4. Loki `{app="openclaw-trader"}` stats for the full PDT day: **0 streams, 0 entries, 0 bytes.**
+   The Apr-19 TASK-424 regression has returned.
+5. `system_monitor.service` is not installed (`Unit system_monitor.service could not be found`).
+   The daemon is running from somewhere — `system_monitor.log` is growing — but the last
+   `system_stats` insert is Apr 21 10:09 UTC (~16 h heartbeat gap). The crontab still carries
+   the `# NOTE: system_monitor.py @reboot disabled — 'collectors' module missing from repo`
+   marker from the original reflash.
+6. Today's health check (run at 05:00 UTC = 22:00 PDT Mon): `PASS 26  FAIL 15  WARN 8  SKIP 10`.
+   Representative FAIL: `[1204] Shadow divergences flowing — 0 shadow_divergences in 48h`.
+7. Today's trading: `order_events = 0`, `trade_decisions = 0`, `inference_chains = 1` (manual).
+
+**Mission goal:** End state — ridley crontab firing on PDT wallclock, all required env vars
+sourced, tracer writing root rows, Loki shipping events, `system_monitor` systemd-managed and
+heartbeating into Supabase every 5 s, preflight back to `72/72`. One subsequent cron cycle
+produces fresh rows in `pipeline_runs`, `data_quality_checks`, `system_stats`, and Loki.
+
+**Non-goals:** No architecture changes. No schema changes. No crontab regeneration (manifest.py
+entries are correct — only the TZ interpretation is broken). No Ollama touching. No Fly.io
+dashboard redeploy (it's on ridley:9090 and healthy).
+
+---
+
+### Wave 1 — Stop-the-bleeding foundation (serial)
+
+### TASK-CLEANUP-01 . GEORDI . [DONE]
+**Goal:** Set ridley's system timezone to `America/Los_Angeles` so cron honors the `TZ=`
+directive at the top of the crontab.
+**Acceptance:**
+- `ssh ridley 'timedatectl | grep -i "time zone"'` shows `America/Los_Angeles (PDT, -0700)`
+- `ssh ridley 'date'` prints PDT wallclock
+- `sudo systemctl restart cron` on ridley (cron caches TZ at daemon start — mandatory)
+- First post-restart entry in `/var/log/syslog` for one of the openclaw crons fires at the
+  PDT wallclock matching the manifest.py schedule (e.g., `position_manager` on the next `:00`
+  or `:30` PDT boundary, not 7 h earlier)
+**Commands:** `sudo timedatectl set-timezone America/Los_Angeles && sudo systemctl restart cron`
+**Rollback:** `sudo timedatectl set-timezone Etc/UTC && sudo systemctl restart cron`
+**Output artifact:** `timedatectl` output + first PDT-aligned cron syslog line.
+**Depends on:** nothing
+
+### TASK-CLEANUP-02 . GEORDI . [DONE]
+**Goal:** Rebuild `~/.openclaw-env` on ridley with every env var `scripts/common.py` reads,
+pulling values from the claudefleet vault. **Subshell-only — no secret value is ever printed
+to stdout or surfaces in Claude's transcript.**
+**Scope adjusted after /engage re-probe (2026-04-22 06:03 UTC):** Env file already has 15 keys
+(ALPACA_API_KEY, ALPACA_SECRET_KEY, ANTHROPIC_API_KEY, DASHBOARD_KEY, FINNHUB_API_KEY,
+FLY_TO_RIDLEY_TOKEN, FRED_API_KEY, OLLAMA_URL, PERPLEXITY_API_KEY, SENTRY_DSN,
+SESSION_SIGNING_SALT, SLACK_BOT_TOKEN, SLACK_CHANNEL, SUPABASE_SERVICE_KEY, SUPABASE_URL).
+**Actual gap: LOKI_URL, LOKI_USER, LOKI_API_KEY** (Loki triplet missing → no events shipped).
+Optional: ANTHROPIC_API_KEY_2 (backup key; if absent from vault, skip — primary works).
+**Required vars (13 from `common.py` + 3 Loki):**
+`SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2, ALPACA_API_KEY,
+ALPACA_SECRET_KEY, PERPLEXITY_API_KEY, FINNHUB_API_KEY, FRED_API_KEY, SENTRY_DSN,
+SLACK_BOT_TOKEN, SLACK_CHANNEL, OLLAMA_URL, LOKI_URL, LOKI_USER, LOKI_API_KEY`
+**Vault paths** (per `~/.claude/CLAUDE.md`):
+- `supabase.instances.openclaw-trader.{url,service_role_key}` → SUPABASE_*
+- `anthropic.api_key` → ANTHROPIC_API_KEY (ANTHROPIC_API_KEY_2 — if not in vault, flag to WORF)
+- `alpaca.{api_key,secret_key}` → ALPACA_*
+- `market_data.{finnhub,perplexity,fred}.api_key` → *_API_KEY (FRED_API_KEY may be absent; flag)
+- `sentry.dsns.openclaw` → SENTRY_DSN
+- `slack.{bot_token,channel_id}` → SLACK_*
+- `grafana_loki.{url,username,token}` → LOKI_*
+- `OLLAMA_URL` = literal `http://localhost:11434` (not a secret; hard-code)
+**Mechanism:** On mother_brain, build env file inside a subshell using `vault-show` piped
+through `python3 -c` that writes to a temp file in `/dev/shm` with `chmod 600`, `scp` to
+ridley, `shred` the source. Never `echo` or `cat` a secret to the terminal.
+**Acceptance:**
+- `ssh ridley 'ls -l ~/.openclaw-env'` shows `-rw------- … 16+ lines`
+- `ssh ridley 'bash -c ". ~/.openclaw-env && env | grep -cE \"^(SUPABASE_URL|ALPACA_API_KEY|LOKI_URL|ANTHROPIC_API_KEY|FINNHUB_API_KEY)=\""'` returns `5`
+- `ssh ridley 'bash -c ". ~/.openclaw-env && python3 -c \"import os; assert os.environ[\\\"SUPABASE_URL\\\"].startswith(\\\"https://\\\"); print(\\\"ok\\\")\""'` returns `ok`
+**Rollback:** keep a timestamped backup `~/.openclaw-env.bak.20260421` before overwrite.
+**Output artifact:** Env var count (number), SUPABASE_URL length (integer), file permissions
+string. **No values in the artifact.**
+**Depends on:** TASK-CLEANUP-01
+
+### TASK-CLEANUP-03 . WORF . [DONE — PASS WITH FOLLOW-UPS]
+**Goal:** Read-only audit that the CLEANUP-02 restore didn't leak any secret into the session
+transcript, `~/.claude.json`, shell history, or git.
+**Acceptance:**
+- `rg -n 'glsa_|sk-ant-[A-Za-z0-9_-]{20,}|sbp_[A-Za-z0-9]{20,}|xoxb-|AK[A-Z0-9]{16}' ~/.claude/ 2>/dev/null` returns zero matches
+- `git -C /home/mother_brain/projects/openclaw-trader status --short` has no new files containing secrets
+- `ssh ridley 'tail -80 ~/.bash_history'` contains no full secret values (vault-show + subshell
+  piping is permitted since values never enter history)
+- New `~/.openclaw-env` has exactly `chmod 600` and owner `ridley:ridley`
+**Output artifact:** Pass/fail table (5 checks × pass/fail) + grep counts.
+**Depends on:** TASK-CLEANUP-02
+
+---
+
+### Wave 2 — Verify primary paths (parallel after W1)
+
+### TASK-CLEANUP-04 . GEORDI . [DONE]
+**Goal:** Hand-fire `system_check.py --mode health` then `catalyst_ingest.py` on ridley to prove
+env → tracer → Supabase round-trips. Outside market hours — no trading risk.
+**Acceptance:**
+- `ssh ridley 'cd ~/openclaw-trader && . ~/.openclaw-env && python3 scripts/system_check.py --mode health'` finishes with `FAIL ≤ 2` (some WARNs for data staleness are acceptable; SKIPs on 7-day windows are fine)
+- `ssh ridley 'cd ~/openclaw-trader && . ~/.openclaw-env && python3 scripts/catalyst_ingest.py'` exits `0`
+- Neither log tail contains `sb_get error: Request URL is missing` lines
+- Supabase query `SELECT pipeline_name, MAX(started_at) FROM pipeline_runs GROUP BY 1` shows
+  fresh rows (within the last 10 minutes) for both `health_check` and `catalyst_ingest`
+**Output artifact:** Before/after FAIL counts for health_check + fresh pipeline_run_ids.
+**Depends on:** TASK-CLEANUP-02
+
+### TASK-CLEANUP-05 . DATA . [DONE]
+**Goal:** Confirm tracer root-row persistence is healed — the "Root row write failed
+(attempt 3/3)" pattern is gone.
+**Acceptance:**
+- SQL: `SELECT pipeline_name, step_name, status, COUNT(*) FROM pipeline_runs WHERE started_at > now() - interval '30 minutes' GROUP BY 1,2,3 ORDER BY 1,2` shows for each fresh pipeline at least one root row (`step_name='root'`, `status='success'`) plus ≥1 child step row (proves FK chain healed)
+- Zero rows with `status='failed'` where `error_message ILIKE '%FK constraint%'`
+- `SELECT COUNT(*) FROM data_quality_checks WHERE checked_at > now() - interval '30 minutes'` returns ≥1 (catalyst_ingest writes quality checks)
+**Output artifact:** Representative pipeline_run_id with intact root→child chain + 30-min row counts per pipeline.
+**Depends on:** TASK-CLEANUP-04
+
+### TASK-CLEANUP-06 . GEORDI . [DONE]
+**Goal:** Verify Loki shipping is functional end-to-end.
+**Acceptance:**
+- Grafana Loki stats for `{app="openclaw-trader"}` over the last 15 min after CLEANUP-04
+  returns non-zero `streams`, `entries`, `bytes`
+- LogQL `{app="openclaw-trader"} | json` returns ≥5 entries with top-level fields
+  `timestamp`, `level`, `project="openclaw-trader"`, `message`, and nested `metadata.*`
+- LogQL metric `sum(count_over_time({app="openclaw-trader"}[5m]))` returns ≥5 over the window
+- `{app="openclaw-trader", script="system_monitor"}` returns at least one `daemon_start` or
+  `service_up` event (flush=True path, proves CLEANUP-08 kick)
+**Output artifact:** Sample JSON-parsed entry + 5-minute count + LogQL queries used.
+**Depends on:** TASK-CLEANUP-02
+
+---
+
+### Wave 3 — system_monitor restoration (parallel start with W2)
+
+### TASK-CLEANUP-07 . GEORDI . [DONE — superseded by PR #55 on 2026-04-20]
+**Goal:** Restore `scripts/collectors.py` — the psutil + tegrastats + `/sys` wrapper module
+that `system_monitor.py` imports. Wiped during reflash; the crontab header still carries the
+`collectors module missing` note.
+**Resolution:** Already shipped in PR #55 merged 2026-04-20 (commit `cd4e5ba`). File present
+at `/home/ridley/openclaw-trader/scripts/collectors.py` (8063 bytes, 234 LOC). Verified
+2026-04-21 23:03 PDT during /engage re-probe. The crontab header note is stale (follow-up in
+CLEANUP-08-B).
+**Acceptance:**
+- File exists at `scripts/collectors.py` and is committed to `main`
+- Public surface functions present: `get_cpu_metrics()`, `get_memory_metrics()`,
+  `get_gpu_metrics()` (reads `/sys/class/thermal/...`, falls back on non-Jetson hosts),
+  `get_ollama_metrics()` (queries `http://localhost:11434/api/ps`), `get_disk_metrics()`,
+  `get_process_metrics()`, `get_power_mode()` (via `nvpmodel -q` or `/etc/nvpmodel.conf`)
+- Every return key is one of the existing `system_stats` columns
+  (`cpu_percent, cpu_freq_mhz, cpu_cores, load_avg_1m, load_avg_5m, mem_total_mb, mem_used_mb,
+  mem_available_mb, mem_percent, gpu_load_pct, gpu_temp_c, cpu_temp_c, disk_root_pct,
+  disk_nvme_pct, disk_nvme_used_gb, process_count, openclaw_mem_mb, ollama_mem_mb,
+  ollama_running, ollama_models, ollama_vram_mb, power_mode, uptime_seconds`)
+- Collectors return numeric / bool / None on any exception — never raise
+- `python3 -c "from scripts.collectors import get_cpu_metrics; print(get_cpu_metrics())"`
+  succeeds on mother_brain and ridley
+- PR #XX merged to `main`; CI green
+- The `# NOTE: system_monitor.py @reboot disabled — 'collectors' module missing` banner
+  removed from the crontab header (in the same PR or a follow-up edit to `manifest.py`)
+**Output artifact:** PR URL, commit hash, and a column→collector mapping table.
+**Depends on:** nothing (runs parallel with W1/W2)
+
+### TASK-CLEANUP-08 . GEORDI . [DONE — superseded by Apr-20 restoration]
+**Goal:** Install a systemd unit for `system_monitor.py` and enable it.
+**Resolution:** Live as **systemd user unit** `openclaw-system-monitor.service` at
+`/home/ridley/.config/systemd/user/openclaw-system-monitor.service`. Verified during /engage
+re-probe 2026-04-22 06:03 UTC: `active (running)` with PID 17642, enabled. Companion service
+`openclaw-dashboard.service` also live (uvicorn on :9090). The earlier report that
+"system_monitor.service is not installed" used the wrong service name.
+
+### TASK-CLEANUP-08-B . GEORDI . [BLOCKED: TASK-CLEANUP-02]
+**Goal:** Remove the stale `# NOTE: system_monitor.py @reboot disabled — 'collectors' module
+missing from repo` block from the generated crontab header. collectors.py has shipped and
+the daemon is systemd-managed; the note is misleading.
+**Acceptance:**
+- `ssh ridley 'crontab -l | grep -c "collectors.*missing"'` returns `0`
+- `scripts/manifest.py` no longer emits the disabled banner
+- Change committed to `main` and deployed
+**Output artifact:** manifest.py diff hash + post-regen crontab snippet.
+**Depends on:** TASK-CLEANUP-02
+**Depends on:** TASK-CLEANUP-07, TASK-CLEANUP-02
+
+---
+
+### Wave 4 — Integration rehearsal (after W2 + W3)
+
+### TASK-CLEANUP-09 . DATA . [DEFERRED — next natural fire is 05:00 PDT Wed 2026-04-22]
+**Goal:** Observe a natural cron fire end-to-end to prove the fleet pipeline behaves
+identically to the Apr-10 baseline.
+**Acceptance:** Cron at 05:00 PDT Wed will produce a fresh `pipeline_runs` root + child
+chain. Until then, hand-fire (CLEANUP-04) provided equivalent end-to-end proof: fresh
+`catalyst_ingest` root row with 26 child steps + 0 FK failures + Loki events flowing.
+Marking DEFERRED (not DONE) because natural-fire verification is strictly stronger than
+hand-fire, but the session-level verdict is already conclusive.
+**Output artifact:** Will append a block to PROGRESS.md after the 05:00 PDT fire with the
+observed pipeline_run_id + Loki count.
+**Depends on:** time.
+
+### TASK-CLEANUP-10 . PICARD . [DONE]
+**Resolution:** `PASS 72 FAIL 0 WARN 0 SKIP 0 TOTAL 72` — `FLIGHT DIRECTOR .......... ALL
+STATIONS GO` at 2026-04-22 ~07:10 UTC after fixing the systemd EnvironmentFile regression
+(Geordi's `export` prefix was rejected by systemd 249, so two user-unit ExecStart lines were
+rewritten to `/bin/bash -c '. ~/.openclaw-env && exec <original>'`). Env restoration
+verified: both dashboard and system_monitor processes now have 34 env vars including
+`DASHBOARD_KEY` and `LOKI_API_KEY`.
+**Goal:** Re-establish the `72/72` preflight baseline from the Apr-20 restoration.
+**Acceptance:**
+- `ssh ridley 'cd ~/openclaw-trader && . ~/.openclaw-env && python3 scripts/system_check.py --mode preflight'` returns `PASS 72 FAIL 0 WARN ≤3 SKIP 0 TOTAL 72`
+- `run_id` captured; full output tail saved to PROGRESS.md
+- Any FAIL → do NOT mark DONE; spawn a CLEANUP-1X follow-up task for each and leave this one
+  IN PROGRESS
+**Output artifact:** Preflight summary line + run_id + output tail.
+**Depends on:** TASK-CLEANUP-09
+
+---
+
+### Wave 5 — Documentation + announcement
+
+### TASK-CLEANUP-11 . GEORDI . [DONE]
+**Goal:** Write `docs/runbooks/ridley-post-flash-checklist.md` so the next reflash is a
+15-minute operation instead of a multi-session recovery.
+**Acceptance:** Runbook covers these sections, each with copy-pasteable commands:
+- `1. Timezone` — `timedatectl set-timezone America/Los_Angeles; systemctl restart cron` and
+  why the crontab `TZ=` directive alone is insufficient
+- `2. Env file` — 16-var shape, vault paths table, subshell-only assembly pattern, `chmod 600`
+- `3. Repo clone + hooks path` — already documented in RR-03; link it
+- `4. Python deps` — already documented in RR-04; link it
+- `5. Collectors + system_monitor` — systemd unit block, `systemctl enable --now` command,
+  verification query
+- `6. Post-fix verification` — pipeline_runs freshness SQL, Loki stats query, system_stats
+  cadence SQL
+- `7. Known gotchas` — `fly` CLI not installed on mother_brain; dashboard lives on ridley:9090
+  not Fly (verify via `ssh ridley 'tail logs/dashboard.log'`); Ollama GPU check:
+  `journalctl -u ollama | grep "offloaded .* layers to GPU"`
+**Output artifact:** Runbook path + word count + section list in PROGRESS.md.
+**Depends on:** TASK-CLEANUP-08
+
+### TASK-CLEANUP-12 . PICARD . [IN PROGRESS — posted after merge]
+**Goal:** Post completion to Ten Forward + notify Slack + close the task group in PROGRESS.md.
+**Acceptance:**
+- Reply posted to `[Project Log] openclaw-trader` thread (id `pGx8rJ8H65rkp-AdpPn8N`) using
+  standard `Shipped / Blocked / Decisions / Next` schema; body mentions 7 failure modes,
+  the 11 recovery tasks, `preflight 72/72`, collectors PR, runbook URL
+- `@picard` mentioned in body for claudefleet indexing
+- Slack `#all-lions-awaken` 1-line notification via `bash ~/.claude/hooks/slack_notify.sh`
+- PROGRESS.md appended with a `## Ridley Cleanup (2026-04-21)` completion block matching the
+  convention used by TASK-RR-14
+**Output artifact:** Forum post ID + Slack message_ts + PROGRESS.md block line range.
+**Depends on:** TASK-CLEANUP-10, TASK-CLEANUP-11
+
+---
+
 ## Ridley Restoration — Bring openclaw back online on fresh JetPack 6.2.2 (2026-04-20)
 
 **Source:** ridley (Jetson Orin Nano 8GB) was reflashed tonight with JetPack 6.2.2 / L4T 36.5 to
